@@ -25,7 +25,7 @@
 | 搭建 GitHub Pages 文档站和自动部署 | 已完成 | 新增 MkDocs Material 文档站和 `.github/workflows/docs.yml`；仓库已转为 Public；Pages workflow 模式已启用。 |
 | 创建 Cursor Hook 与项目 Skill 固化规范 | 已调整 | 新增项目 Skill 和可选 guard 脚本；按用户要求关闭自动 Shell 审批 Hook，避免命令反复人工批准。 |
 | 更新持久化计划、文档与交付总结 | 已完成 | 本文件、交付总结、README、使用者/开发者/在线运行文档已同步更新。 |
-| 验证、提交并推送本轮交付 | 进行中 | 正在运行必要验证、密钥扫描、提交并推送到 GitHub，触发 Pages workflow。 |
+| 验证、提交并推送本轮交付 | 已完成 | 测试、文档构建、密钥扫描、GitHub Pages 状态检查均通过；提交 `023d4ad` 已推送到 `main`，Pages workflow 已成功部署。 |
 
 ## 3. 推荐一键运行路径
 
@@ -79,7 +79,7 @@ python -m pip install -e ".[docs]"
 
 ## 6. 质量门禁
 
-提交前应运行：
+本轮已运行并通过：
 
 ```powershell
 python -m pytest
@@ -90,7 +90,7 @@ python -m mkdocs build --strict
 git status --short
 ```
 
-并执行密钥扫描，确认真实 key、token、`.env`、日志和运行产物没有进入 Git 暂存区。
+同时已执行密钥扫描，确认真实 key、token、`.env`、日志和运行产物没有进入 Git 暂存区。GitHub Actions `Deploy documentation` 工作流已成功完成，在线文档站可访问。
 
 ## 7. 后续增强方向
 
