@@ -17,19 +17,21 @@
 - 同一交易日幂等保护：避免重复运行导致重复买入。
 - MongoDB/Redis：可持久化交易、决策、持仓快照和排行榜。
 - Streamlit 观测看板：可查看排行榜、持仓、盈亏、潜力股票、舆情和风险摘要。
-- Git/GitHub 文档托管：已准备 README 和 docs 文档体系。
+- 一键启动脚本：`start.bat` / `start.ps1` 覆盖状态检查、离线运行、在线 bench、在线自动投资、看板、调度器和文档预览。
+- Git/GitHub 文档托管：仓库已转为 Public，并启用 GitHub Pages workflow 模式。
+- MkDocs Material 文档站：推送到 `main` 后由 GitHub Actions 自动构建并部署。
+- Cursor Skill 与可选 guard 脚本：已固化交付工作流；自动 Shell 审批 Hook 默认关闭，避免开发命令反复人工批准。
 
 ## 2. 最短运行路径
 
-### 离线验证
+### 离线验证（推荐一键入口）
 
 ```powershell
 python -m pip install -r requirements.txt
 python -m pip install -e ".[all]"
-docker compose up -d
-python -m astock_agent_system.cli storage status --strict
-python -m astock_agent_system.cli scheduler run-auto-investment --offline --max-count 1 --days 12
-streamlit run src/astock_agent_system/ui/streamlit_app.py
+.\start.bat -Mode storage
+.\start.bat -Mode offline -MaxCount 1 -Days 12
+.\start.bat -Mode dashboard
 ```
 
 ### 在线验证
@@ -55,10 +57,10 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 然后运行：
 
 ```powershell
-python -m astock_agent_system.cli config
-python -m astock_agent_system.cli bench --list-models
-python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
-python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-baseline,gpt-5.4-mini" --max-count 3 --days 24
+.\start.bat -Mode status
+.\start.bat -Mode bench
+.\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
+.\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
 ```
 
 ## 3. 当前验证状态
@@ -70,27 +72,38 @@ python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-b
 - `bench-models --help`：通过
 - `storage status --strict`：MongoDB/Redis 通过
 - 离线自动投资 smoke：通过
+- 一键 `status`、`bench`、`offline`：通过
+- 在线 LLM `/models`：通过，返回 48 个模型
+- 在线单模型 bench：`gpt-5.4-mini` 通过，JSON 可解析
+- 在线自动投资：通过；同一交易日重复运行触发幂等跳过，未重复买入
+- MkDocs strict build：通过
+- GitHub Pages：仓库已公开，Pages workflow 模式已启用
+- Cursor Hook：自动 Shell 审批 Hook 已按用户要求关闭；保留可选 guard 脚本供手动验证密钥/危险命令策略
 - Git ignore 检查：`.env` 和运行产物已忽略
 - 文档/代码密钥扫描：未发现真实密钥或真实网关地址
 
 ## 4. 当前外部服务状态
 
-在线 LLM 网关当前返回 `SUBSCRIPTION_OUT_OF_WINDOW`，表示订阅处于每日可用窗口之外。系统已经能识别该错误并输出 `next_steps`。
+当前在线 LLM 网关已验证可用。`bench --list-models` 可以获取模型列表，`gpt-5.4-mini` 单模型 JSON smoke 已通过。
 
-这不是本地代码失败。可选处理方式：
+需要注意：不同模型可能有不同分组、额度和可用渠道。例如某些模型可能返回“无可用渠道”，这属于网关/账户权限问题，不是本地代码失败。建议日常保留 `rule-baseline`，并在 `.env` 的 `SCHEDULER_MODELS` 中只放 bench 通过的模型。
 
-1. 等待网关每日可用窗口开启后重试。
-2. 换一个当前可用的 LLM key 或模型。
-3. 暂时使用 `rule-baseline` 规则账户继续运行模拟盘。
+当前需要用户自行准备或维护的信息只有：
+
+1. `.env` 中的 Tushare token。
+2. `.env` 中的 LLM gateway base URL 和 API key。
+3. 如需邮件/IM 推送，后续填写对应 webhook 或 SMTP 配置。
 
 ## 5. 文档入口
 
-- GitHub 私有仓库：https://github.com/systemoutprintlnhelloworld/astock-agent-system
+- GitHub 公开仓库：https://github.com/systemoutprintlnhelloworld/astock-agent-system
+- 在线文档站：https://systemoutprintlnhelloworld.github.io/astock-agent-system/
 - [使用者手册](USER_GUIDE.md)
 - [在线运行手册](ONLINE_RUNBOOK.md)
 - [开发者手册](DEVELOPER_GUIDE.md)
 - [GitHub 发布说明](GITHUB_PUBLISHING.md)
-- [项目进度报告](../PROGRESS_REPORT.md)
+- [持久化开发计划](trellis-plan.md)
+- 项目进度报告：见仓库根目录 `PROGRESS_REPORT.md`
 
 ## 6. 后续可选增强
 

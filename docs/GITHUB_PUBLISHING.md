@@ -38,7 +38,7 @@ git status --short
 
 ```powershell
 gh auth login
-gh repo create astock-agent-system --private --source . --remote origin
+gh repo create astock-agent-system --public --source . --remote origin
 ```
 
 方式二：在 GitHub 网页新建仓库，然后添加远程：
@@ -61,26 +61,53 @@ git push -u origin main
 
 如果你希望仓库公开，请先再次检查文档和提交内容不含真实密钥。
 
-## 5. GitHub 文档托管
+## 5. GitHub Pages 文档站
 
-推荐直接使用仓库 Markdown 文档：
+项目已改为使用 MkDocs Material 构建在线文档站：
 
-- 根目录 `README.md` 作为项目首页。
-- `docs/README.md` 作为文档索引。
-- `docs/USER_GUIDE.md` 面向使用者。
-- `docs/ONLINE_RUNBOOK.md` 面向在线运行。
-- `docs/DEVELOPER_GUIDE.md` 面向开发者。
+- `mkdocs.yml`：文档站名称、导航、主题和 GitHub Pages 地址。
+- `docs/index.md`：文档站首页。
+- `docs/README.md`：Markdown 文档索引。
+- `.github/workflows/docs.yml`：GitHub Actions 自动构建并部署 Pages。
 
-如果要开启 GitHub Pages：
+本地预览：
+
+```powershell
+python -m pip install -e ".[docs]"
+mkdocs serve
+```
+
+本地构建验证：
+
+```powershell
+mkdocs build --strict
+```
+
+GitHub Pages 推荐使用 Actions 部署：
 
 1. 进入仓库 Settings。
 2. 打开 Pages。
-3. Source 选择 `Deploy from a branch`。
-4. Branch 选择 `main`，目录选择 `/docs`。
+3. Source 选择 `GitHub Actions`。
+4. 推送到 `main` 后，`Deploy documentation` 工作流会自动发布。
+
+也可以尝试用 GitHub CLI 开启 Pages Actions 模式：
+
+```powershell
+gh api --method POST repos/<owner>/<repo>/pages -f build_type=workflow
+```
+
+如果仓库已经启用 Pages，上述 POST 可能返回已存在错误；此时在 Settings -> Pages 中确认 Source 为 `GitHub Actions` 即可。
+
+当前仓库已转为 Public，并已通过 GitHub API 启用 Pages workflow 模式。目标地址：
+
+```text
+https://systemoutprintlnhelloworld.github.io/astock-agent-system/
+```
+
+首次推送包含 `.github/workflows/docs.yml` 后，需要等待 `Deploy documentation` 工作流完成，页面才会出现最新内容。
 
 ## 6. 维护建议
 
 - 每次增加在线运行能力时，同步更新 `docs/ONLINE_RUNBOOK.md`。
 - 每次增加模块或接口时，同步更新 `docs/DEVELOPER_GUIDE.md`。
 - 每次修复用户使用路径时，同步更新 `README.md` 和 `docs/USER_GUIDE.md`。
-

@@ -4,6 +4,8 @@
 
 > 当前不会真实下单，也不构成投资建议。请只用于学习、研究和模拟盘验证。
 
+在线文档站：https://systemoutprintlnhelloworld.github.io/astock-agent-system/
+
 ## 1. 安装环境
 
 在项目根目录执行：
@@ -69,6 +71,13 @@ python -m astock_agent_system.cli scheduler run-auto-investment --offline --max-
 
 离线模式会使用 `data/samples/stocks.json`，适合确认安装、界面和模拟盘逻辑能跑通。
 
+也可以使用一键入口：
+
+```powershell
+.\start.bat -Mode status
+.\start.bat -Mode offline -MaxCount 1 -Days 12
+```
+
 ## 5. 检查 LLM 模型
 
 配置 `LLM_BASE_URL` 和 `LLM_API_KEY` 后，先查看模型列表：
@@ -83,6 +92,13 @@ python -m astock_agent_system.cli bench --list-models
 python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
 ```
 
+等价的一键入口：
+
+```powershell
+.\start.bat -Mode bench
+.\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
+```
+
 如果返回 `status: ok`，说明模型调用可用。若返回 `partial` 或 `error`，请看输出里的 `next_steps`。
 
 ## 6. 在线运行自动投资
@@ -91,6 +107,12 @@ python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
 
 ```powershell
 python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-baseline,gpt-5.4-mini" --max-count 3 --days 24
+```
+
+等价的一键入口：
+
+```powershell
+.\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
 ```
 
 说明：
@@ -104,6 +126,12 @@ python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-b
 
 ```powershell
 streamlit run src/astock_agent_system/ui/streamlit_app.py
+```
+
+等价的一键入口：
+
+```powershell
+.\start.bat -Mode dashboard
 ```
 
 打开后重点看“观测看板”：
@@ -167,4 +195,3 @@ python -m astock_agent_system.cli bench --list-models
 ```
 
 然后在看板的“LLM / 模型”页获取模型列表，或在“观测看板”运行一次自动投资轮次。
-

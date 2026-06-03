@@ -14,6 +14,9 @@
 - Streamlit Web UI 已包含“观测看板”“一键分析”“LLM / 模型”“设置”等页面。
 - MongoDB/Redis 可通过 Docker 提供持仓快照、交易、决策和排行榜持久化。
 - 调度器可每天自动运行一次自动投资轮次，并按间隔执行止损检查。
+- 一键启动脚本覆盖离线、在线、bench、看板、调度器和文档预览。
+- GitHub Pages 文档站由 GitHub Actions 自动部署。
+- 项目级 Cursor Skill 已固化交付规范；自动 Shell 审批 Hook 默认关闭，避免影响开发效率。
 
 ## 安全约定
 
@@ -32,30 +35,44 @@ $env:TUSHARE_TOKEN = "your-token"
 ```powershell
 python -m pip install -r requirements.txt
 python -m pip install -e ".[all]"
+.\start.bat -Mode status
+```
+
+一键入口覆盖常用调试路径：
+
+```powershell
+.\start.bat -Mode storage
+.\start.bat -Mode offline -MaxCount 1 -Days 12
+.\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
+.\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
+.\start.bat -Mode dashboard
+```
+
+如果不使用一键入口，也可以直接调用 CLI：
+
+```powershell
 python -m astock_agent_system.cli --help
 python -m astock_agent_system.cli config
-```
-
-启动 MongoDB 和 Redis，并检查连接：
-
-```powershell
 docker compose up -d
 python -m astock_agent_system.cli storage status --strict
-```
-
-如果暂时没有在线数据或 LLM Key，可以使用离线样例数据先验证主流程：
-
-```powershell
 python -m astock_agent_system.cli run-daily --offline --max-count 3 --days 24
 ```
 
 ## 文档入口
 
+- 在线文档站（GitHub Pages）：https://systemoutprintlnhelloworld.github.io/astock-agent-system/
 - [交付总结](docs/DELIVERY_SUMMARY.md)：当前可用能力、最短运行路径、验证状态和外部服务状态。
 - [使用者手册](docs/USER_GUIDE.md)：从安装到看板、自动投资、常见问题。
 - [在线运行手册](docs/ONLINE_RUNBOOK.md)：Tushare、LLM、MongoDB/Redis、在线 smoke 顺序。
 - [开发者手册](docs/DEVELOPER_GUIDE.md)：架构、模块边界、测试和开发约定。
 - [GitHub 发布说明](docs/GITHUB_PUBLISHING.md)：初始化 Git、创建远程仓库、推送和文档托管。
+
+本地预览文档站：
+
+```powershell
+python -m pip install -e ".[docs]"
+.\start.bat -Mode docs
+```
 
 ## Streamlit 观测看板
 
@@ -149,10 +166,10 @@ reports/                      # 运行报告输出，默认不提交
 ## 常用验证命令
 
 ```powershell
-python -m py_compile "src/astock_agent_system/config.py" "src/astock_agent_system/scheduler/task_scheduler.py" "src/astock_agent_system/cli.py"
 python -m pytest
-python -m astock_agent_system.cli config
-python -m astock_agent_system.cli scheduler run-auto-investment --offline --max-count 1 --days 12
+.\start.bat -Mode status
+.\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
+python -m mkdocs build --strict
 ```
 
 ## 免责声明

@@ -52,6 +52,14 @@ STOP_LOSS_INTERVAL_MINUTES=5
 
 ## 3. 启动存储服务
 
+推荐一键入口：
+
+```powershell
+.\start.bat -Mode storage
+```
+
+等价 CLI：
+
 ```powershell
 docker compose up -d
 python -m astock_agent_system.cli storage status --strict
@@ -73,6 +81,15 @@ python -m astock_agent_system.cli config
 - `scheduler.models` 包含你要比赛的模型账户。
 
 ## 5. LLM 在线 smoke
+
+推荐一键入口：
+
+```powershell
+.\start.bat -Mode bench
+.\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
+```
+
+等价 CLI：
 
 先获取模型列表：
 
@@ -113,6 +130,14 @@ python -m astock_agent_system.cli run-daily --max-count 3 --days 24
 
 ## 7. 在线自动投资 smoke
 
+推荐一键入口：
+
+```powershell
+.\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
+```
+
+等价 CLI：
+
 ```powershell
 python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-baseline,gpt-5.4-mini" --max-count 3 --days 24
 ```
@@ -127,6 +152,14 @@ python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-b
 同一交易日重复运行时，部分账户可能显示 `skipped_execution=true`，这是幂等保护，不是错误。
 
 ## 8. 启动看板
+
+推荐一键入口：
+
+```powershell
+.\start.bat -Mode dashboard
+```
+
+等价命令：
 
 ```powershell
 streamlit run src/astock_agent_system/ui/streamlit_app.py
@@ -143,8 +176,18 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 确认 smoke 都通过后再启动：
 
 ```powershell
-python -m astock_agent_system.cli scheduler start
+.\start.bat -Mode scheduler
 ```
 
 长期运行时建议保持 Docker Desktop、MongoDB、Redis 和网络稳定。
 
+## 10. 当前在线验证状态
+
+当前本地在线链路已验证：
+
+- `LLM_BASE_URL` 使用带 `/v1` 的 OpenAI-compatible 网关。
+- `bench --list-models` 可返回模型列表。
+- `gpt-5.4-mini` 单模型 JSON smoke 通过。
+- 在线自动投资可运行；同一交易日重复运行会触发幂等跳过，避免重复买入。
+
+不同模型仍可能因账户分组、额度或渠道限制失败。遇到模型不可用时，请先换用已 bench 通过的模型，并保留 `rule-baseline` 作为兜底账户。

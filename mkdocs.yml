@@ -1,0 +1,53 @@
+site_name: A股 LLM 多 Agent 自动投资系统
+site_description: A-share LLM multi-agent paper trading system documentation.
+site_url: https://systemoutprintlnhelloworld.github.io/astock-agent-system/
+repo_url: https://github.com/systemoutprintlnhelloworld/astock-agent-system
+repo_name: systemoutprintlnhelloworld/astock-agent-system
+exclude_docs: |
+  README.md
+
+theme:
+  name: material
+  language: zh
+  features:
+    - navigation.instant
+    - navigation.sections
+    - navigation.top
+    - search.highlight
+    - content.code.copy
+  palette:
+    - scheme: default
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-night
+        name: 切换到深色模式
+    - scheme: slate
+      primary: indigo
+      accent: indigo
+      toggle:
+        icon: material/weather-sunny
+        name: 切换到浅色模式
+
+nav:
+  - 首页: index.md
+  - 交付总结: DELIVERY_SUMMARY.md
+  - 使用者:
+      - 使用者手册: USER_GUIDE.md
+      - 在线运行手册: ONLINE_RUNBOOK.md
+  - 开发者:
+      - 开发者手册: DEVELOPER_GUIDE.md
+      - GitHub 发布说明: GITHUB_PUBLISHING.md
+      - 持久化开发计划: trellis-plan.md
+
+markdown_extensions:
+  - admonition
+  - toc:
+      permalink: true
+  - pymdownx.details
+  - pymdownx.superfences
+  - pymdownx.highlight:
+      anchor_linenums: true
+
+plugins:
+  - search

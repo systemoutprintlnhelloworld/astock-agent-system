@@ -95,11 +95,12 @@ Redis 用于缓存行情和 LLM 响应，不能作为唯一事实来源。
 常用测试：
 
 ```powershell
-python -m py_compile "src/astock_agent_system/cli.py" "src/astock_agent_system/llm/bench.py"
 python -m pytest
 python -m astock_agent_system.cli bench --help
 python -m astock_agent_system.cli bench --list-models
-python -m astock_agent_system.cli scheduler run-auto-investment --offline --max-count 1 --days 12
+.\start.bat -Mode status
+.\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
+python -m mkdocs build --strict
 ```
 
 如果在线 bench 失败，不要把完整错误日志和密钥公开上传。优先查看 JSON 输出中的 `next_steps`。
@@ -112,10 +113,19 @@ python -m astock_agent_system.cli scheduler run-auto-investment --offline --max-
 - 对外部服务调用必须有异常保护和脱敏。
 - 不要在代码或文档中写真实 token。
 
-## 9. 后续开发建议
+## 9. Cursor Skill 与可选 Guard 脚本
+
+项目包含：
+
+- `.cursor/hooks.json`：当前保持空 hooks，避免 Shell 命令反复要求人工审批，保证自动化开发效率。
+- `.cursor/hooks/guard-shell.ps1`：可选手动 guard 脚本，可用于验证 `.env` 入库、真实密钥形态命令、force push/reset 等策略。
+- `.cursor/skills/astock-delivery-workflow/SKILL.md`：交付工作流 skill，提醒维护一键启动、文档、验证和密钥保护。
+
+默认不启用 `beforeShellExecution` gate。若未来重新启用 hook，应避免返回 `ask`，只在真实密钥或 `.env` 入库等高风险场景自动 `deny`，普通开发命令应直接 `allow`。
+
+## 10. 后续开发建议
 
 - 优先增强观测看板：自动投资日志、止损时间线、收益曲线。
 - 增加长期回放和模型账户长期指标。
 - 再考虑 FastAPI / React 独立 Dashboard。
 - 实盘或半自动交易必须新增人工确认、权限隔离、审计日志和熔断机制。
-
