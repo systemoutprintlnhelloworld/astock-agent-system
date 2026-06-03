@@ -85,6 +85,7 @@ python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-b
 
 ## 5. 文档入口
 
+- GitHub 私有仓库：https://github.com/systemoutprintlnhelloworld/astock-agent-system
 - [使用者手册](USER_GUIDE.md)
 - [在线运行手册](ONLINE_RUNBOOK.md)
 - [开发者手册](DEVELOPER_GUIDE.md)
@@ -100,4 +101,3 @@ python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-b
 - 增加 FastAPI/React 独立 Dashboard。
 - 增加更真实的撮合、滑点和成交模型。
 - 半自动或实盘交易前增加人工确认、审计日志和熔断机制。
-
