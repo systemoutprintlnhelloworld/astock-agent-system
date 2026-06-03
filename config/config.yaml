@@ -1,0 +1,48 @@
+data:
+  mode: offline
+  offline_data_path: data/samples/stocks.json
+  dynamic_universe_limit: 20
+
+portfolio:
+  initial_capital: 100000
+  commission_rate: 0.0003
+  stamp_tax_rate: 0.001
+  slippage_rate: 0.001
+
+risk:
+  max_position_per_stock: 0.10
+  max_total_position: 0.50
+  stop_loss_pct: 0.05
+  max_volatility: 0.35
+  min_turnover: 100000000
+
+llm:
+  base_url: https://example.com/v1
+  default_model: ""
+  timeout_seconds: 60
+  max_retries: 3
+
+notification:
+  enabled: false
+  channels: []
+
+storage:
+  mongo_uri: mongodb://localhost:27017
+  mongo_db: astock_agent_system
+  redis_url: redis://localhost:6379/0
+
+smart_search:
+  enabled: false
+  timeout_seconds: 60
+
+scheduler:
+  enabled: false
+  timezone: Asia/Shanghai
+  daily_run_time: "15:05"
+  stop_loss_interval_minutes: 5
+  notify_after_daily_run: false
+  max_count: 3
+  history_days: 24
+  output_dir: reports
+  models:
+    - rule-baseline

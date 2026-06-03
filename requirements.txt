@@ -1,0 +1,5 @@
+PyYAML>=6.0
+requests>=2.31
+
+# Optional MVP integrations. Install only when needed:
+# pip install -e ".[ui,storage,market,backtest,agent,dev]"

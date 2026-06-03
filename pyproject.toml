@@ -1,0 +1,47 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "astock-agent-system"
+version = "0.1.0"
+description = "A-share multi-agent paper trading MVP"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+  "PyYAML>=6.0",
+  "requests>=2.31",
+]
+
+[project.optional-dependencies]
+ui = ["streamlit>=1.34"]
+storage = ["pymongo>=4.6", "redis>=5.0"]
+market = ["tushare>=1.4", "akshare>=1.15"]
+backtest = ["backtrader>=1.9"]
+agent = ["langgraph>=0.2"]
+scheduler = ["APScheduler>=3.10"]
+dev = ["pytest>=8.0"]
+all = [
+  "streamlit>=1.34",
+  "pymongo>=4.6",
+  "redis>=5.0",
+  "tushare>=1.4",
+  "akshare>=1.15",
+  "backtrader>=1.9",
+  "langgraph>=0.2",
+  "APScheduler>=3.10",
+  "pytest>=8.0",
+]
+
+[project.scripts]
+astock-agent = "astock_agent_system.cli:main"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+
+[tool.pytest.ini_options]
+pythonpath = ["src"]
+testpaths = ["tests"]

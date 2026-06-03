@@ -1,0 +1,18 @@
+# Dynamic screening is the default. These seed stocks are used by the offline
+# sample data and can be extended when real data providers are enabled.
+seed_stocks:
+  - code: "600519"
+    name: "贵州茅台"
+    sector: "消费"
+  - code: "000333"
+    name: "美的集团"
+    sector: "家电"
+  - code: "300750"
+    name: "宁德时代"
+    sector: "新能源"
+  - code: "600036"
+    name: "招商银行"
+    sector: "金融"
+  - code: "002415"
+    name: "海康威视"
+    sector: "科技"
