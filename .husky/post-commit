@@ -1,0 +1,15 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "📤 Auto-pushing to remote..."
+
+# 获取当前分支
+BRANCH=$(git rev-parse --abbrev-ref HEAD)
+
+# 推送到远程（不阻塞）
+git push origin "$BRANCH" 2>/dev/null || {
+  echo "  ⚠️  Push failed. You may need to pull first or check network."
+  exit 0
+}
+
+echo "  ✅ Pushed to $BRANCH"

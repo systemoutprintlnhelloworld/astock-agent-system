@@ -1,0 +1,24 @@
+#!/bin/sh
+. "$(dirname "$0")/_/husky.sh"
+
+echo "🔍 Running pre-commit checks..."
+
+# 1. Secrets 检查
+echo "  ├─ Checking for secrets..."
+if git diff --cached --name-only | xargs -I {} grep -l "sk-[a-zA-Z0-9]\{48\}" {} 2>/dev/null; then
+  echo "  ❌ Found potential API keys! Please remove them."
+  exit 1
+fi
+
+if git diff --cached --name-only | xargs -I {} grep -l "TUSHARE_TOKEN.*=.*[a-z0-9]\{32\}" {} 2>/dev/null; then
+  echo "  ❌ Found Tushare token! Please use .env instead."
+  exit 1
+fi
+
+# 2. 检查是否意外暂存 .env 文件
+if git diff --cached --name-only | grep -q "^\.env$"; then
+  echo "  ❌ .env file should not be committed!"
+  exit 1
+fi
+
+echo "  └─ ✅ All checks passed!"

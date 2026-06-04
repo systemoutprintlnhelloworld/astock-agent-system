@@ -16,18 +16,37 @@
 - 离线流程必须可用，在线流程必须可诊断。
 - 真实 API key、Tushare token、Webhook 和 `.env` 不得入库。
 
-## 2. 已完成任务
+## 2. 当前现代化重构批次
+
+当前开发分支：`tauri-rewrite`。
+
+本轮目标是把现有 Python CLI + Streamlit MVP 渐进升级为用户可一键启动的现代化桌面产品：Tauri 2.0 负责桌面壳和后续便携版，Next.js/React/TypeScript/Shadcn/Tailwind/Lucide 负责现代 UI，FastAPI + WebSocket 负责后端适配和实时事件，现有 `src/astock_agent_system` 继续作为业务核心。
+
+本轮不删除已有 CLI、离线流程、在线 bench、调度器和 Streamlit 调试看板；它们继续作为回归验证和 fallback。现代化产品层优先实现：
+
+- UI 配置中心和首次启动向导。
+- 实时 Agent 流程图，包含节点状态和流动箭头。
+- 可折叠决策日志，展示决策、动作、理由、风险和交易结果。
+- 股票看板、模型排行榜、长期权益曲线和回撤指标。
+- 动态保存配置和配置更新事件；进行中的任务只热加载安全参数，交易关键参数默认下一轮生效。
+
+更详细的架构、接口边界、事件协议、风险和验证门禁见 [现代化重构计划](modernization-plan.md)。
+
+## 3. 已完成任务
 
 | 任务 | 状态 | 结果 |
 | --- | --- | --- |
 | 替换 LLM 网关并验证在线流程 | 已完成 | `.env` 本地切换到可用 OpenAI-compatible 网关；`bench --list-models` 和 `gpt-5.4-mini` 单模型 smoke 通过；在线自动投资通过并触发同日幂等保护。 |
-| 封装一键启动和调试入口 | 已完成 | 新增 `start.ps1` 和 `start.bat`，支持 `status`、`storage`、`offline`、`online`、`bench`、`dashboard`、`scheduler`、`docs`。 |
+| 封装一键启动和调试入口 | 已完成 | 新增 `start.ps1` 和 `start.bat`，支持 `status`、`storage`、`offline`、`online`、`bench`、`dashboard`、`backend`、`frontend`、`modern-ui`、`scheduler`、`docs`。 |
 | 搭建 GitHub Pages 文档站和自动部署 | 已完成 | 新增 MkDocs Material 文档站和 `.github/workflows/docs.yml`；仓库已转为 Public；Pages workflow 模式已启用。 |
 | 创建 Cursor Hook 与项目 Skill 固化规范 | 已调整 | 新增项目 Skill 和可选 guard 脚本；按用户要求关闭自动 Shell 审批 Hook，避免命令反复人工批准。 |
 | 更新持久化计划、文档与交付总结 | 已完成 | 本文件、交付总结、README、使用者/开发者/在线运行文档已同步更新。 |
 | 验证、提交并推送本轮交付 | 已完成 | 测试、文档构建、密钥扫描、GitHub Pages 状态检查均通过；提交 `023d4ad` 已推送到 `main`，Pages workflow 已成功部署。 |
+| 现代化重构计划与分支准备 | 已完成 | 已创建 `tauri-rewrite` 开发分支；新增 `docs/modernization-plan.md`，用于约束 Tauri/Next/FastAPI/WebSocket 重构方向；MkDocs strict build 与密钥扫描通过。 |
+| FastAPI 后端适配层骨架 | 已完成首版 | 已新增 `apps/backend`，提供健康检查、脱敏配置、模型 bench、自动投资触发、React Flow 初始图、运行时配置保存、股票/决策/指标接口和 WebSocket 事件流。 |
+| Next.js 现代化前端控制台首版 | 已完成 | 已将默认 create-next-app 页面替换为现代化控制台，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。 |
 
-## 3. 推荐一键运行路径
+## 4. 推荐一键运行路径
 
 安装：
 
@@ -42,6 +61,8 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode status
 .\start.bat -Mode offline -MaxCount 1 -Days 12
 .\start.bat -Mode dashboard
+.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
 ```
 
 在线 smoke：
@@ -59,7 +80,7 @@ python -m pip install -e ".[docs]"
 .\start.bat -Mode docs
 ```
 
-## 4. 当前在线状态
+## 5. 当前在线状态
 
 - LLM base URL 需要使用带 `/v1` 的 OpenAI-compatible 地址。
 - 模型列表接口已验证可用。
@@ -67,7 +88,7 @@ python -m pip install -e ".[docs]"
 - 部分模型可能因分组、额度或渠道限制不可用；这属于网关账户状态，不是本地代码错误。
 - 推荐在 `SCHEDULER_MODELS` 中保留 `rule-baseline`，并只加入 bench 通过的 LLM 模型。
 
-## 5. 当前需要用户维护的信息
+## 6. 当前需要用户维护的信息
 
 本项目目前不再需要额外申请信息才能本地运行。用户只需要在本地 `.env` 中维护：
 
@@ -77,7 +98,7 @@ python -m pip install -e ".[docs]"
 
 以上信息不得写入 Git，也不得出现在文档示例中。
 
-## 6. 质量门禁
+## 7. 质量门禁
 
 本轮已运行并通过：
 
@@ -92,13 +113,76 @@ git status --short
 
 同时已执行密钥扫描，确认真实 key、token、`.env`、日志和运行产物没有进入 Git 暂存区。GitHub Actions `Deploy documentation` 工作流已成功完成，在线文档站可访问。
 
-## 7. 后续增强方向
+## 8. 后续增强方向（Phase 2）
 
-这些不是当前交付阻塞项：
+这些是下一个迭代的重点任务：
 
-- 收益曲线、止损时间线、自动投资事件流。
-- 多日模型排行榜和长期回放。
-- 更真实的撮合、滑点和成交模型。
-- 邮件/IM 推送配置界面。
-- FastAPI/React 独立 Dashboard。
-- 半自动或实盘交易前的人工确认、权限隔离、审计日志和熔断机制。
+### Phase 2.1: 持续学习系统
+
+- [ ] 设计三层记忆系统（Redis短期 + MongoDB中期/长期）
+- [ ] 实现案例评估和存储逻辑
+- [ ] 在 PortfolioManager 中集成记忆检索
+- [ ] 实现每周总结 Cron 任务
+- [ ] 前端展示"历史案例"面板
+
+**参考项目**：
+- TradingGroup 的 Self-Reflection 机制
+- FinMem 的分层记忆设计
+- LangGraph 的 checkpointing
+
+### Phase 2.2: 事件驱动系统
+
+- [ ] 实现新闻轮询器（AkShare + smart-search）
+- [ ] 实现公告轮询器（Tushare）
+- [ ] 实现事件路由和过滤
+- [ ] 前端展示"事件时间线" tab
+- [ ] 支持混合模式（重大事件立即处理 + 普通事件定期批处理）
+
+**数据源**：
+- Tushare 公告接口：`pro.anns()`
+- AkShare 新闻接口：`stock_news_em()`
+- smart-search CLI
+
+### Phase 2.3: Agent 工具与知识库
+
+- [ ] 固化 Agent 工具为 Skills（`.cursor/skills/`）
+- [ ] 明确每个 Agent 的独有工具和知识库
+- [ ] 实现工具调用可视化（前端显示工具调用记录）
+
+**工具分配表**（详见 [PRD_PHASE2.md](technical/PRD_PHASE2.md)）
+
+### Phase 2.4: 用户体验增强
+
+- [ ] 实现 ChatGPT-like 日志三层折叠
+- [ ] 实现 LLM 配置防呆检查
+- [ ] 实现自动模型列表获取
+- [ ] 实现事件时间线可视化
+
+### Phase 2.5: 开发规范强化
+
+- [x] 配置 Git Hooks（pre-commit检查 + post-commit自动推送）
+- [ ] 增强 pre-commit 检查（代码格式、Lint）
+- [ ] 增加 commit-msg 检查（规范提交信息）
+
+---
+
+## 9. 风险与依赖
+
+| 风险 | 影响 | 缓解措施 |
+| --- | --- | --- |
+| 记忆检索性能 | 高 | MongoDB 创建索引 + Redis 缓存热数据 |
+| 事件轮询频率限制 | 中 | 实现指数退避 + 缓存去重 |
+| Git Hook 失败阻塞提交 | 中 | 提供 `--no-verify` 绕过选项 |
+| 前端日志数据量过大 | 中 | 虚拟滚动 + 懒加载 |
+| LLM API 费用 | 中 | 支持离线模式 + rule-baseline 基准 |
+
+---
+
+## 10. 相关文档
+
+- [技术 PRD (Phase 2)](technical/PRD_PHASE2.md) - 持续学习与事件驱动系统详细设计
+- [同类项目对比](technical/COMPARISON.md) - TradingAgents、TradingGroup 等项目对比
+- [系统架构](technical/ARCHITECTURE.md) - 整体架构和 Agent 协作
+- [流程与时序](technical/FLOWS.md) - 启动流程和自动投资流程
+- [设计决策](technical/DESIGN_DECISIONS.md) - UI选型和透明化实现
+- [需求映射](technical/USER_NEEDS_MAPPING.md) - 用户场景到代码位置的映射
