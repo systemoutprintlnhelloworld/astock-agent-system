@@ -17,6 +17,7 @@
 - [开发者手册](DEVELOPER_GUIDE.md)：项目架构、模块边界、测试、开发约定。
 - [GitHub 发布说明](GITHUB_PUBLISHING.md)：Git 初始化、远程仓库、推送、文档托管。
 - [持久化开发计划](trellis-plan.md)：本轮交付计划、完成状态和后续增强方向。
+- [现代化重构计划](modernization-plan.md)：Tauri/Next/FastAPI/WebSocket 重构目标、接口边界和验证门禁。
 
 ## 推荐阅读顺序
 
@@ -26,3 +27,4 @@
 4. 要继续开发：读 [开发者手册](DEVELOPER_GUIDE.md)。
 5. 要发布到 GitHub：读 [GitHub 发布说明](GITHUB_PUBLISHING.md)。
 6. 要了解本轮交付范围：读 [持久化开发计划](trellis-plan.md)。
+7. 要了解现代化桌面 UI 重构：读 [现代化重构计划](modernization-plan.md)。

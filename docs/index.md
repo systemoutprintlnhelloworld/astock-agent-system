@@ -5,6 +5,20 @@
 !!! warning "模拟盘声明"
     当前系统只做模拟盘和研究验证，不会真实下单，也不构成任何投资建议。
 
+## 快速场景导航
+
+**我想首次安装并运行** → [使用者手册](USER_GUIDE.md)
+
+**我想接入真实 LLM 和数据源** → [在线运行手册](ONLINE_RUNBOOK.md)
+
+**我想理解系统架构** → [开发者手册](DEVELOPER_GUIDE.md) → [现代化重构计划](modernization-plan.md)
+
+**我想查看当前进度和后续规划** → [交付总结](DELIVERY_SUMMARY.md) → [持久化开发计划](trellis-plan.md)
+
+**我想发布到 GitHub** → [GitHub 发布说明](GITHUB_PUBLISHING.md)
+
+---
+
 ## 快速入口
 
 - [交付总结](DELIVERY_SUMMARY.md)：当前可用能力、最短运行路径、验证状态和外部服务状态。

@@ -4,6 +4,8 @@
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
+当前已进入现代化重构批次，开发分支为 `tauri-rewrite`。新批次目标是保留现有 Python 业务核心，同时增加 Tauri 2.0 桌面壳、Next.js/React 现代 UI、FastAPI API 适配层和 WebSocket 实时事件，使小白用户可以通过 `.exe` 或 `.bat` 一键启动并在 UI 中完成配置和观测。
+
 > 重要：系统仍是模拟盘，不会真实下单，也不构成投资建议。
 
 ## 1. 已可直接使用的能力
@@ -21,6 +23,10 @@
 - Git/GitHub 文档托管：仓库已转为 Public，并启用 GitHub Pages workflow 模式。
 - MkDocs Material 文档站：推送到 `main` 后由 GitHub Actions 自动构建并部署。
 - Cursor Skill 与可选 guard 脚本：已固化交付工作流；自动 Shell 审批 Hook 默认关闭，避免开发命令反复人工批准。
+- 现代化重构计划：已新增 `docs/modernization-plan.md`，明确 Tauri/Next/FastAPI/WebSocket 架构、事件协议、风险和验证门禁。
+- FastAPI 后端适配层预览：已新增 `apps/backend`，支持 `health`、脱敏配置、bench、自动投资触发、运行时配置保存、流程图/决策/股票/指标接口和 WebSocket 事件流。
+- Next.js 现代控制台首版：已新增 `apps/frontend`，支持 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
+- 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
 
 ## 2. 最短运行路径
 
@@ -61,13 +67,16 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 .\start.bat -Mode bench
 .\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
 .\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
+.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
 ```
 
 ## 3. 当前验证状态
 
 最近一次本地验证结果：
 
-- Python 测试：`33 passed`
+- Python 测试：`41 passed`
+- 前端 lint：`npm --prefix apps/frontend run lint` 通过
 - `bench --help`：通过
 - `bench-models --help`：通过
 - `storage status --strict`：MongoDB/Redis 通过
@@ -76,6 +85,8 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - 在线 LLM `/models`：通过，返回 48 个模型
 - 在线单模型 bench：`gpt-5.4-mini` 通过，JSON 可解析
 - 在线自动投资：通过；同一交易日重复运行触发幂等跳过，未重复买入
+- `modern-ui` 一键预览：`start.bat -Mode modern-ui -Port 3055 -BackendPort 8055` 启动通过
+- `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程
 - MkDocs strict build：通过
 - GitHub Pages：仓库已公开，Pages workflow 模式已启用
 - Cursor Hook：自动 Shell 审批 Hook 已按用户要求关闭；保留可选 guard 脚本供手动验证密钥/危险命令策略
@@ -103,14 +114,27 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - [开发者手册](DEVELOPER_GUIDE.md)
 - [GitHub 发布说明](GITHUB_PUBLISHING.md)
 - [持久化开发计划](trellis-plan.md)
+- [现代化重构计划](modernization-plan.md)
 - 项目进度报告：见仓库根目录 `PROGRESS_REPORT.md`
 
-## 6. 后续可选增强
+## 6. 当前现代化重构路线
+
+本轮重构不会删除已有 CLI、离线流程、在线 bench、调度器和 Streamlit 调试看板；这些能力继续作为验证和 fallback。现代化产品层按以下方向交付：
+
+1. FastAPI 后端适配层和 WebSocket 事件通道。
+2. Next.js/React/Shadcn/Tailwind/Lucide 前端壳和设置中心。
+3. React Flow 实时 Agent 流程图，支持节点状态和流动箭头。
+4. 可折叠决策日志、股票看板、模型排行榜和长期表现曲线。
+5. Tauri 2.0 桌面壳与 Python sidecar，为后续便携版做准备。
+6. UI 稳定后再进行文档站视觉和结构升级。
+
+## 7. 后续可选增强
 
 这些不是当前交付阻塞项，但可以继续迭代：
 
 - 增加收益曲线和自动投资时间线。
 - 增加长期模型排行榜和多日回放。
-- 增加 FastAPI/React 独立 Dashboard。
+- 增加可拖拽 Agent 画布，用于自定义 Agent 节点和流程。
+- 增加 Tauri 便携版发布自动化和内嵌 Python runtime 验证。
 - 增加更真实的撮合、滑点和成交模型。
 - 半自动或实盘交易前增加人工确认、审计日志和熔断机制。

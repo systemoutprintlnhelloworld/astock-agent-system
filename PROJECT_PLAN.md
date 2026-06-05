@@ -1,5 +1,13 @@
 # A股投资系统 - 项目实施计划
 
+> **⚠️ 历史文档提示**
+> 
+> 本文档是项目早期完整规划（2026-06-01），当前已被以下文档替代：
+> - 持久化计划 → [`docs/trellis-plan.md`](docs/trellis-plan.md)
+> - 现代化重构 → [`docs/modernization-plan.md`](docs/modernization-plan.md)
+> 
+> 如需了解最新进度，请查看 [`docs/DELIVERY_SUMMARY.md`](docs/DELIVERY_SUMMARY.md)
+
 > 基于 Agent 架构的智能投资系统
 > 生成时间：2026-06-01
 > 状态：需求明确阶段 ✅

@@ -3,6 +3,10 @@
 .deepeval/
 .venv/
 venv/
+node_modules/
+apps/frontend/node_modules/
+apps/frontend/.next/
+*.tsbuildinfo
 __pycache__/
 *.py[cod]
 .pytest_cache/
@@ -18,3 +22,4 @@ data/runtime/
 cc-export.txt
 .coverage
 htmlcov/
+site/

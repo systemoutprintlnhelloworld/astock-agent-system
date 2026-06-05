@@ -39,6 +39,7 @@ nav:
       - 开发者手册: DEVELOPER_GUIDE.md
       - GitHub 发布说明: GITHUB_PUBLISHING.md
       - 持久化开发计划: trellis-plan.md
+      - 现代化重构计划: modernization-plan.md
 
 markdown_extensions:
   - admonition

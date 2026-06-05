@@ -226,7 +226,7 @@ def calculate_macd(closes: list[float]) -> dict:
 ```
 
 ---
-
+```
 ### 2.4 ChatGPT-like 日志可视化
 
 #### 2.4.1 展示粒度

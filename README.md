@@ -1,5 +1,7 @@
 # A股 LLM 多 Agent 自动投资系统
 
+> **📖 不知道从哪里看起？** 查看 [文档导航地图](DOCUMENTATION_MAP.md)
+
 这是一个面向模拟盘验证的 A 股多 Agent 自动投资系统。它会动态筛选股票、让多个 LLM/规则账户分别管理独立虚拟资金、自动记录模拟买卖与止损检查，并通过 Streamlit 观测看板展示账户排行榜、持仓涨跌、当前盈亏、潜力股票、舆情与风险摘要。
 
 > 重要：当前只做模拟盘和研究验证，不会真实下单，也不构成任何投资建议。
@@ -46,7 +48,19 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
 .\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
 .\start.bat -Mode dashboard
+.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
 ```
+
+现代控制台启动后，建议先按这个顺序体验：
+
+- `总览`：看连接状态、开箱检查清单和首次启动向导。
+- `流程`：看多 Agent 流程图和实时事件。
+- `日志`：看可折叠决策卡与事件流。
+- `股票`：看持仓、候选池和交易记录。
+- `设置`：通过目录快速跳到数据源、LLM、风控和调度配置。
+
+如果 3000 / 8000 端口被占用，或者同一个 `apps/frontend` 目录下残留了旧的 Next.js dev 进程，一键脚本会先打印进程信息并要求确认后再释放冲突，再继续启动。
 
 如果不使用一键入口，也可以直接调用 CLI：
 

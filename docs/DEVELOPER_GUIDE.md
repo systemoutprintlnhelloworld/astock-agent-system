@@ -15,6 +15,9 @@ python -m pytest
 ```powershell
 python -m astock_agent_system.cli --help
 astock-agent --help
+.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+npm --prefix apps/frontend run lint
 ```
 
 ## 2. 目录和模块边界
@@ -29,12 +32,15 @@ src/astock_agent_system/
   scheduler/       # TradingTaskScheduler，自动投资和止损检查
   storage/         # MongoClient、RedisClient
   ui/              # Streamlit 看板
+apps/backend/      # FastAPI/WebSocket 现代 UI 适配层
+apps/frontend/     # Next.js 现代控制台
 ```
 
 设计原则：
 
 - 配置从 `config.py` 进入，真实密钥只来自环境变量或本地 `.env`。
 - CLI 输出 JSON，便于 smoke、脚本和后续 API 集成。
+- `apps/backend` 只做产品层 API/WebSocket 适配，不重写交易业务核心。
 - 外部服务依赖懒加载，离线模式必须能运行。
 - 自动投资是模拟盘，不应接入真实下单接口，除非未来单独加安全确认层。
 
@@ -96,6 +102,8 @@ Redis 用于缓存行情和 LLM 响应，不能作为唯一事实来源。
 
 ```powershell
 python -m pytest
+python -m pytest tests/test_backend_api.py
+python -c "from apps.backend.app import app; print(app.title)"
 python -m astock_agent_system.cli bench --help
 python -m astock_agent_system.cli bench --list-models
 .\start.bat -Mode status
@@ -125,7 +133,7 @@ python -m mkdocs build --strict
 
 ## 10. 后续开发建议
 
-- 优先增强观测看板：自动投资日志、止损时间线、收益曲线。
-- 增加长期回放和模型账户长期指标。
-- 再考虑 FastAPI / React 独立 Dashboard。
+- 优先推进 `apps/backend` 的稳定 API 契约和 WebSocket 事件协议。
+- 增加长期回放、模型账户长期指标、自动投资日志和止损时间线。
+- 继续初始化 Next.js/React 前端和 Tauri 桌面壳。
 - 实盘或半自动交易必须新增人工确认、权限隔离、审计日志和熔断机制。

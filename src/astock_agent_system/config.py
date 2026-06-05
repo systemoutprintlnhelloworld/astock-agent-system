@@ -6,6 +6,7 @@ The checked-in YAML files provide safe defaults for offline development.
 
 from __future__ import annotations
 
+import json
 import os
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -14,6 +15,7 @@ from typing import Any
 
 PROJECT_ROOT = Path(__file__).resolve().parents[2]
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
+RUNTIME_CONFIG_PATH = PROJECT_ROOT / "data" / "runtime" / "settings.override.json"
 
 
 def _load_dotenv_into_environ(path: Path) -> None:
@@ -74,6 +76,41 @@ def _load_yaml(path: Path) -> dict[str, Any]:
     if not isinstance(data, dict):
         return {}
     return data
+
+
+def _load_json(path: Path) -> dict[str, Any]:
+    if not path.exists():
+        return {}
+    try:
+        data = json.loads(path.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
+def _merge_nested_dicts(base: dict[str, Any], override: dict[str, Any]) -> dict[str, Any]:
+    merged: dict[str, Any] = dict(base)
+    for key, value in override.items():
+        if isinstance(value, dict) and isinstance(merged.get(key), dict):
+            merged[key] = _merge_nested_dicts(merged[key], value)
+        else:
+            merged[key] = value
+    return merged
+
+
+def load_runtime_overrides(path: Path | None = None) -> dict[str, Any]:
+    """Load runtime UI overrides persisted outside Git."""
+    return _load_json(path or RUNTIME_CONFIG_PATH)
+
+
+def save_runtime_overrides(payload: dict[str, Any], path: Path | None = None) -> Path:
+    """Persist runtime UI overrides to a local JSON file."""
+    target = path or RUNTIME_CONFIG_PATH
+    current = load_runtime_overrides(target)
+    merged = _merge_nested_dicts(current, payload)
+    target.parent.mkdir(parents=True, exist_ok=True)
+    target.write_text(json.dumps(merged, ensure_ascii=False, indent=2), encoding="utf-8")
+    return target
 
 
 @dataclass(slots=True)
@@ -168,7 +205,10 @@ class Settings:
 def load_settings(config_path: str | None = None) -> Settings:
     """Load safe defaults, optional YAML, and environment overrides."""
     _load_dotenv_into_environ(PROJECT_ROOT / ".env")
-    raw = _load_yaml(Path(config_path) if config_path else DEFAULT_CONFIG_PATH)
+    raw = _merge_nested_dicts(
+        _load_yaml(Path(config_path) if config_path else DEFAULT_CONFIG_PATH),
+        load_runtime_overrides(),
+    )
 
     data_raw = raw.get("data", {}) if isinstance(raw.get("data", {}), dict) else {}
     portfolio_raw = raw.get("portfolio", {}) if isinstance(raw.get("portfolio", {}), dict) else {}

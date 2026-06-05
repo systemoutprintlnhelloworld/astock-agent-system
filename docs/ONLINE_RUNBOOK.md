@@ -171,7 +171,51 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 2. 打开“观测看板”，刷新排行榜和持仓。
 3. 如无数据，点击运行一次自动投资轮次。
 
-## 9. 启动长期调度器
+## 9. 启动现代控制台
+
+如果要验证新的现代 UI 链路，可直接一键启动：
+
+```powershell
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+```
+
+启动后打开：
+
+- `http://127.0.0.1:3000`：现代控制台首页。
+
+当前 modern UI 已改为标签页结构：
+
+- `总览`：看连接状态、最近轮次和候选股票预览。
+- `流程`：看 React Flow 实时链路和动画边。
+- `表现`：看权益曲线和模型排行榜。
+- `日志`：看决策卡和事件流。
+- `股票`：看持仓、候选池和交易记录。
+- `设置`：通过目录快速跳转到数据源、LLM、组合、风控和调度配置。
+
+第一次走在线链路时，建议优先使用 `总览` 页里的：
+
+- `开箱检查清单`：先确认 Token、API Key、模型列表和 WebSocket 是否都已就绪。
+- `首次启动向导`：按“数据源 -> LLM -> 保存配置 -> 启动离线轮次”的顺序做首轮联调，再切在线模式。
+
+`start.bat -Mode modern-ui` 现在会先检查前后端端口，并检查同一个 `apps/frontend` 目录下是否已经存在旧的 Next.js dev 进程；如发现冲突，会打印进程信息并在你确认后自动结束该进程。脚本还会等待 `api/health` 可用后再拉起前端，减少“前端已开但后端未接上”的假失败。
+
+如只想单独检查 API，也可以：
+
+```powershell
+.\start.bat -Mode backend -Port 8000
+```
+
+建议优先检查：
+
+- `http://127.0.0.1:8000/api/health`
+- `http://127.0.0.1:8000/api/config`
+- `http://127.0.0.1:8000/api/agents/flow`
+- `http://127.0.0.1:8000/api/decisions`
+- `http://127.0.0.1:8000/api/stocks/board`
+- `http://127.0.0.1:8000/api/metrics/rankings`
+- `ws://127.0.0.1:8000/ws/events`
+
+## 10. 启动长期调度器
 
 确认 smoke 都通过后再启动：
 
@@ -181,7 +225,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 长期运行时建议保持 Docker Desktop、MongoDB、Redis 和网络稳定。
 
-## 10. 当前在线验证状态
+## 11. 当前在线验证状态
 
 当前本地在线链路已验证：
 
