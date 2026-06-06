@@ -366,21 +366,23 @@ if redis.exists(cache_key):
 
 ---
 
-## 📅 开发里程碑
+## 📅 历史开发里程碑（已被新计划替代）
+
+> 下列条目是 2026-06-01 的早期设想，用于保留需求来源和演进轨迹；它们不是当前 Trellis 待办，也不作为最新交付验收清单。当前有效计划请以 `docs/trellis-plan.md` 和 `docs/modernization-plan.md` 为准。
 
 ### Phase 1: MVP 核心功能（2周）
 
 **Week 1: 基础框架**
-- [ ] 项目初始化和环境配置
-- [ ] Data Agent 实现（Tushare + AkShare）
-- [ ] MongoDB + Redis 配置
-- [ ] LangGraph 基础框架搭建
+- 项目初始化和环境配置。
+- Data Agent 实现（Tushare + AkShare）。
+- MongoDB + Redis 配置。
+- LangGraph 基础框架搭建曾是候选方案；当前实现采用自研 8-Agent 编排与 `MultiAgentOrchestrator`。
 
 **Week 2: 分析模块**
-- [ ] Technical Analyst 实现
-- [ ] Fundamental Analyst 实现
-- [ ] Sentiment Analyst 实现（集成smart-search）
-- [ ] 单股分析流程打通
+- Technical Analyst 实现。
+- Fundamental Analyst 实现。
+- Sentiment Analyst 实现（集成 smart-search 的方向保留）。
+- 单股分析流程打通。
 
 **交付物**：
 - 能够分析单只股票并生成结构化报告
@@ -391,16 +393,16 @@ if redis.exists(cache_key):
 ### Phase 2: 决策和模拟盘（2周）
 
 **Week 3: 决策机制**
-- [ ] Debate Room 实现
-- [ ] Risk Manager 实现
-- [ ] Portfolio Manager 实现
-- [ ] Master Agent 编排逻辑
+- Debate Room 实现。
+- Risk Manager 实现。
+- Portfolio Manager 实现。
+- Master Agent 编排逻辑。
 
 **Week 4: 模拟盘**
-- [ ] Backtrader 回测引擎集成
-- [ ] 虚拟账户管理
-- [ ] 订单执行和持仓跟踪
-- [ ] 绩效指标计算
+- Backtrader 回测引擎集成曾是候选方案；当前模拟盘以 `VirtualAccount` 为核心。
+- 虚拟账户管理。
+- 订单执行和持仓跟踪。
+- 绩效指标计算。
 
 **交付物**：
 - 完整的分析→决策→执行闭环
@@ -411,10 +413,10 @@ if redis.exists(cache_key):
 ### Phase 3: 自动化和优化（1周）
 
 **Week 5: 自动化**
-- [ ] 定时任务（APScheduler）
-- [ ] 批量分析（股票池管理）
-- [ ] 异常处理和重试机制
-- [ ] 日志和监控
+- 定时任务（APScheduler）。
+- 批量分析（股票池管理）。
+- 异常处理和重试机制。
+- 日志和监控。
 
 **交付物**：
 - 每日自动定盘分析
@@ -425,10 +427,10 @@ if redis.exists(cache_key):
 ### Phase 4: 界面和报告（1周）
 
 **Week 6: 用户界面**
-- [ ] Streamlit 仪表盘
-- [ ] 分析报告展示
-- [ ] 模拟盘绩效可视化
-- [ ] 配置管理界面
+- Streamlit 仪表盘。
+- 分析报告展示。
+- 模拟盘绩效可视化。
+- 配置管理界面。
 
 **交付物**：
 - 可视化界面
@@ -575,20 +577,22 @@ astock-agent-system/
 
 ## 📋 主人需要准备的资源清单
 
+> 下列清单也是历史记录，不是当前阻塞项。当前本地离线/modern-ui 验收不需要新增申请信息；在线运行仍需用户在本地 `.env` 自行维护 Tushare token、LLM gateway base URL 与 API key，且不得提交到 Git。
+
 ### 立即需要（P0）
-- [x] Tushare Token（已提供）
-- [x] smart-search CLI（已配置）
-- [ ] OpenAI 兼容接口的 API Key
-- [ ] Python 3.10+ 环境
+- Tushare Token（通过本地 `.env` 配置）。
+- smart-search CLI（可选，用于在线舆情增强）。
+- OpenAI 兼容接口的 API Key（仅在线 LLM Benchmark 需要）。
+- Python 3.10+ 环境。
 
 ### 第一周需要（P1）
-- [ ] MongoDB（建议Docker部署）
-- [ ] Redis（建议Docker部署）
-- [ ] 确定股票池列表（10-20只股票）
+- MongoDB（建议 Docker 部署；离线 smoke 可用 `-NoDocker` 跳过持久化）。
+- Redis（建议 Docker 部署；离线 smoke 可用 `-NoDocker` 跳过缓存）。
+- 确定股票池列表（可先使用样例数据和动态筛选默认值）。
 
 ### 后续需要（P2）
-- [ ] 服务器/云主机（如需7×24运行）
-- [ ] 域名（如需外网访问）
+- 服务器/云主机（仅 7×24 运行需要）。
+- 域名（仅外网访问需要）。
 
 ---
 
