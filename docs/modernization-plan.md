@@ -6,7 +6,7 @@
 
 ## 1. 产品目标
 
-最终形态：用户下载便携版应用后，通过 `.exe` 或 `.bat` 一键启动，在现代化 UI 中完成配置、启动自动投资、查看实时 Agent 流程、决策日志、股票看板和长期表现曲线。
+最终形态：用户下载便携版应用后，优先通过 Tauri 打包出的 `astock-agent-system.exe` 一键启动，在现代化 UI 中完成配置、启动自动投资、查看实时 Agent 流程、决策日志、股票看板和长期表现曲线。`start.bat` / `start.ps1` 仅作为开发期、调试期和过渡期入口，不是最终用户需要理解的产品形态。
 
 核心体验目标：
 
@@ -69,6 +69,24 @@ docs/
 - `apps/frontend` 已提供 Next.js 现代控制台首版，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - `start.bat -Mode backend -Port 8000` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 可一键拉起首版现代 UI 预览。
+
+最终桌面打包目标：
+
+```text
+用户双击 astock-agent-system.exe
+  ↓
+Tauri 主进程启动
+  ↓
+  ├─ Sidecar: 启动打包后的 Python FastAPI 后端
+  │   └─ 内嵌运行时，不要求用户预装 Python
+  │
+  └─ WebView: 加载 Next.js 静态构建产物
+      └─ 不要求用户预装 Node.js
+  ↓
+显示桌面控制台窗口
+```
+
+因此，后续 `apps/desktop` 的验收标准不是“再包一层 bat”，而是确保 `.exe` 管理 sidecar 生命周期、端口探测、异常提示和前端 WebView 加载。
 
 ## 5. 实时事件协议
 

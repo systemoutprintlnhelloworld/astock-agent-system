@@ -1,233 +1,72 @@
-# 架构理解修正任务
+# 架构理解修正完成记录
 
 **创建时间**：2026-06-06  
-**状态**：需要修正文档中的错误说法
+**当前状态**：已完成
+
+本文档记录一次关键架构表述修正：产品层统一为 **Benchmark 模式**。用户选择 N 个模型（N >= 1），每个模型驱动一套完整且独立的 8 Agent 系统，并拥有独立 `VirtualAccount`、持仓快照、决策日志、收益曲线和记忆查询入口。
 
 ---
 
-## ✅ 正确理解
+## 1. 已确认的正确口径
 
-### 系统只有一种运行模式：Benchmark 模式
+### 1.1 产品层只有 Benchmark 模式
 
-**核心理念**：
-- ❌ **错误**：系统有"单LLM模式"和"多LLM模式"两种模式需要切换
-- ✅ **正确**：系统只有 **Benchmark 模式**，用户选择 N 个模型（N ≥ 1）
+用户不需要学习或切换多个运行模式，只需要维护模型列表：
 
-**用户操作**：
-```
-1. 用户启动系统
-2. 选择模型列表：[rule-baseline, gpt-4o, claude-3.5]
-3. 系统并行运行 3 个独立的 Agent 系统
-   - 每个模型 = 1 个完整的 8 Agent 系统
-   - 每个模型 = 1 个独立的 VirtualAccount
-4. 最后生成 Benchmark 排行榜
+```text
+1. 用户启动系统。
+2. 用户选择模型列表，例如 [rule-baseline, gpt-4o, claude-3.5]。
+3. 系统为每个模型启动一套独立 Agent 系统。
+4. 每套系统独立运行完整 8 Agent 流水线和独立 VirtualAccount。
+5. 系统生成 Benchmark 排行榜、持仓、交易、决策日志和长期曲线。
 ```
 
-**N = 1 的情况**：
-- 用户只选 `["rule-baseline"]`
-- 系统运行 1 个 Agent 系统
-- 也是 Benchmark 模式，只是只有 1 个账户
-- **不是"单LLM模式"**，没有所谓的"模式切换"
+### 1.2 N = 1 的解释
+
+当用户只选择一个模型时，系统仍然走 Benchmark 代码路径，只是模型列表长度为 1。这不是另一种用户模式，也不需要额外开关。
 
 ---
 
-## 🔧 需要修正的文档
+## 2. 已完成的文档修正
 
-### 1. `docs/technical/ARCHITECTURE.md`
-
-**需要删除的章节**：
-- 第 3 章：`## 3. 单LLM vs 多LLM架构`
-  - 3.1 架构对比
-  - 3.2 单LLM模式流程
-  - 3.3 多LLM模式流程
-  - 3.4 如何切换
-
-**需要替换为**：
-```markdown
-## 3. Benchmark 架构
-
-系统只有一种运行模式：Benchmark 模式。
-
-### 3.1 核心理念
-- 用户选择 N 个模型（N ≥ 1）
-- 系统并行运行 N 个独立的 Agent 系统
-- 每个模型驱动一个完整的 8 Agent + VirtualAccount
-
-### 3.2 架构图
-（展示 MultiAgentOrchestrator 如何管理多个独立系统）
-
-### 3.3 代码实现
-（展示 orchestrator.run_competition() 的核心逻辑）
-
-### 3.4 持仓恢复机制
-（展示如何从 MongoDB 恢复每个账户的持仓）
-```
-
-**文件位置**：`D:\研究生\项目\项目2-A股LLM投资系统\docs\technical\ARCHITECTURE.md` 第 210-280 行
+| 文档 | 状态 | 修正内容 |
+|------|------|----------|
+| `docs/technical/ARCHITECTURE.md` | 已完成 | 第 3 章统一为 Benchmark 架构，说明多模型独立 Agent 系统。 |
+| `docs/technical/DESIGN_DECISIONS.md` | 已完成 | 第 5 章统一为 Benchmark 模式设计。 |
+| `DOCUMENTATION_MAP.md` | 已完成 | 核心开发者导航改为 Benchmark 模式、多模型独立 Agent 系统。 |
+| `FINAL_DELIVERY.md` | 已完成 | 删除“待修正”状态，改为完成记录。 |
+| `docs/modernization-plan.md` | 已完成 | 明确最终用户入口是 Tauri 打包 `.exe`，`start.bat` 仅作为开发/过渡入口。 |
 
 ---
 
-### 2. `docs/technical/DESIGN_DECISIONS.md`
+## 3. 已接入的 Phase 2 最小交付
 
-**需要删除的章节**：
-- 第 5 章：`## 5. 单LLM vs 多LLM 架构切换`
-  - 5.1 为什么需要两种模式
-  - 5.2 切换方式
-
-**需要替换为**：
-```markdown
-## 5. Benchmark 模式设计
-
-系统只有一种运行模式：Benchmark 模式。
-
-### 5.1 为什么只有一种模式
-
-- 简化用户理解：不需要学习"模式切换"
-- 统一代码路径：所有运行都走 MultiAgentOrchestrator
-- N = 1 时自动退化为单个系统，无需特殊处理
-
-### 5.2 用户如何选择模型
-
-**modern-ui**：
-用户在设置页选择模型列表，点击"启动运行"
-
-**CLI**：
-```bash
-python -m astock_agent_system.cli scheduler run-auto-investment \
-  --models "rule-baseline,gpt-4o" \
-  --max-count 5
-```
-```
-
-**文件位置**：`D:\研究生\项目\项目2-A股LLM投资系统\docs\technical\DESIGN_DECISIONS.md` 第 371-400 行
+| 能力 | 状态 | 代码位置 |
+|------|------|----------|
+| 事件时间线 | 已接入 | `src/astock_agent_system/event_timeline.py`, `GET /api/events/timeline`, `POST /api/events/poll` |
+| Agent 记忆只读接口 | 已接入 | `src/astock_agent_system/agent_memory.py`, `GET /api/agents/{agent_id}/memory` |
+| LLM 配置检测 | 已接入 | `POST /api/config/test-llm` |
+| Agent 工具清单 | 已接入 | `GET /api/agents/tools` |
+| modern-ui 可视化入口 | 已接入 | `apps/frontend/src/components/trading-dashboard.tsx` 的“事件”“智能体”和 LLM 检测入口 |
 
 ---
 
-### 3. `docs/technical/FLOWS.md`
+## 4. 验收检查项
 
-**需要检查和修正的内容**：
-- 删除所有"单LLM模式"相关描述
-- 改为"用户选择 N 个模型"
-- 强调"每个模型 = 一个独立的 Agent 系统"
-
----
-
-### 4. `README.md` 和 `USER_GUIDE.md`
-
-**需要检查和修正的内容**：
-- 删除"单LLM vs 多LLM"相关说法
-- 改为"选择模型进行 Benchmark"
-- 用户友好的语言：不要说"模式"，说"选择几个模型"
+- [x] 产品说明统一为 Benchmark 模式。
+- [x] 每个模型驱动一套独立 Agent 系统。
+- [x] 每套系统拥有独立 `VirtualAccount`。
+- [x] N = 1 被解释为模型列表长度为 1，而不是另一个用户模式。
+- [x] 文档导航和最终交付说明不再保留未完成修正文案。
+- [x] Phase 2 最小可视化入口已在后端和 modern-ui 接通。
 
 ---
 
-## 🚀 Tauri 打包说明
+## 5. 后续增强方向
 
-### 当前状态（临时方案）
+后续工作不再是修正文档口径，而是继续增强能力：
 
-```
-用户运行：start.bat -Mode modern-ui
-  ↓
-1. 启动 FastAPI 后端（Python）
-2. 启动 Next.js 前端（Node.js）
-3. 打开浏览器
-```
-
-**问题**：
-- 需要手动运行 bat 文件
-- 需要安装 Python 和 Node.js
-- 不是真正的桌面 App
-
----
-
-### 目标状态（Tauri）
-
-```
-用户双击：astock-agent-system.exe
-  ↓
-Tauri 主进程启动（Rust）
-  ↓
-  ├─ Sidecar: 启动嵌入式 Python FastAPI
-  │   └─ 不依赖系统 Python
-  │
-  └─ WebView: 加载 Next.js 静态文件
-      └─ 已打包，不需要 Node.js
-  ↓
-显示桌面窗口
-```
-
-**优势**：
-- ✅ 用户只需双击 `.exe`
-- ✅ 无需安装 Python / Node.js
-- ✅ 单个文件，真正的桌面 App
-- ✅ 跨平台：Windows / macOS / Linux
-
----
-
-## 📝 下一步操作
-
-### 方式 1：手动修改（推荐）
-
-1. 打开 `docs/technical/ARCHITECTURE.md`
-2. 找到第 210 行左右的 `## 3. 单LLM vs 多LLM架构`
-3. 删除整个第 3 章
-4. 复制本文档中"需要替换为"的内容粘贴上去
-5. 对 DESIGN_DECISIONS.md 做同样操作
-6. 提交并推送
-
-### 方式 2：使用查找替换（批量）
-
-使用 VS Code 的全局查找替换：
-- 查找：`单LLM模式`
-- 替换：`Benchmark 模式（N=1时）`
-- 查找：`多LLM模式`
-- 替换：`Benchmark 模式`
-- 查找：`单LLM vs 多LLM`
-- 替换：`Benchmark`
-
----
-
-## ✅ 新增的 Git Hook
-
-**文件**：`.husky/post-merge`
-
-**功能**：
-- 在 `git pull` 或 `git merge` 后自动运行
-- 检查代码文件是否有变更
-- 如果有，提醒检查文档是否需要更新
-
-**示例输出**：
-```
-📚 Checking documentation consistency...
-  ⚠️  Code files changed, please check if documentation needs update:
-    - src/astock_agent_system/orchestrator/multi_agent_orchestrator.py
-    - apps/backend/app.py
-
-  📖 Documentation checklist:
-    - docs/technical/ARCHITECTURE.md (if architecture changed)
-    - docs/technical/FLOWS.md (if flows changed)
-    - docs/technical/USER_NEEDS_MAPPING.md (if API changed)
-    - docs/USER_GUIDE.md (if user-facing features changed)
-
-  ✅ Check complete!
-```
-
----
-
-## 📊 已完成的工作
-
-1. ✅ 创建了 `.husky/post-merge` hook
-2. ✅ 识别了需要修正的文档位置
-3. ✅ 准备了正确的内容替换方案
-4. ✅ 提交了初步修正（包含 post-merge hook）
-
----
-
-## 🎯 待办事项
-
-- [ ] 手动修正 `ARCHITECTURE.md` 第 3 章
-- [ ] 手动修正 `DESIGN_DECISIONS.md` 第 5 章
-- [ ] 检查 `FLOWS.md` 并修正相关说法
-- [ ] 检查 `README.md` 和 `USER_GUIDE.md`
-- [ ] 提交最终修正：`git commit -m "fix: remove single-LLM vs multi-LLM mode concept"`
-- [ ] 推送到远程
+1. 将事件时间线接入真实 Tushare 公告、AkShare 新闻和 smart-search 结果。
+2. 将 Agent 记忆从只读决策记录升级为完整经验存储、检索和反思。
+3. 将 LLM 检测结果转化为设置页中的可点击模型选择器。
+4. 将 Agent 工具清单进一步固化为可复用 Skills / MCP 工具说明。

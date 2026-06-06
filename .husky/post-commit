@@ -1,15 +1,18 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
 
-echo "📤 Auto-pushing to remote..."
+echo "Post-commit check complete."
 
-# 获取当前分支
+if [ "${AUTO_PUSH_AFTER_COMMIT:-0}" != "1" ]; then
+  echo "Auto-push is disabled by default. Run 'git push' manually, or set AUTO_PUSH_AFTER_COMMIT=1."
+  exit 0
+fi
+
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
+echo "AUTO_PUSH_AFTER_COMMIT=1 set; pushing $BRANCH..."
 
-# 推送到远程（不阻塞）
 git push origin "$BRANCH" 2>/dev/null || {
-  echo "  ⚠️  Push failed. You may need to pull first or check network."
+  echo "  WARNING: push failed. You may need to pull first or check network."
   exit 0
 }
 
-echo "  ✅ Pushed to $BRANCH"
+echo "  OK: pushed to $BRANCH"

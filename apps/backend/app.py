@@ -8,6 +8,7 @@ business core under ``src/astock_agent_system``.
 from __future__ import annotations
 
 import asyncio
+import copy
 import os
 import uuid
 from datetime import datetime, timezone
@@ -29,13 +30,17 @@ from apps.backend.schemas import (
     AgentFlowNode,
     AgentFlowNodeData,
     AgentFlowResponse,
+    AgentMemoryResponse,
+    AgentToolsResponse,
     DecisionLogEntry,
     BackendEvent,
     DecisionLogResponse,
     EquityMetricPoint,
     EquityMetricsResponse,
+    EventTimelineResponse,
     EVENT_TYPES,
     HoldingRow,
+    LlmConfigCheckResponse,
     RankingRow,
     RankingsResponse,
     RunStatusResponse,
@@ -43,7 +48,9 @@ from apps.backend.schemas import (
     StockBoardResponse,
     TradeRow,
 )
+from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import Settings, load_settings, save_runtime_overrides
+from astock_agent_system.event_timeline import EventTimelineService, filter_timeline_events
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.scheduler import TradingTaskScheduler
 
@@ -73,6 +80,15 @@ class ConfigUpdateRequest(BaseModel):
     """Partial runtime configuration patch from the modern UI."""
 
     config: dict[str, Any] = Field(default_factory=dict)
+
+
+class LlmConfigCheckRequest(BaseModel):
+    """Validate LLM settings without exposing or persisting secrets."""
+
+    config: dict[str, Any] = Field(default_factory=dict)
+    models: list[str] | None = None
+    run_bench: bool = False
+    limit: int = Field(default=5, ge=1, le=20)
 
 
 class EventHub:
@@ -113,6 +129,7 @@ class RunStore:
         self.trades: list[TradeRow] = []
         self.equity_series: list[EquityMetricPoint] = []
         self.rankings: list[RankingRow] = []
+        self.timeline_events: list[dict[str, Any]] = []
 
     def start(self, run_id: str, request_payload: dict[str, Any]) -> None:
         self.current_run = {
@@ -143,6 +160,17 @@ class RunStore:
         if self.current_run is not None:
             return RunStatusResponse(status="running", run=self.current_run)
         return RunStatusResponse(status="idle", run=self.last_run)
+
+    def add_timeline_events(self, events: list[dict[str, Any]]) -> None:
+        seen = {str(item.get("id", "")) for item in self.timeline_events}
+        for event in events:
+            event_id = str(event.get("id", ""))
+            if event_id and event_id in seen:
+                continue
+            self.timeline_events.insert(0, event)
+            if event_id:
+                seen.add(event_id)
+        self.timeline_events = self.timeline_events[:100]
 
 
 event_hub = EventHub()
@@ -258,6 +286,80 @@ def create_app() -> FastAPI:
     @api.get("/api/runs/current")
     def get_current_run() -> dict[str, Any]:
         return run_store.status_response().model_dump(mode="json")
+
+    @api.post("/api/events/poll")
+    async def poll_events(limit: int = 20) -> dict[str, Any]:
+        events = await asyncio.to_thread(EventTimelineService(load_settings()).poll, limit=limit)
+        run_store.add_timeline_events(events)
+        for event in events[:5]:
+            await event_hub.broadcast(make_event("timeline_event", payload=event))
+        return EventTimelineResponse(items=events, next_steps=_event_timeline_next_steps(events)).model_dump(mode="json")
+
+    @api.get("/api/events/timeline")
+    def get_event_timeline(category: str = "", source: str = "", limit: int = 50) -> dict[str, Any]:
+        if not run_store.timeline_events:
+            run_store.add_timeline_events(EventTimelineService(load_settings()).poll(limit=limit))
+        items = filter_timeline_events(
+            run_store.timeline_events,
+            category=category or None,
+            source=source or None,
+            limit=limit,
+        )
+        return EventTimelineResponse(items=items, next_steps=_event_timeline_next_steps(items)).model_dump(mode="json")
+
+    @api.get("/api/agents/{agent_id}/memory")
+    def get_agent_memory(agent_id: str, stock_code: str = "", outcome: str = "", limit: int = 20) -> dict[str, Any]:
+        items = AgentMemoryStore(load_settings()).list_cases(
+            agent_id,
+            limit=limit,
+            stock_code=stock_code,
+            outcome=outcome,
+        )
+        if not items:
+            items = _memory_cases_from_current_run(agent_id, stock_code=stock_code, outcome=outcome, limit=limit)
+        next_steps = [] if items else ["Run a benchmark round first; memory is isolated per model-driven Agent account."]
+        return AgentMemoryResponse(agent_id=agent_id, items=items, next_steps=next_steps).model_dump(mode="json")
+
+    @api.post("/api/config/test-llm")
+    async def test_llm_config(request: LlmConfigCheckRequest | None = None) -> dict[str, Any]:
+        payload = request or LlmConfigCheckRequest()
+        settings = _settings_with_runtime_patch(load_settings(), _sanitize_runtime_config(payload.config))
+        client = LLMClient(settings)
+        diagnostics, warnings = _llm_config_diagnostics(settings)
+        models: list[str] = []
+        bench_payload: dict[str, Any] | None = None
+
+        if client.is_configured:
+            models_payload = await asyncio.to_thread(client.list_models_safe)
+            if models_payload.get("status") == "ok":
+                models = [str(item) for item in models_payload.get("models", [])]
+                diagnostics.append(f"模型列表获取成功：{len(models)} 个模型")
+            else:
+                warnings.append(str(models_payload.get("reason", "模型列表获取失败")))
+                for step in models_payload.get("next_steps", []):
+                    diagnostics.append(str(step))
+            if payload.run_bench:
+                bench_models = payload.models or (models[: payload.limit] if models else None)
+                bench_payload = await asyncio.to_thread(ModelBench(client).run, models=bench_models, limit=payload.limit)
+        else:
+            warnings.append("LLM Base URL 或 API Key 尚未配置，无法连接模型网关。")
+
+        response = LlmConfigCheckResponse(
+            configured=client.is_configured,
+            base_url=settings.llm.base_url,
+            default_model=settings.llm.default_model,
+            request_profile=settings.llm.request_profile,
+            models=models,
+            diagnostics=diagnostics,
+            warnings=warnings,
+            bench=bench_payload,
+        )
+        await event_hub.broadcast(make_event("llm_checked", payload=response.model_dump(mode="json")))
+        return response.model_dump(mode="json")
+
+    @api.get("/api/agents/tools")
+    def get_agent_tools() -> dict[str, Any]:
+        return AgentToolsResponse(items=_agent_tool_catalog()).model_dump(mode="json")
 
     @api.websocket("/ws/events")
     async def websocket_events(websocket: WebSocket) -> None:
@@ -548,6 +650,147 @@ def _apply_runtime_overrides_to_environ(payload: dict[str, Any]) -> None:
             os.environ[env_name] = "true" if value else "false"
         else:
             os.environ[env_name] = str(value)
+
+
+def _settings_with_runtime_patch(settings: Settings, payload: dict[str, Any]) -> Settings:
+    """Apply a sanitized config patch to an in-memory copy only."""
+    patched = copy.deepcopy(settings)
+    for section, values in payload.items():
+        target = getattr(patched, section, None)
+        if target is None or not isinstance(values, dict):
+            continue
+        for field_name, value in values.items():
+            if hasattr(target, field_name):
+                setattr(target, field_name, value)
+    return patched
+
+
+def _llm_config_diagnostics(settings: Settings) -> tuple[list[str], list[str]]:
+    diagnostics: list[str] = []
+    warnings: list[str] = []
+    if settings.llm.base_url:
+        diagnostics.append(f"Base URL 已设置：{settings.llm.base_url}")
+    else:
+        warnings.append("LLM Base URL 为空。")
+    if settings.llm.api_key:
+        diagnostics.append("API Key 已设置且不会回显到前端。")
+    else:
+        warnings.append("LLM API Key 为空。")
+    if settings.llm.default_model:
+        diagnostics.append(f"默认模型：{settings.llm.default_model}")
+    else:
+        warnings.append("默认模型为空；Benchmark 可使用模型列表中的第一个模型或 rule-baseline。")
+    if settings.llm.request_profile not in {"openai", "codex", "anthropic", "claude_code", "auto"}:
+        warnings.append(f"请求档位 {settings.llm.request_profile!r} 不是常用值，请确认网关兼容。")
+    return diagnostics, warnings
+
+
+def _event_timeline_next_steps(events: list[dict[str, Any]]) -> list[str]:
+    if not events:
+        return ["No timeline events yet. Trigger /api/events/poll after configuring data sources."]
+    categories = {str(event.get("category", "")) for event in events}
+    next_steps = ["重大事件会进入 Agent 输入流；普通新闻和公告按批次汇总。"]
+    if "data_source" in categories:
+        next_steps.append("切换 online 并配置 Tushare/AkShare 后，可接入真实公告和新闻事件。")
+    return next_steps
+
+
+def _memory_cases_from_current_run(agent_id: str, *, stock_code: str = "", outcome: str = "", limit: int = 20) -> list[dict[str, Any]]:
+    cases: list[dict[str, Any]] = []
+    for index, decision in enumerate(run_store.decisions):
+        if decision.agent_id != agent_id:
+            continue
+        if stock_code and decision.stock_code != stock_code:
+            continue
+        case = {
+            "id": f"{agent_id}-runtime-{index}",
+            "agent_id": decision.agent_id,
+            "llm_model": decision.llm_model,
+            "stock_code": decision.stock_code,
+            "stock_name": decision.stock_name,
+            "decision_date": decision.timestamp,
+            "action": decision.action,
+            "reason": "；".join(decision.reasons[:3]) or decision.summary,
+            "outcome": "unknown",
+            "pnl_pct": 0.0,
+            "tags": [decision.action.lower(), "runtime"],
+            "raw": decision.model_dump(mode="json"),
+        }
+        if outcome and case["outcome"] != outcome:
+            continue
+        cases.append(case)
+        if len(cases) >= max(1, limit):
+            break
+    return cases
+
+
+def _agent_tool_catalog() -> list[dict[str, Any]]:
+    return [
+        {
+            "agent_id": "data_agent",
+            "agent_name": "数据 Agent",
+            "tools": ["DataAgent.get_history", "DataAgent.get_quote", "DataAgent.get_financial"],
+            "data_sources": ["offline samples", "Tushare", "AkShare"],
+            "skills": ["行情读取", "财务数据归一化", "数据源降级"],
+            "notes": "负责把行情、财务、公告和新闻输入整理为后续 Agent 可用的结构化上下文。",
+        },
+        {
+            "agent_id": "screener",
+            "agent_name": "股票筛选 Agent",
+            "tools": ["StockScreener.screen"],
+            "data_sources": ["DataAgent", "历史K线", "财务摘要"],
+            "skills": ["动态股票池", "候选股评分"],
+            "notes": "按配置的候选数量为每个模型驱动系统生成同一批候选标的，保证 Benchmark 公平。",
+        },
+        {
+            "agent_id": "technical_analyst",
+            "agent_name": "技术分析 Agent",
+            "tools": ["TechnicalAnalyst.analyze"],
+            "data_sources": ["历史价格", "成交量"],
+            "skills": ["趋势", "动量", "波动"],
+            "notes": "输出技术面评分、信号和风险提示。",
+        },
+        {
+            "agent_id": "fundamental_analyst",
+            "agent_name": "基本面分析 Agent",
+            "tools": ["FundamentalAnalyst.analyze"],
+            "data_sources": ["财务指标", "估值指标"],
+            "skills": ["盈利质量", "估值过滤"],
+            "notes": "约束纯技术信号，避免高风险基本面标的进入组合。",
+        },
+        {
+            "agent_id": "sentiment_analyst",
+            "agent_name": "舆情分析 Agent",
+            "tools": ["SentimentAnalyst.analyze"],
+            "data_sources": ["样例舆情", "AkShare 新闻", "smart-search"],
+            "skills": ["新闻摘要", "市场情绪"],
+            "notes": "Phase 2 事件流会持续把新闻和公告输入到该 Agent。",
+        },
+        {
+            "agent_id": "debate_room",
+            "agent_name": "多 Agent 讨论室",
+            "tools": ["DebateRoom.analyze"],
+            "data_sources": ["技术面", "基本面", "舆情面"],
+            "skills": ["观点汇总", "冲突识别"],
+            "notes": "把多个分析结论合并为可审计的共识。",
+        },
+        {
+            "agent_id": "risk_manager",
+            "agent_name": "风控 Agent",
+            "tools": ["RiskManager.analyze", "TradingTaskScheduler.run_stop_loss_check"],
+            "data_sources": ["当前持仓", "实时/最新价格", "风险配置"],
+            "skills": ["止损", "仓位上限", "波动约束"],
+            "notes": "任何模型复核结果都必须服从风控约束。",
+        },
+        {
+            "agent_id": "portfolio_manager",
+            "agent_name": "组合 Agent",
+            "tools": ["PortfolioManager.decide", "VirtualAccount.buy", "VirtualAccount.sell"],
+            "data_sources": ["分析报告", "风控结果", "账户快照"],
+            "skills": ["买卖动作", "仓位分配", "模拟交易执行"],
+            "notes": "每个模型驱动系统拥有独立 VirtualAccount，收益和记忆不互相污染。",
+        },
+    ]
 
 
 def _default_flow_nodes() -> list[AgentFlowNode]:

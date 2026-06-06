@@ -40,6 +40,14 @@ nav:
       - GitHub 发布说明: GITHUB_PUBLISHING.md
       - 持久化开发计划: trellis-plan.md
       - 现代化重构计划: modernization-plan.md
+      - 架构修正完成记录: FIX_TODO.md
+      - 技术文档:
+          - 系统架构: technical/ARCHITECTURE.md
+          - 流程与时序: technical/FLOWS.md
+          - 设计决策: technical/DESIGN_DECISIONS.md
+          - 同类项目对比: technical/COMPARISON.md
+          - 用户需求映射: technical/USER_NEEDS_MAPPING.md
+          - Phase 2 PRD: technical/PRD_PHASE2.md
 
 markdown_extensions:
   - admonition

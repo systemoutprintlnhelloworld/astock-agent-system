@@ -239,6 +239,73 @@ export interface BackendEvent {
   payload: Record<string, unknown>;
 }
 
+export interface EventTimelineItem {
+  id: string;
+  timestamp: string;
+  source: string;
+  category: string;
+  severity: "info" | "warning" | "critical";
+  title: string;
+  summary: string;
+  stock_code: string;
+  url: string;
+  payload: Record<string, unknown>;
+}
+
+export interface EventTimelineResponse {
+  status: string;
+  items: EventTimelineItem[];
+  next_steps: string[];
+}
+
+export interface AgentMemoryCase {
+  id: string;
+  agent_id: string;
+  llm_model: string;
+  stock_code: string;
+  stock_name: string;
+  decision_date: string;
+  action: string;
+  reason: string;
+  outcome: string;
+  pnl_pct: number;
+  tags: string[];
+  raw: Record<string, unknown>;
+}
+
+export interface AgentMemoryResponse {
+  status: string;
+  agent_id: string;
+  items: AgentMemoryCase[];
+  next_steps: string[];
+}
+
+export interface AgentToolDefinition {
+  agent_id: string;
+  agent_name: string;
+  tools: string[];
+  data_sources: string[];
+  skills: string[];
+  notes: string;
+}
+
+export interface AgentToolsResponse {
+  status: string;
+  items: AgentToolDefinition[];
+}
+
+export interface LlmConfigCheckResponse {
+  status: string;
+  configured: boolean;
+  base_url: string;
+  default_model: string;
+  request_profile: string;
+  models: string[];
+  diagnostics: string[];
+  warnings: string[];
+  bench?: Record<string, unknown> | null;
+}
+
 export interface ConfigDraft {
   data: {
     mode: string;
@@ -413,14 +480,37 @@ export async function getRunStatus(): Promise<RunStatusResponse> {
   return fetchJson<RunStatusResponse>("/api/runs/current");
 }
 
+export async function getEventTimeline(): Promise<EventTimelineResponse> {
+  return fetchJson<EventTimelineResponse>("/api/events/timeline");
+}
+
+export async function pollEvents(): Promise<EventTimelineResponse> {
+  return fetchJson<EventTimelineResponse>("/api/events/poll", { method: "POST" });
+}
+
+export async function getAgentTools(): Promise<AgentToolsResponse> {
+  return fetchJson<AgentToolsResponse>("/api/agents/tools");
+}
+
+export async function getAgentMemory(agentId: string): Promise<AgentMemoryResponse> {
+  return fetchJson<AgentMemoryResponse>(`/api/agents/${encodeURIComponent(agentId)}/memory`);
+}
+
+export async function testLlmConfig(config: Record<string, unknown>, models?: string[]): Promise<LlmConfigCheckResponse> {
+  return fetchJson<LlmConfigCheckResponse>("/api/config/test-llm", {
+    method: "POST",
+    body: JSON.stringify({ config, models, run_bench: false, limit: 8 }),
+  });
+}
+
 export async function startAutoInvestment(payload: {
   offline: boolean;
   max_count?: number;
   days?: number;
+  models?: string[];
 }): Promise<{ status: string; run_id: string }> {
   return fetchJson<{ status: string; run_id: string }>("/api/auto-investment", {
     method: "POST",
     body: JSON.stringify(payload),
   });
 }
-

@@ -56,14 +56,14 @@ python -m mkdocs build --strict             # 构建文档站
 
 **推荐阅读顺序**：
 
-1. [docs/technical/ARCHITECTURE.md](docs/technical/ARCHITECTURE.md) - 系统架构：8 Agent协作、单LLM vs 多LLM、数据流
+1. [docs/technical/ARCHITECTURE.md](docs/technical/ARCHITECTURE.md) - 系统架构：8 Agent协作、Benchmark模式、多模型独立Agent系统、数据流
 2. [docs/technical/FLOWS.md](docs/technical/FLOWS.md) - 流程与时序：启动流程、自动投资流程、用户视角 vs Agent视角
 3. [docs/technical/DESIGN_DECISIONS.md](docs/technical/DESIGN_DECISIONS.md) - 设计决策：UI框架选型、透明化实现、配置热加载
 4. [docs/technical/COMPARISON.md](docs/technical/COMPARISON.md) - 同类项目对比：FinRL、AutoGPT、LangChain、Qlib
 5. [docs/technical/USER_NEEDS_MAPPING.md](docs/technical/USER_NEEDS_MAPPING.md) - 需求映射：用户场景 → 功能设计 → 代码位置
 
 **这些文档回答**：
-- 为什么这么设计（UI框架、Agent架构、单LLM vs 多LLM）
+- 为什么这么设计（UI框架、Agent架构、Benchmark 模式）
 - 怎么实现的（系统架构图、时序图、数据流）
 - 和同类项目比有什么优劣（FinRL、AutoGPT等）
 - 用户操作如何映射到代码（快速定位代码位置）

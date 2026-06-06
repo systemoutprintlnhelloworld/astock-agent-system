@@ -118,7 +118,7 @@ function handleEvent(event: BackendEvent) {
 - `running`：蓝色边框 + 脉冲动画
 - `completed`：绿色边框
 
-代码位置：[`apps/frontend/src/components/trading-dashboard.tsx`](../../apps/frontend/src/components/trading-dashboard.tsx)
+代码位置：`apps/frontend/src/components/trading-dashboard.tsx`
 
 ### 2.3 WebSocket 实时事件推送
 
@@ -156,8 +156,8 @@ sequenceDiagram
 | **完成** | 排行榜生成完成 | `run_completed` |
 
 代码位置：
-- 后端：[`apps/backend/app.py`](../../apps/backend/app.py) 的 `EventHub`
-- 前端：[`apps/frontend/src/components/trading-dashboard.tsx`](../../apps/frontend/src/components/trading-dashboard.tsx) 的 `handleEvent()`
+- 后端：`apps/backend/app.py` 的 `EventHub`
+- 前端：`apps/frontend/src/components/trading-dashboard.tsx` 的 `handleEvent()`
 
 ### 2.4 可折叠决策日志
 
@@ -368,43 +368,68 @@ async function handleSaveConfig() {
 
 ---
 
-## 5. 单LLM vs 多LLM 架构切换
+## 5. Benchmark 模式设计
 
-### 5.1 为什么需要两种模式
+系统只有一种主运行模式：**Benchmark 模式**。用户选择 N 个模型（N >= 1），系统为每个模型启动一个完整且相互隔离的 Agent 系统，并为每个系统分配独立 `VirtualAccount`。N=1 只是 Benchmark 模式下只运行一个模型，不是另一种面向用户的运行模式。
 
-**单LLM模式**：
-- 快速验证选股逻辑
-- 离线smoke test
-- 不需要LLM或只用规则baseline
+### 5.1 为什么只有一种模式
 
-**多LLM模式**：
-- 对比多个LLM模型的投资能力
-- 生成排行榜
-- 长期运行和持仓恢复
+- **降低理解成本**：用户只需要维护“模型列表”，不需要理解或切换运行模式。
+- **统一代码路径**：自动投资统一进入 `MultiAgentOrchestrator.run_competition(models=...)`。
+- **统一可视化结果**：无论选择 1 个模型还是多个模型，都输出排行榜、账户状态、持仓、交易、决策日志和权益曲线。
+- **保证长期对比公平**：每个模型驱动的 Agent 系统有独立持仓快照、独立经验记录和独立收益曲线。
+- **避免架构歧义**：`MasterAgent.run_daily()` 是单个 Agent 系统内部的分析流水线，不是面向用户的另一种产品模式。
 
-### 5.2 切换方式
-
-**CLI**：
-```bash
-# 单LLM
-python -m astock_agent_system.cli run-daily --offline --max-count 3
-
-# 多LLM
-python -m astock_agent_system.cli scheduler run-auto-investment --offline --models "rule-baseline,gpt-4o"
-```
+### 5.2 用户如何选择模型
 
 **modern-ui**：
-```typescript
-// 前端发送 POST /api/run
-{
-  "models": ["rule-baseline", "gpt-4o", "claude-3.5"],
-  "offline": true,
-  "max_count": 3,
-  "days": 24
-}
+
+用户在设置中心选择一个或多个模型，例如：
+
+```json
+["rule-baseline", "gpt-4o", "claude-3.5"]
 ```
 
-后端调用 `MultiAgentOrchestrator.run_competition(models=...)`，为每个模型创建独立账户。
+点击启动后，后端为每个模型创建独立 Agent 系统：
+
+```text
+rule-baseline -> 8 Agent pipeline -> VirtualAccount(rule-baseline)
+gpt-4o       -> 8 Agent pipeline -> VirtualAccount(gpt-4o)
+claude-3.5   -> 8 Agent pipeline -> VirtualAccount(claude-3.5)
+```
+
+**CLI / 开发脚本**：
+
+```powershell
+.\start.bat -Mode online -Models "rule-baseline,gpt-4o,claude-3.5" -MaxCount 3 -Days 24
+```
+
+或直接调用调度器命令：
+
+```powershell
+python -m astock_agent_system.cli scheduler run-auto-investment --offline --models "rule-baseline,gpt-4o" --max-count 3 --days 24
+```
+
+后端统一调用：
+
+```python
+MultiAgentOrchestrator.run_competition(models=models, ...)
+```
+
+### 5.3 与内部 8 Agent 流水线的关系
+
+每个被选中的模型都会驱动一套完整的 8 Agent 流水线：
+
+1. `DataAgent` 准备行情、财务和新闻/舆情数据。
+2. `StockScreener` 动态筛选候选股票。
+3. `TechnicalAnalyst`、`FundamentalAnalyst`、`SentimentAnalyst` 生成多维分析。
+4. `DebateRoom` 汇总多方观点。
+5. `RiskManager` 执行仓位、波动和止损约束。
+6. `PortfolioManager` 生成规则决策。
+7. 选定模型在 `_llm_review_decision()` 中复核最终动作。
+8. `VirtualAccount` 独立执行模拟交易并生成收益指标。
+
+因此，Benchmark 比较的是“不同模型驱动同一套 Agent 系统后的长期表现”，而不是比较几个孤立的聊天请求。
 
 ---
 
@@ -438,7 +463,7 @@ flowchart TD
     loadSamples --> returnSamples
 ```
 
-代码位置：[`src/astock_agent_system/data/data_agent.py`](../../src/astock_agent_system/data/data_agent.py)
+代码位置：`src/astock_agent_system/data/data_agent.py`
 
 ---
 

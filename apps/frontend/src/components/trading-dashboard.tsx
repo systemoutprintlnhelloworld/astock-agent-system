@@ -37,22 +37,31 @@ import {
   type ConfigDraft,
   configDraftToPayload,
   createConfigDraft,
+  getAgentMemory,
+  getAgentTools,
   getConfig,
   getDecisions,
   getEquity,
+  getEventTimeline,
   getFlow,
   getHealth,
   getRankings,
   getRunStatus,
   getStockBoard,
   getWebSocketUrl,
+  pollEvents,
   saveConfig,
   startAutoInvestment,
+  testLlmConfig,
+  type AgentMemoryCase,
   type DecisionLogEntry,
   type EquityMetricPoint,
+  type EventTimelineItem,
   type FlowNodeData,
   type HealthResponse,
   type HoldingRow,
+  type AgentToolDefinition,
+  type LlmConfigCheckResponse,
   type RankingRow,
   type RunStatusResponse,
   type StockCandidate,
@@ -61,7 +70,7 @@ import {
 import { cn, formatDateTime, formatMoney, formatNumber, formatPercent } from "@/lib/utils";
 
 type StockTab = "holdings" | "candidates" | "trades";
-type DashboardTab = "overview" | "flow" | "performance" | "logs" | "stocks" | "settings";
+type DashboardTab = "overview" | "flow" | "performance" | "events" | "logs" | "stocks" | "agents" | "settings";
 type SettingSectionId = "data" | "llm" | "portfolio" | "risk" | "scheduler";
 type ConnectionState = "connecting" | "connected" | "disconnected";
 
@@ -96,6 +105,12 @@ const DASHBOARD_TABS: Array<{
     icon: BellRing,
   },
   {
+    id: "events",
+    label: "事件",
+    description: "展示交易时间、公告、新闻和系统事件如何进入 Agent 输入流。",
+    icon: Wifi,
+  },
+  {
     id: "logs",
     label: "日志",
     description: "集中浏览可折叠决策日志和 WebSocket 事件流。",
@@ -106,6 +121,12 @@ const DASHBOARD_TABS: Array<{
     label: "股票",
     description: "查看当前持仓、候选股票和交易记录。",
     icon: CandlestickChart,
+  },
+  {
+    id: "agents",
+    label: "智能体",
+    description: "查看每个 Agent 的工具、数据源、技能和按模型隔离的记忆入口。",
+    icon: Bot,
   },
   {
     id: "settings",
@@ -168,6 +189,11 @@ export function TradingDashboard() {
   const [runStatus, setRunStatus] = useState<RunStatusResponse | null>(null);
   const [connectionState, setConnectionState] = useState<ConnectionState>("connecting");
   const [liveEvents, setLiveEvents] = useState<BackendEvent[]>([]);
+  const [timelineEvents, setTimelineEvents] = useState<EventTimelineItem[]>([]);
+  const [agentTools, setAgentTools] = useState<AgentToolDefinition[]>([]);
+  const [memoryCases, setMemoryCases] = useState<AgentMemoryCase[]>([]);
+  const [selectedMemoryAgent, setSelectedMemoryAgent] = useState("");
+  const [llmCheck, setLlmCheck] = useState<LlmConfigCheckResponse | null>(null);
   const [stockTab, setStockTab] = useState<StockTab>("holdings");
   const [activeTab, setActiveTab] = useState<DashboardTab>("overview");
   const [nodeStateMap, setNodeStateMap] = useState<Record<string, LiveNodeState>>({});
@@ -175,6 +201,9 @@ export function TradingDashboard() {
   const [refreshing, setRefreshing] = useState(false);
   const [running, setRunning] = useState(false);
   const [savingConfig, setSavingConfig] = useState(false);
+  const [pollingTimeline, setPollingTimeline] = useState(false);
+  const [loadingMemory, setLoadingMemory] = useState(false);
+  const [checkingLlm, setCheckingLlm] = useState(false);
   const [configDirty, setConfigDirty] = useState(false);
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const configDirtyRef = useRef(false);
@@ -187,7 +216,7 @@ export function TradingDashboard() {
   const refreshDashboard = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [healthData, configData, flowData, decisionsData, boardData, equityData, rankingsData, currentRun] = await Promise.all([
+      const [healthData, configData, flowData, decisionsData, boardData, equityData, rankingsData, currentRun, timelineData, toolsData] = await Promise.all([
         getHealth(),
         getConfig(),
         getFlow(),
@@ -196,6 +225,8 @@ export function TradingDashboard() {
         getEquity(),
         getRankings(),
         getRunStatus(),
+        getEventTimeline(),
+        getAgentTools(),
       ]);
 
       setHealth(healthData);
@@ -208,6 +239,8 @@ export function TradingDashboard() {
       setEquitySeries(equityData.series);
       setRankings(rankingsData.rankings);
       setRunStatus(currentRun);
+      setTimelineEvents(timelineData.items);
+      setAgentTools(toolsData.items);
       setErrorMessage(null);
       setConfigDraft((current) => (current && configDirtyRef.current ? current : createConfigDraft(configData.config)));
     } catch (error) {
@@ -251,6 +284,17 @@ export function TradingDashboard() {
       if (event.type === "config_updated") {
         setConfigDirtyState(false);
         void refreshDashboard();
+      }
+
+      if (event.type === "timeline_event") {
+        const payload = event.payload as Partial<EventTimelineItem>;
+        if (payload.id && payload.title) {
+          setTimelineEvents((current) => [payload as EventTimelineItem, ...current.filter((item) => item.id !== payload.id)].slice(0, 60));
+        }
+      }
+
+      if (event.type === "llm_checked") {
+        setLlmCheck(event.payload as unknown as LlmConfigCheckResponse);
       }
     },
     [refreshDashboard, setConfigDirtyState],
@@ -422,6 +466,10 @@ export function TradingDashboard() {
         offline,
         max_count: configDraft.scheduler.max_count,
         days: configDraft.scheduler.history_days,
+        models: configDraft.scheduler.models_text
+          .split(",")
+          .map((item) => item.trim())
+          .filter(Boolean),
       });
     } catch (error) {
       setRunning(false);
@@ -444,6 +492,56 @@ export function TradingDashboard() {
       setErrorMessage(error instanceof Error ? error.message : "保存配置失败");
     } finally {
       setSavingConfig(false);
+    }
+  };
+
+  const handlePollTimeline = async () => {
+    setPollingTimeline(true);
+    try {
+      const response = await pollEvents();
+      setTimelineEvents(response.items);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "事件轮询失败");
+    } finally {
+      setPollingTimeline(false);
+    }
+  };
+
+  const handleCheckLlm = async () => {
+    if (!configDraft) {
+      return;
+    }
+    setCheckingLlm(true);
+    try {
+      const models = configDraft.scheduler.models_text
+        .split(",")
+        .map((item) => item.trim())
+        .filter(Boolean);
+      const response = await testLlmConfig(configDraftToPayload(configDraft), models);
+      setLlmCheck(response);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "LLM 配置检测失败");
+    } finally {
+      setCheckingLlm(false);
+    }
+  };
+
+  const handleLoadMemory = async (agentId: string) => {
+    if (!agentId) {
+      return;
+    }
+    setLoadingMemory(true);
+    setSelectedMemoryAgent(agentId);
+    try {
+      const response = await getAgentMemory(agentId);
+      setMemoryCases(response.items);
+      setErrorMessage(null);
+    } catch (error) {
+      setErrorMessage(error instanceof Error ? error.message : "Agent 记忆读取失败");
+    } finally {
+      setLoadingMemory(false);
     }
   };
 
@@ -716,6 +814,38 @@ export function TradingDashboard() {
           </section>
         ) : null}
 
+        {activeTab === "events" ? (
+          <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+            <Panel title="事件时间线" description="把交易时间、系统状态、公告、新闻和风险提醒统一成 Agent 可消费的输入流。" icon={Wifi}>
+              <div className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                <div>
+                  <div className="text-sm font-medium text-white">混合事件模式</div>
+                  <p className="mt-1 text-xs leading-5 text-slate-400">重大事件立即进入 Agent 决策链；普通新闻和公告按批次进入时间线。</p>
+                </div>
+                <ActionButton onClick={() => void handlePollTimeline()} busy={pollingTimeline} icon={RefreshCw} variant="secondary">
+                  手动轮询事件
+                </ActionButton>
+              </div>
+              <EventTimelineList events={timelineEvents} />
+            </Panel>
+            <Panel title="Agent 输入解释" description="这里说明事件会如何进入后续的舆情、风控和组合决策链。" icon={Bot}>
+              <div className="space-y-3 text-sm text-slate-200">
+                <SummaryRow label="当前事件数" value={formatNumber(timelineEvents.length)} />
+                <SummaryRow label="最新来源" value={timelineEvents[0]?.source || "-"} />
+                <SummaryRow label="最新类型" value={timelineEvents[0]?.category || "-"} />
+                <div className="rounded-2xl border border-white/10 bg-white/5 p-4 text-xs leading-6 text-slate-300">
+                  <p className="font-medium text-white">后续接入方向</p>
+                  <ol className="mt-2 list-decimal space-y-1 pl-5">
+                    <li>Tushare 公告和 AkShare 新闻会进入同一条时间线。</li>
+                    <li>critical / risk 事件会触发更快的 Agent 复核。</li>
+                    <li>所有输入会在日志中保留可审计摘要，避免黑盒决策。</li>
+                  </ol>
+                </div>
+              </div>
+            </Panel>
+          </section>
+        ) : null}
+
         {activeTab === "logs" ? (
           <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
             <Panel title="决策日志" description="每条卡片都展示动作摘要，可折叠查看评分、风险提示与原始上下文。" icon={Activity}>
@@ -768,6 +898,38 @@ export function TradingDashboard() {
                     <li>最后看“交易记录”确认系统是否真的执行了买卖动作。</li>
                   </ol>
                 </div>
+              </div>
+            </Panel>
+          </section>
+        ) : null}
+
+        {activeTab === "agents" ? (
+          <section className="grid gap-6 xl:grid-cols-[1.2fr_0.8fr]">
+            <Panel title="Agent 工具与技能清单" description="明确每个 Agent 能调用什么工具、依赖哪些数据源，以及在 8 Agent 流水线中的独有职责。" icon={Bot}>
+              <AgentToolsList tools={agentTools} />
+            </Panel>
+            <Panel title="按模型隔离的 Agent 记忆" description="每个模型驱动的系统独立查询自己的历史案例，避免 Benchmark 之间互相污染。" icon={Database}>
+              <div className="space-y-4">
+                <FormField label="选择 Agent 账户 ID">
+                  <select
+                    className={inputClassName}
+                    value={selectedMemoryAgent}
+                    onChange={(event) => void handleLoadMemory(event.target.value)}
+                  >
+                    <option value="">请选择排行榜中的账户</option>
+                    {rankings.map((row) => (
+                      <option key={row.agent_id} value={row.agent_id}>
+                        {row.llm_model || row.agent_id} / {row.agent_id}
+                      </option>
+                    ))}
+                  </select>
+                </FormField>
+                {selectedMemoryAgent ? (
+                  <ActionButton onClick={() => void handleLoadMemory(selectedMemoryAgent)} busy={loadingMemory} icon={RefreshCw} variant="secondary">
+                    刷新记忆案例
+                  </ActionButton>
+                ) : null}
+                <MemoryCaseList cases={memoryCases} loading={loadingMemory} />
               </div>
             </Panel>
           </section>
@@ -881,6 +1043,18 @@ export function TradingDashboard() {
                       <FormField label="最大重试次数">
                         <input className={inputClassName} type="number" value={configDraft.llm.max_retries} onChange={(event) => updateConfigSection("llm", { max_retries: Number(event.target.value || 0) })} />
                       </FormField>
+                    </div>
+                    <div className="rounded-2xl border border-white/10 bg-white/5 p-4">
+                      <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                        <div>
+                          <div className="text-sm font-medium text-white">LLM 防呆检测</div>
+                          <p className="mt-1 text-xs leading-5 text-slate-400">只检测当前表单内容，不会在响应里回显 API Key；可自动读取模型列表并给出修正建议。</p>
+                        </div>
+                        <ActionButton onClick={() => void handleCheckLlm()} busy={checkingLlm} icon={ShieldCheck} variant="secondary">
+                          检测 LLM 配置
+                        </ActionButton>
+                      </div>
+                      {llmCheck ? <LlmCheckPanel check={llmCheck} /> : null}
                     </div>
                   </ConfigGroup>
 
@@ -1138,6 +1312,147 @@ function GuideStepCard({
       </div>
     </div>
   );
+}
+
+function EventTimelineList({ events }: { events: EventTimelineItem[] }) {
+  if (!events.length) {
+    return <EmptyState title="暂无事件" description="点击“手动轮询事件”后，这里会显示系统、新闻、公告和风险事件如何进入 Agent 输入流。" />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {events.slice(0, 18).map((event) => (
+        <div key={event.id} className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+          <div className="flex flex-wrap items-start justify-between gap-3">
+            <div>
+              <div className="flex flex-wrap items-center gap-2">
+                <span className="text-sm font-semibold text-white">{event.title}</span>
+                <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium", severityTone(event.severity))}>{event.severity}</span>
+              </div>
+              <div className="mt-2 text-xs text-slate-400">
+                {event.source} · {event.category} · {formatDateTime(event.timestamp)} {event.stock_code ? `· ${event.stock_code}` : ""}
+              </div>
+            </div>
+          </div>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{event.summary || "暂无摘要"}</p>
+          {event.url ? (
+            <a className="mt-3 inline-flex text-xs text-indigo-200 hover:text-indigo-100" href={event.url} target="_blank" rel="noreferrer">
+              查看来源
+            </a>
+          ) : null}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function AgentToolsList({ tools }: { tools: AgentToolDefinition[] }) {
+  if (!tools.length) {
+    return <EmptyState title="暂无 Agent 工具清单" description="后端 /api/agents/tools 返回后，这里会列出每个 Agent 的工具、数据源和技能。" />;
+  }
+
+  return (
+    <div className="grid gap-3">
+      {tools.map((item) => (
+        <details key={item.agent_id} className="group rounded-2xl border border-white/10 bg-slate-950/60 p-4 open:border-indigo-400/40 open:bg-indigo-500/5">
+          <summary className="cursor-pointer list-none">
+            <div className="flex items-start justify-between gap-3">
+              <div>
+                <div className="text-sm font-semibold text-white">{item.agent_name}</div>
+                <p className="mt-1 text-xs leading-5 text-slate-400">{item.notes}</p>
+              </div>
+              <span className="rounded-full bg-indigo-500/15 px-2.5 py-1 text-[11px] font-medium text-indigo-100">{item.agent_id}</span>
+            </div>
+          </summary>
+          <div className="mt-4 grid gap-3 text-xs text-slate-300 md:grid-cols-3">
+            <TagList title="工具" items={item.tools} />
+            <TagList title="数据源" items={item.data_sources} />
+            <TagList title="技能" items={item.skills} />
+          </div>
+        </details>
+      ))}
+    </div>
+  );
+}
+
+function MemoryCaseList({ cases, loading }: { cases: AgentMemoryCase[]; loading: boolean }) {
+  if (loading) {
+    return <EmptyState title="正在读取记忆" description="正在从运行内存或 MongoDB 决策记录中读取该模型账户的历史案例。" />;
+  }
+  if (!cases.length) {
+    return <EmptyState title="暂无记忆案例" description="先运行一轮 Benchmark；系统会按 agent_id 隔离展示该模型驱动系统的历史决策。" />;
+  }
+
+  return (
+    <div className="space-y-3">
+      {cases.slice(0, 8).map((item) => (
+        <div key={item.id} className="rounded-2xl border border-white/10 bg-slate-950/60 p-4">
+          <div className="flex flex-wrap items-center gap-2">
+            <span className="text-sm font-semibold text-white">{item.stock_code || "未知标的"} {item.stock_name}</span>
+            <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium", actionTone(item.action))}>{item.action}</span>
+            <span className="rounded-full bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">{item.outcome}</span>
+          </div>
+          <p className="mt-2 text-xs text-slate-400">{item.agent_id} · {item.llm_model || "model"} · {formatDateTime(item.decision_date)}</p>
+          <p className="mt-3 text-sm leading-6 text-slate-300">{item.reason || "暂无记忆摘要"}</p>
+          <div className="mt-3 flex flex-wrap gap-2">
+            {item.tags.map((tag) => (
+              <span key={tag} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">{tag}</span>
+            ))}
+          </div>
+        </div>
+      ))}
+    </div>
+  );
+}
+
+function LlmCheckPanel({ check }: { check: LlmConfigCheckResponse }) {
+  return (
+    <div className="mt-4 space-y-3 rounded-2xl border border-white/10 bg-slate-950/60 p-4 text-xs text-slate-300">
+      <div className="grid gap-3 md:grid-cols-3">
+        <SummaryMetric label="连接状态" value={check.configured ? "已配置" : "未配置"} />
+        <SummaryMetric label="模型数量" value={formatNumber(check.models.length)} />
+        <SummaryMetric label="请求档位" value={check.request_profile || "-"} />
+      </div>
+      {check.warnings.length ? (
+        <div className="rounded-xl border border-amber-400/20 bg-amber-500/10 p-3 text-amber-100">
+          <div className="font-medium">需要注意</div>
+          <ul className="mt-2 list-disc space-y-1 pl-4">
+            {check.warnings.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      {check.diagnostics.length ? (
+        <div className="rounded-xl border border-emerald-400/20 bg-emerald-500/10 p-3 text-emerald-100">
+          <div className="font-medium">检测信息</div>
+          <ul className="mt-2 list-disc space-y-1 pl-4">
+            {check.diagnostics.map((item) => <li key={item}>{item}</li>)}
+          </ul>
+        </div>
+      ) : null}
+      {check.models.length ? <TagList title="可用模型" items={check.models.slice(0, 16)} /> : null}
+    </div>
+  );
+}
+
+function TagList({ title, items }: { title: string; items: string[] }) {
+  return (
+    <div>
+      <div className="mb-2 font-medium text-white">{title}</div>
+      <div className="flex flex-wrap gap-2">
+        {items.length ? items.map((item) => <span key={item} className="rounded-full border border-white/10 bg-white/5 px-2.5 py-1 text-[11px] text-slate-300">{item}</span>) : <span className="text-slate-500">-</span>}
+      </div>
+    </div>
+  );
+}
+
+function severityTone(severity: string): string {
+  if (severity === "critical") {
+    return "bg-rose-500/15 text-rose-100";
+  }
+  if (severity === "warning") {
+    return "bg-amber-500/15 text-amber-100";
+  }
+  return "bg-sky-500/15 text-sky-100";
 }
 
 function StatusPill({ children, icon: Icon, tone = "neutral" }: { children: string; icon: LucideIcon; tone?: "neutral" | "success" | "warning" | "info" }) {

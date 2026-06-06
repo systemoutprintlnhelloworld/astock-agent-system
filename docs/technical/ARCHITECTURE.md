@@ -197,7 +197,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
     return StockAnalysisReport(...)
 ```
 
-代码位置：[`src/astock_agent_system/agents/master_agent.py`](../../src/astock_agent_system/agents/master_agent.py)
+代码位置：`src/astock_agent_system/agents/master_agent.py`
 
 ---
 
@@ -211,7 +211,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 
 ### 3.1 核心理念
 
-**不是"单LLM vs 多LLM模式切换"，而是"用户选择几个模型进行 Benchmark"**
+**不是在多个产品模式之间切换，而是用户选择几个模型进行 Benchmark。**
 
 - ✅ 用户选择 N 个模型（N ≥ 1）
 - ✅ 系统并行运行 N 个独立的 Agent 系统
@@ -335,7 +335,7 @@ def run_competition(self, max_count: int, history_days: int) -> dict:
     return {"rankings": rankings, "accounts": accounts}
 ```
 
-代码位置：[`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py`](../../src/astock_agent_system/orchestrator/multi_agent_orchestrator.py)
+代码位置：`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py`
 
 ---
 
@@ -380,7 +380,7 @@ def restore_account(agent_id: str) -> VirtualAccount:
 2. 下次运行时，检查快照的 `date` 是否等于当前 `trade_date`
 3. 如果相等，跳过交易执行，直接返回快照结果
 
-代码位置：[`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py`](../../src/astock_agent_system/orchestrator/multi_agent_orchestrator.py) 的 `_is_same_trade_date_snapshot()`
+代码位置：`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py` 的 `_is_same_trade_date_snapshot()`
 
 ---
 
@@ -523,7 +523,7 @@ class VirtualAccount:
         """
 ```
 
-代码位置：[`src/astock_agent_system/backtest/virtual_account.py`](../../src/astock_agent_system/backtest/virtual_account.py)
+代码位置：`src/astock_agent_system/backtest/virtual_account.py`
 
 ---
 
@@ -568,7 +568,7 @@ class TradingTaskScheduler:
         """
 ```
 
-代码位置：[`src/astock_agent_system/scheduler/trading_task_scheduler.py`](../../src/astock_agent_system/scheduler/trading_task_scheduler.py)
+代码位置：`src/astock_agent_system/scheduler/task_scheduler.py` 的 `TradingTaskScheduler`
 
 ---
 

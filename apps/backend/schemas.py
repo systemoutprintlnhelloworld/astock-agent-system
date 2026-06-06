@@ -22,6 +22,9 @@ EventType = Literal[
     "decision_made",
     "trade_executed",
     "risk_checked",
+    "timeline_event",
+    "llm_checked",
+    "memory_updated",
     "config_updated",
     "run_completed",
     "run_failed",
@@ -38,6 +41,9 @@ EVENT_TYPES: tuple[str, ...] = (
     "decision_made",
     "trade_executed",
     "risk_checked",
+    "timeline_event",
+    "llm_checked",
+    "memory_updated",
     "config_updated",
     "run_completed",
     "run_failed",
@@ -244,3 +250,80 @@ class RunStatusResponse(ApiEnvelope):
 
     status: str = "idle"
     run: dict[str, Any] | None = None
+
+
+class EventTimelineItem(BaseModel):
+    """One user-facing market/system event shown on the event timeline."""
+
+    id: str
+    timestamp: str = Field(default_factory=lambda: datetime.now(timezone.utc).isoformat())
+    source: str = "system"
+    category: str = "system"
+    severity: Literal["info", "warning", "critical"] = "info"
+    title: str
+    summary: str = ""
+    stock_code: str = ""
+    url: str = ""
+    payload: dict[str, Any] = Field(default_factory=dict)
+
+
+class EventTimelineResponse(ApiEnvelope):
+    """Event timeline response for the modern UI."""
+
+    items: list[EventTimelineItem] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+
+class AgentMemoryCase(BaseModel):
+    """Readable memory case for one model-driven Agent system."""
+
+    id: str
+    agent_id: str = ""
+    llm_model: str = ""
+    stock_code: str = ""
+    stock_name: str = ""
+    decision_date: str = ""
+    action: str = "HOLD"
+    reason: str = ""
+    outcome: str = "unknown"
+    pnl_pct: float = 0.0
+    tags: list[str] = Field(default_factory=list)
+    raw: dict[str, Any] = Field(default_factory=dict)
+
+
+class AgentMemoryResponse(ApiEnvelope):
+    """Readonly memory cases for a model-driven Agent system."""
+
+    agent_id: str = ""
+    items: list[AgentMemoryCase] = Field(default_factory=list)
+    next_steps: list[str] = Field(default_factory=list)
+
+
+class AgentToolDefinition(BaseModel):
+    """Tool/skill capability assigned to one Agent role."""
+
+    agent_id: str
+    agent_name: str
+    tools: list[str] = Field(default_factory=list)
+    data_sources: list[str] = Field(default_factory=list)
+    skills: list[str] = Field(default_factory=list)
+    notes: str = ""
+
+
+class AgentToolsResponse(ApiEnvelope):
+    """Agent tool and skill catalog."""
+
+    items: list[AgentToolDefinition] = Field(default_factory=list)
+
+
+class LlmConfigCheckResponse(ApiEnvelope):
+    """LLM configuration validation and model discovery result."""
+
+    configured: bool = False
+    base_url: str = ""
+    default_model: str = ""
+    request_profile: str = ""
+    models: list[str] = Field(default_factory=list)
+    diagnostics: list[str] = Field(default_factory=list)
+    warnings: list[str] = Field(default_factory=list)
+    bench: dict[str, Any] | None = None

@@ -12,9 +12,9 @@
 
 | 文档 | 状态 | 内容 |
 |------|------|------|
-| **ARCHITECTURE.md** | ✅ 已修正 | 系统架构、8 Agent协作、Benchmark模式（已删除错误的"单LLM vs 多LLM"说法） |
+| **ARCHITECTURE.md** | ✅ 已修正 | 系统架构、8 Agent协作、Benchmark模式、多模型独立Agent系统 |
 | **FLOWS.md** | ✅ 完成 | 启动流程时序图、自动投资流程图、用户视角 vs Agent视角 |
-| **DESIGN_DECISIONS.md** | ⚠️ 待修正 | UI框架选型、透明化实现（第5章需删除"单LLM vs 多LLM"） |
+| **DESIGN_DECISIONS.md** | ✅ 已修正 | UI框架选型、透明化实现、Benchmark模式设计 |
 | **COMPARISON.md** | ✅ 完成 | TradingAgents/TradingGroup/FinRL/AutoGPT对比 |
 | **USER_NEEDS_MAPPING.md** | ✅ 完成 | 用户场景映射、快速查找代码位置表 |
 | **PRD_PHASE2.md** | ✅ 完成 | Phase 2规划：持续学习 + 事件驱动系统 |
@@ -32,7 +32,7 @@
 | 文档 | 状态 | 用途 |
 |------|------|------|
 | **DOCUMENTATION_MAP.md** | ✅ 完成 | 文档导航中心，区分外部用户 vs 核心开发者 |
-| **docs/FIX_TODO.md** | ✅ 完成 | 架构修正任务清单，包含修正指南 |
+| **docs/FIX_TODO.md** | ✅ 完成 | 架构修正完成记录与验收说明 |
 | **docs/trellis-plan.md** | ✅ 更新 | Phase 2增强方向，5个子任务 |
 
 ---
@@ -41,11 +41,8 @@
 
 ### ❌ 之前的错误理解
 
-```
-系统有两种模式：
-- 单LLM模式：快速验证，不执行交易
-- 多LLM模式：对比多个模型，生成排行榜
-- 用户需要"切换模式"
+```text
+错误地把 N=1 与 N>1 理解为两种需要用户切换的产品运行方式。
 ```
 
 ### ✅ 现在的正确理解
@@ -59,11 +56,11 @@
 3. 每个模型 = 1 个完整的 8 Agent + 1 个独立的 VirtualAccount
 4. 最后生成 Benchmark 排行榜
 
-特殊情况（N = 1）：
+模型数量为 N = 1 时：
 - 用户只选 ["rule-baseline"]
 - 系统运行 1 个 Agent 系统
 - 也是 Benchmark 模式，只是只有 1 个账户
-- 不是"单LLM模式"，没有"模式切换"
+- 不需要额外产品开关
 ```
 
 ---
@@ -148,39 +145,18 @@ Tauri 主进程启动（Rust）
 
 ---
 
-## ⚠️ 待修正的文档
+## ✅ 文档一致性修正完成
 
-### 1. DESIGN_DECISIONS.md 第5章
+本轮已把架构表述统一为 **Benchmark 模式**：用户选择 N 个模型（N >= 1），每个模型驱动一套完整且独立的 8 Agent 系统和独立 `VirtualAccount`。
 
-**当前内容**（需要删除）：
-```markdown
-## 5. 单LLM vs 多LLM 架构切换
+已完成修正：
 
-### 5.1 为什么需要两种模式
-...
-```
+- `docs/technical/ARCHITECTURE.md`：第 3 章改为 Benchmark 架构。
+- `docs/technical/DESIGN_DECISIONS.md`：第 5 章改为 Benchmark 模式设计。
+- `DOCUMENTATION_MAP.md`：核心开发者导航改为 Benchmark 模式说明。
+- `docs/FIX_TODO.md`：改为完成记录，不再保留待办项。
 
-**替换为**：
-```markdown
-## 5. Benchmark 模式设计
-
-系统只有一种运行模式：Benchmark 模式。
-
-### 5.1 为什么只有一种模式
-
-- 简化用户理解：不需要学习"模式切换"
-- 统一代码路径：所有运行都走 MultiAgentOrchestrator
-- N = 1 时自动退化为单个系统，无需特殊处理
-```
-
-**文件位置**：`docs/technical/DESIGN_DECISIONS.md` 第 371 行左右
-
-### 2. 其他文档检查
-
-需要全局搜索并替换：
-- `单LLM模式` → `Benchmark 模式（N=1）`
-- `多LLM模式` → `Benchmark 模式`
-- `模式切换` → `选择模型数量`
+验收口径：产品层只有 Benchmark 模式；N=1 只是模型列表长度为 1 的情况，不是另一种用户运行模式。
 
 ---
 
@@ -257,10 +233,10 @@ docs/                        # 文档体系
 
 ### 理解正确性
 
-- [x] 删除"单LLM vs 多LLM模式"错误说法
+- [x] 删除错误的多模式切换说法
 - [x] 统一为"Benchmark 模式"
 - [x] 明确"每个模型 = 一个独立的 Agent 系统"
-- [ ] 需要继续修正 DESIGN_DECISIONS.md
+- [x] DESIGN_DECISIONS.md 已统一为 Benchmark 模式设计
 
 ### 工具自动化
 
@@ -275,9 +251,9 @@ docs/                        # 文档体系
 ### 立即操作
 
 1. ✅ 已完成：修正 ARCHITECTURE.md
-2. ⚠️ 待完成：修正 DESIGN_DECISIONS.md 第5章
-3. ⚠️ 待完成：全局搜索替换相关说法
-4. ⚠️ 待完成：提交最终修正并推送
+2. ✅ 已完成：修正 DESIGN_DECISIONS.md 第5章
+3. ✅ 已完成：全局搜索替换相关说法
+4. ✅ 已完成：提交前验证纳入本轮交付流程
 
 ### 后续开发（Phase 2）
 
@@ -302,4 +278,4 @@ docs/                        # 文档体系
 ---
 
 **最后更新**：2026-06-06  
-**状态**：Phase 1-2 基本完成，文档体系建立，部分文档待修正
+**状态**：Phase 1-2 文档体系与 Benchmark 架构修正完成，Phase 2 最小接口和现代 UI 入口已接入

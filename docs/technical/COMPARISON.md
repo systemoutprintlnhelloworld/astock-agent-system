@@ -13,10 +13,10 @@
 | 项目 | 类型 | 信源 | Agent架构 | UI方案 | 开源情况 |
 |------|------|------|----------|--------|---------|
 | **FinRL** | 强化学习量化 | Yahoo Finance / Alpaca | 单Agent RL | Jupyter Notebook | ✅ 开源 |
-| **AutoGPT-Finance** | LLM Agent | 可配置 | 单LLM链式调用 | CLI | ✅ 开源 |
+| **AutoGPT-Finance** | LLM Agent | 可配置 | 单模型链式调用 | CLI | ✅ 开源 |
 | **LangChain Stock Trader** | LLM Agent | Alpha Vantage | LangChain工具链 | CLI / Streamlit | ✅ 开源 |
 | **Qlib** | 微软量化平台 | 自定义 | 传统量化因子 | CLI / Jupyter | ✅ 开源 |
-| **我们的项目** | 多Agent LLM | Tushare / AkShare | 8 Agent 协作 + 多LLM对比 | Next.js modern-ui | ✅ 开源 |
+| **我们的项目** | 多Agent LLM | Tushare / AkShare | 8 Agent 协作 + 多模型 Benchmark | Next.js modern-ui | ✅ 开源 |
 
 ---
 
@@ -47,7 +47,7 @@
 
 **我们的改进**：
 1. **多Agent协作**：技术、基本面、舆情、风控、组合分工明确
-2. **多LLM对比**：每个模型独立账户，生成排行榜
+2. **多模型 Benchmark**：每个模型驱动独立账户，生成排行榜
 3. **实时透明UI**：React Flow + WebSocket + 折叠日志
 4. **A股数据源**：Tushare + AkShare，专注A股市场
 5. **模拟盘严格验证**：T+1、手续费、印花税、滑点、止损
@@ -107,7 +107,7 @@ Risk Manager
 |------|--------------|-----------|
 | Agent数量 | 7个（固定） | 8个（可扩展） |
 | 辩论机制 | ✅ Bull vs Bear | ✅ DebateRoom |
-| 多LLM对比 | ❌ 只用GPT-4 | ✅ 多模型独立账户比赛 |
+| 多模型 Benchmark | ❌ 只用GPT-4 | ✅ 多模型独立账户比赛 |
 | 实时UI | ❌ 无 | ✅ React Flow + WebSocket |
 | 持续学习 | ❌ 无记忆 | ✅ 三层记忆系统（Phase 2） |
 | 事件驱动 | ❌ 只定时 | ✅ 混合模式（Phase 2） |
@@ -219,7 +219,7 @@ def make_decision(stock, current_signals):
 - 通常使用网页搜索 + API调用
 
 **Agent架构**：
-- **单LLM链式调用**：一个LLM负责所有决策
+- **单模型链式调用**：一个模型负责所有决策
 - 没有专业Agent分工
 - 没有多模型对比
 
@@ -228,8 +228,8 @@ def make_decision(stock, current_signals):
 - 无实时可视化
 
 **我们的改进**：
-1. **8 Agent分工**：每个Agent只负责一个维度，不是一个LLM做所有事
-2. **多LLM独立账户**：rule-baseline, gpt-4o, claude-3.5 等模型独立运行，生成排行榜
+1. **8 Agent分工**：每个Agent只负责一个维度，不是一个模型做所有事
+2. **多模型独立账户**：rule-baseline, gpt-4o, claude-3.5 等模型独立运行，生成排行榜
 3. **现代化UI**：React Flow流程图 + 实时事件 + 折叠日志
 4. **模拟盘验证**：严格模拟A股规则，不是纸上谈兵
 5. **持仓恢复 + 幂等保护**：支持长期运行，避免重复交易
@@ -263,7 +263,7 @@ def make_decision(stock, current_signals):
 
 **我们的改进**：
 1. **专业Agent分工**：不是"LLM + 工具"，而是"8个专业Agent + LLM复核"
-2. **多LLM对比**：每个模型独立账户，生成排行榜
+2. **多模型 Benchmark**：每个模型独立账户，生成排行榜
 3. **实时透明UI**：modern-ui，不是简单Streamlit
 4. **模拟盘严格验证**：T+1、手续费、印花税、滑点、止损
 5. **A股数据源**：Tushare + AkShare
@@ -320,7 +320,7 @@ mindmap
       8个专业Agent分工
       技术、基本面、舆情、风控、组合
       DebateRoom综合研判
-    多LLM对比
+    多模型 Benchmark
       每个模型独立账户
       rule-baseline作为基准
       排行榜对比模型能力
@@ -341,7 +341,7 @@ mindmap
 
 ### 3.2 优势详解
 
-#### 优势 1：多Agent分工，不是单LLM全能
+#### 优势 1：多Agent分工，不是单模型全能
 
 **问题**：
 - 单个LLM既要做技术分析，又要做基本面分析，还要做风控，容易顾此失彼
@@ -384,7 +384,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 
 ---
 
-#### 优势 2：多LLM独立账户对比
+#### 优势 2：多模型独立账户 Benchmark
 
 **问题**：
 - 不知道哪个LLM模型投资能力更强
@@ -404,7 +404,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 | 2 | gpt-4o | 103,890 | +3.89% | -3.5% | 60% | 15 |
 | 3 | rule-baseline | 101,200 | +1.20% | -4.2% | 55% | 10 |
 
-代码位置：[`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py`](../../src/astock_agent_system/orchestrator/multi_agent_orchestrator.py)
+代码位置：`src/astock_agent_system/orchestrator/multi_agent_orchestrator.py`
 
 ---
 
@@ -431,8 +431,8 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 8. 性能页实时更新排行榜
 
 代码位置：
-- 前端：[`apps/frontend/src/components/trading-dashboard.tsx`](../../apps/frontend/src/components/trading-dashboard.tsx)
-- 后端：[`apps/backend/app.py`](../../apps/backend/app.py)
+- 前端：`apps/frontend/src/components/trading-dashboard.tsx`
+- 后端：`apps/backend/app.py`
 
 ---
 
@@ -451,7 +451,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 - **强制止损**：跌幅超过阈值，强制卖出
 - **幂等保护**：同一交易日重复运行，跳过交易执行
 
-代码位置：[`src/astock_agent_system/backtest/virtual_account.py`](../../src/astock_agent_system/backtest/virtual_account.py)
+代码位置：`src/astock_agent_system/backtest/virtual_account.py`
 
 ---
 
@@ -466,7 +466,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 - **离线样例**：保证离线可用
 - **降级流程**：Tushare → AkShare → 离线样例
 
-代码位置：[`src/astock_agent_system/data/data_agent.py`](../../src/astock_agent_system/data/data_agent.py)
+代码位置：`src/astock_agent_system/data/data_agent.py`
 
 ---
 
@@ -487,7 +487,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 #### 方向 1：增加强化学习模型对比
 
 **目标**：
-- 在多LLM对比的基础上，增加RL模型
+- 在多模型 Benchmark 的基础上，增加RL模型
 - 例如：`rule-baseline`, `gpt-4o`, `claude-3.5`, `PPO-RL`
 
 **挑战**：

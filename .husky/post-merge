@@ -1,16 +1,14 @@
 #!/bin/sh
-. "$(dirname "$0")/_/husky.sh"
 
-echo "📚 Checking documentation consistency..."
+echo "Checking documentation consistency..."
 
-# 检查关键代码文件是否有更新
-CHANGED_CODE=$(git diff --name-only HEAD@{1} HEAD | grep -E "(src/|apps/)" || true)
+CHANGED_CODE=$(git diff --name-only HEAD@{1} HEAD | sed -n '/^src\//p;/^apps\//p')
 
 if [ -n "$CHANGED_CODE" ]; then
-  echo "  ⚠️  Code files changed, please check if documentation needs update:"
+  echo "  WARNING: code files changed; check if documentation needs an update:"
   echo "$CHANGED_CODE" | sed 's/^/    - /'
   echo ""
-  echo "  📖 Documentation checklist:"
+  echo "  Documentation checklist:"
   echo "    - docs/technical/ARCHITECTURE.md (if architecture changed)"
   echo "    - docs/technical/FLOWS.md (if flows changed)"
   echo "    - docs/technical/USER_NEEDS_MAPPING.md (if API changed)"
@@ -18,4 +16,4 @@ if [ -n "$CHANGED_CODE" ]; then
   echo ""
 fi
 
-echo "  ✅ Check complete!"
+echo "  OK: documentation consistency check complete."
