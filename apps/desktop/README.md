@@ -57,3 +57,16 @@ npm --prefix apps/frontend run build:desktop
 ```
 
 The build creates a PyInstaller sidecar in `apps/desktop/src-tauri/binaries`, including the Windows target-triple name expected by Tauri. The final bundle starts the Python FastAPI backend and loads the built frontend from `apps/desktop/dist`. At runtime the desktop shell checks `127.0.0.1:8000..8020`, reuses an existing healthy AStock backend if one is already running, otherwise starts the bundled backend on the first free port. The frontend probes the same range before opening HTTP/WebSocket connections, so a non-AStock process occupying port `8000` no longer blocks the packaged app.
+
+If the desktop window stays on "waiting for WebSocket" while `/api/health` works in a browser, rebuild the backend sidecar and desktop bundle from the current source. The packaged WebView runs under the `tauri.localhost` origin, so the FastAPI adapter must allow that origin for the initial HTTP health probes; otherwise port discovery fails and the WebSocket falls back to the wrong port.
+
+Useful checks:
+
+```powershell
+# Probe all possible backend ports.
+for ($p=8000; $p -le 8020; $p++) { try { Invoke-RestMethod -Uri ("http://127.0.0.1:$p/api/health") -TimeoutSec 1 } catch {} }
+
+# Rebuild packaged backend and desktop app after backend/API changes.
+.\start.bat -Mode desktop-sidecar
+.\start.bat -Mode desktop-build
+```

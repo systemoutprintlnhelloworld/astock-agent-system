@@ -26,6 +26,25 @@ def test_health_endpoint_exposes_backend_metadata() -> None:
     assert "run_started" in payload["event_types"]
 
 
+def test_tauri_origin_is_allowed_for_desktop_http_probe() -> None:
+    client = TestClient(app)
+
+    get_response = client.get("/api/health", headers={"Origin": "http://tauri.localhost"})
+    assert get_response.status_code == 200
+    assert get_response.headers["access-control-allow-origin"] == "http://tauri.localhost"
+
+    response = client.options(
+        "/api/health",
+        headers={
+            "Origin": "http://tauri.localhost",
+            "Access-Control-Request-Method": "GET",
+        },
+    )
+
+    assert response.status_code == 200
+    assert response.headers["access-control-allow-origin"] == "http://tauri.localhost"
+
+
 def test_config_endpoint_redacts_local_secrets(monkeypatch) -> None:
     monkeypatch.setenv("TUSHARE_TOKEN", "x")
     monkeypatch.setenv("LLM_API_KEY", "x")
