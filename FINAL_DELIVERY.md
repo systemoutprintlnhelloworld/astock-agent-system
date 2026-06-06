@@ -124,6 +124,13 @@
 ### 当前桌面打包入口（Phase 3 准备完成）
 
 ```powershell
+# 推荐：全自动桌面交付流程
+.\start.bat -Mode desktop-release -AutoInstallRust
+
+# 无 Rust/Cargo 时先验证除最终 .exe 编译外的完整链路
+.\start.bat -Mode desktop-release -SkipDesktopBuild
+
+# 分步骤入口仍然保留
 .\start.bat -Mode desktop-doctor
 .\start.bat -Mode desktop-sidecar
 npm --prefix apps/frontend run build:desktop
@@ -132,7 +139,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 .\start.bat -Mode desktop-build
 ```
 
-其中 `desktop-sidecar` 负责通过 PyInstaller 生成 Tauri sidecar，`build:desktop` 负责生成 `apps/desktop/dist` 静态前端，`desktop-dev` / `desktop-build` 负责启动和打包 Tauri 桌面壳。若 `desktop-doctor` 显示缺少 Cargo，需要先安装 Rust/Cargo 后再执行最终 `.exe` 编译。
+其中 `desktop-release` 会串联依赖安装、PyInstaller sidecar、Next.js 静态导出、质量门禁和 Tauri 桌面打包；`delivery-check` 可单独运行质量门禁。若缺少 Cargo，可加 `-AutoInstallRust` 自动安装，也可用 `-SkipDesktopBuild` 只验证除最终 `.exe` 编译外的链路。
 
 ### 目标状态（Phase 3）
 

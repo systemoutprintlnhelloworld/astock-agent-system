@@ -73,7 +73,7 @@ docs/
 - modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
 - `start.bat -Mode backend -Port 8000` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 可一键拉起首版现代 UI 预览。
-- `apps/desktop` 已新增 Tauri 2 桌面壳；`apps/backend/sidecar.py` 已作为 PyInstaller 入口；`start.bat` 已新增 `desktop-doctor`、`desktop-sidecar`、`desktop-dev` 和 `desktop-build`。
+- `apps/desktop` 已新增 Tauri 2 桌面壳；`apps/backend/sidecar.py` 已作为 PyInstaller 入口；`start.bat` 已新增 `desktop-doctor`、`desktop-bootstrap`、`desktop-sidecar`、`desktop-dev`、`desktop-build`、`desktop-release` 和 `delivery-check`。
 - `apps/frontend` 已支持 `output: "export"` 的静态桌面构建，`npm --prefix apps/frontend run build:desktop` 会把产物复制到 `apps/desktop/dist`。
 
 最终桌面打包目标：
@@ -154,6 +154,15 @@ Tauri 主进程启动
 桌面打包检验路径：
 
 ```powershell
+# 全自动路径：安装依赖、构建 sidecar、构建静态前端、运行质量门禁，并在需要时自动安装 Rust/Cargo 后打包桌面壳
+.\start.bat -Mode desktop-release -AutoInstallRust
+
+# 只验证除最终 .exe 编译外的链路
+.\start.bat -Mode desktop-release -SkipDesktopBuild
+
+# 只跑质量门禁
+.\start.bat -Mode delivery-check
+
 # 1. 检查 Node/npm/Python/Cargo 和 sidecar 状态
 .\start.bat -Mode desktop-doctor
 
@@ -169,7 +178,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 .\start.bat -Mode desktop-build
 ```
 
-如果 `desktop-doctor` 显示 `MISSING: cargo`，说明当前机器还不能本地编译最终 `.exe`；这时 `modern-ui`、`desktop-sidecar` 和 `build:desktop` 仍可验证，最终 Tauri `.exe` 需先安装 Rust/Cargo 后再执行 `desktop-build`。
+如果 `desktop-doctor` 显示 `MISSING: cargo`，说明当前机器还不能本地编译最终 `.exe`；此时可运行 `desktop-release -AutoInstallRust` 自动安装 Rust/Cargo，或先用 `desktop-release -SkipDesktopBuild` 验证除最终 `.exe` 编译外的完整链路。
 
 ## 7. 分阶段交付
 
@@ -207,6 +216,7 @@ python -m apps.backend.sidecar --help
 .\start.bat -Mode desktop-doctor
 .\start.bat -Mode desktop-sidecar
 npm --prefix apps/frontend run build:desktop
+.\start.bat -Mode delivery-check
 ```
 
 `desktop-dev` / `desktop-build` 属于最终桌面壳编译验证，必须在 Rust/Cargo 可用后执行；若 Cargo 缺失，应记录为环境前置条件，而不是标记为代码失败。

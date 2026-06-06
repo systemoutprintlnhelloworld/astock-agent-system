@@ -52,7 +52,7 @@
 | Benchmark 架构修正 | 已完成 | 产品层统一为 Benchmark 模式：用户选择 N 个模型，每个模型驱动独立 8-Agent 系统和独立 `VirtualAccount`；不再区分“单 LLM / 多 LLM 模式”。 |
 | Phase 2 透明化最小接口 | 已完成 | 已新增事件时间线、Agent 记忆只读查询、LLM 配置检测和 Agent 工具清单接口，并接入 modern-ui 的事件/智能体/设置页签。 |
 | Git 结束流程自动推送 | 已完成 | `post-commit` 默认推送当前分支到 GitHub `origin`；如需临时跳过，可设置 `SKIP_AUTO_PUSH=1`。 |
-| Tauri 桌面壳与 sidecar 打包入口 | 已完成阶段版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口和 `desktop-doctor` / `desktop-sidecar` / `desktop-dev` / `desktop-build` 启动模式。 |
+| Tauri 桌面壳与 sidecar 打包入口 | 已完成阶段版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式。 |
 
 ## 4. 推荐一键运行路径
 
@@ -111,6 +111,15 @@ python -m pip install -e ".[docs]"
 桌面打包验证顺序：
 
 ```powershell
+# 全自动路径：安装依赖、构建 sidecar、构建静态前端、运行质量门禁，并在需要时自动安装 Rust/Cargo 后打包桌面壳
+.\start.bat -Mode desktop-release -AutoInstallRust
+
+# 只验证除最终 .exe 编译外的链路
+.\start.bat -Mode desktop-release -SkipDesktopBuild
+
+# 只跑提交前质量门禁
+.\start.bat -Mode delivery-check
+
 # 1. 检查本机是否具备桌面打包环境
 .\start.bat -Mode desktop-doctor
 
@@ -126,7 +135,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 .\start.bat -Mode desktop-build
 ```
 
-`desktop-build` 成功后，Windows 安装包位于 `apps/desktop/src-tauri/target/release/bundle/nsis/`。当前 `start.bat` 仍是开发/验证入口；最终交付目标是 Tauri 打出的 `AStock Agent System` 桌面 `.exe`。
+`desktop-release` 是推荐入口；`desktop-build` 是底层分步入口。成功后，Windows 安装包位于 `apps/desktop/src-tauri/target/release/bundle/nsis/`。当前 `start.bat` 仍是开发/验证入口；最终交付目标是 Tauri 打出的 `AStock Agent System` 桌面 `.exe`。
 
 ## 5. 当前在线状态
 

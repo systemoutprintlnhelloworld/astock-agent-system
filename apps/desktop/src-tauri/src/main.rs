@@ -66,7 +66,8 @@ fn main() {
         .on_window_event(|window, event| {
             if matches!(event, WindowEvent::CloseRequested { .. }) {
                 let state = window.state::<BackendSidecar>();
-                if let Some(child) = state.0.lock().expect("sidecar state poisoned").take() {
+                let child = state.0.lock().expect("sidecar state poisoned").take();
+                if let Some(child) = child {
                     let _ = child.kill();
                 }
             }

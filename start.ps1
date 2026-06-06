@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "desktop-doctor", "desktop-sidecar", "desktop-dev", "desktop-build", "scheduler", "docs")]
+    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "desktop-doctor", "desktop-bootstrap", "desktop-sidecar", "desktop-dev", "desktop-build", "desktop-release", "delivery-check", "scheduler", "docs")]
     [string]$Mode = "status",
     [string]$Models = "",
     [string]$BenchModel = "",
@@ -7,7 +7,11 @@ param(
     [int]$Days = 12,
     [int]$Port = 8501,
     [int]$BackendPort = 8000,
-    [switch]$NoDocker
+    [switch]$NoDocker,
+    [switch]$AutoInstallRust,
+    [switch]$SkipTests,
+    [switch]$SkipDocs,
+    [switch]$SkipDesktopBuild
 )
 
 $ErrorActionPreference = "Stop"
@@ -247,6 +251,19 @@ function Assert-CommandAvailable {
     }
 }
 
+function Test-CommandAvailable {
+    param([string]$CommandName)
+    return [bool](Get-Command $CommandName -ErrorAction SilentlyContinue)
+}
+
+function Assert-LastCommandSucceeded {
+    param([string]$Action)
+
+    if ($LASTEXITCODE -ne 0) {
+        throw "$Action failed with exit code $LASTEXITCODE."
+    }
+}
+
 function Get-DesktopRoot {
     return (Join-Path $PSScriptRoot "apps/desktop")
 }
@@ -308,9 +325,338 @@ function Build-DesktopSidecar {
 }
 
 function Assert-DesktopPrerequisites {
+    Add-CargoBinToPath
     Assert-CommandAvailable -CommandName "node" -InstallHint "Install Node.js before running desktop UI commands."
     Assert-CommandAvailable -CommandName "npm" -InstallHint "Install Node.js/npm before running desktop UI commands."
     Assert-CommandAvailable -CommandName "cargo" -InstallHint "Install Rust from https://rustup.rs/ before running Tauri dev/build."
+    Assert-WindowsTauriBuildTools
+}
+
+function Invoke-NpmInstallInDirectory {
+    param([string]$Directory)
+
+    Assert-CommandAvailable -CommandName "npm" -InstallHint "Install Node.js/npm before running frontend or desktop commands."
+    Write-Step "Installing npm dependencies in $Directory"
+    Push-Location $Directory
+    try {
+        npm install
+        Assert-LastCommandSucceeded -Action "npm install in $Directory"
+    }
+    finally {
+        Pop-Location
+    }
+}
+
+function Build-DesktopFrontend {
+    Assert-CommandAvailable -CommandName "npm" -InstallHint "Install Node.js/npm before building frontend assets."
+    Write-Step "Building desktop frontend assets"
+    npm --prefix apps/frontend run build:desktop
+    Assert-LastCommandSucceeded -Action "Desktop frontend build"
+}
+
+function Get-CargoBinPath {
+    if ($env:CARGO_HOME) {
+        return (Join-Path $env:CARGO_HOME "bin")
+    }
+    return (Join-Path (Join-Path $env:USERPROFILE ".cargo") "bin")
+}
+
+function Add-CargoBinToPath {
+    $cargoBin = Get-CargoBinPath
+    if ((Test-Path -LiteralPath $cargoBin) -and ($env:Path -notlike "*$cargoBin*")) {
+        $env:Path = "$cargoBin;$env:Path"
+    }
+}
+
+function Get-LocalRustExecutable {
+    param([string]$Name)
+
+    $command = Get-Command $Name -ErrorAction SilentlyContinue
+    if ($command) {
+        return $command.Source
+    }
+
+    $extension = if ($IsWindows -or $env:OS -eq "Windows_NT") { ".exe" } else { "" }
+    $localPath = Join-Path (Get-CargoBinPath) "$Name$extension"
+    if (Test-Path -LiteralPath $localPath) {
+        return $localPath
+    }
+    return $null
+}
+
+function Test-RustToolchainAvailable {
+    Add-CargoBinToPath
+    $cargo = Get-LocalRustExecutable -Name "cargo"
+    if (-not $cargo) {
+        return $false
+    }
+
+    try {
+        & $cargo --version | Out-Null
+        return ($LASTEXITCODE -eq 0)
+    }
+    catch {
+        return $false
+    }
+}
+
+function Install-RustToolchainIfMissing {
+    Add-CargoBinToPath
+    if (Test-RustToolchainAvailable) {
+        return
+    }
+
+    if (-not $AutoInstallRust) {
+        throw "cargo is not available. Re-run with -AutoInstallRust to install Rust automatically, or install Rust from https://rustup.rs/."
+    }
+
+    Write-Step "Installing Rust toolchain for Tauri build"
+    $rustup = Get-LocalRustExecutable -Name "rustup"
+    if (-not $rustup) {
+        $toolsDir = Join-Path $PSScriptRoot "build/tools"
+        New-Item -ItemType Directory -Force -Path $toolsDir | Out-Null
+        $installer = Join-Path $toolsDir "rustup-init.exe"
+
+        try {
+            Invoke-WebRequest -UseBasicParsing -Uri "https://static.rust-lang.org/rustup/dist/x86_64-pc-windows-msvc/rustup-init.exe" -OutFile $installer
+            & $installer -y --default-toolchain stable --profile minimal
+            Assert-LastCommandSucceeded -Action "rustup-init"
+        }
+        catch {
+            Write-Host "Direct rustup-init installation failed: $($_.Exception.Message)" -ForegroundColor Yellow
+            if (-not (Test-CommandAvailable -CommandName "winget")) {
+                throw
+            }
+            Write-Host "Falling back to winget Rustup installation." -ForegroundColor Yellow
+            winget install --id Rustlang.Rustup -e --accept-package-agreements --accept-source-agreements
+            Assert-LastCommandSucceeded -Action "winget Rustup install"
+        }
+    }
+
+    Add-CargoBinToPath
+    $rustup = Get-LocalRustExecutable -Name "rustup"
+    if (-not $rustup) {
+        throw "Rustup installation did not finish correctly. Close and reopen PowerShell, then retry."
+    }
+    & $rustup default stable
+    Assert-LastCommandSucceeded -Action "rustup default stable"
+    & $rustup target add x86_64-pc-windows-msvc
+    Assert-LastCommandSucceeded -Action "rustup target add x86_64-pc-windows-msvc"
+    Add-CargoBinToPath
+    if (-not (Test-RustToolchainAvailable)) {
+        throw "Rust was installed but cargo is not usable. Close and reopen PowerShell, then retry."
+    }
+}
+
+function Test-WindowsMsvcBuildToolsAvailable {
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        return $true
+    }
+
+    if (Test-CommandAvailable -CommandName "cl") {
+        return $true
+    }
+
+    $vswhereCandidates = @()
+    $programFilesX86 = ${env:ProgramFiles(x86)}
+    if ($programFilesX86) {
+        $vswhereCandidates += (Join-Path $programFilesX86 "Microsoft Visual Studio/Installer/vswhere.exe")
+    }
+    if ($env:ProgramFiles) {
+        $vswhereCandidates += (Join-Path $env:ProgramFiles "Microsoft Visual Studio/Installer/vswhere.exe")
+    }
+
+    foreach ($vswhere in $vswhereCandidates) {
+        if (-not (Test-Path -LiteralPath $vswhere)) {
+            continue
+        }
+
+        $installPath = & $vswhere -latest -products * -requires Microsoft.VisualStudio.Component.VC.Tools.x86.x64 -property installationPath 2>$null
+        if ($LASTEXITCODE -eq 0 -and $installPath) {
+            return $true
+        }
+    }
+
+    return $false
+}
+
+function Assert-WindowsTauriBuildTools {
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        return
+    }
+    if (Test-WindowsMsvcBuildToolsAvailable) {
+        return
+    }
+    if ($AutoInstallRust) {
+        Install-WindowsTauriBuildToolsIfMissing
+        if (Test-WindowsMsvcBuildToolsAvailable) {
+            return
+        }
+    }
+
+    $installCommand = 'winget install --id Microsoft.VisualStudio.2022.BuildTools -e --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"'
+    throw "MSVC C++ Build Tools are not available. Tauri/Rust Windows builds require them. Install them with: $installCommand. Then reopen PowerShell and rerun desktop-release."
+}
+
+function Install-WindowsTauriBuildToolsIfMissing {
+    if (-not ($IsWindows -or $env:OS -eq "Windows_NT")) {
+        return
+    }
+    if (Test-WindowsMsvcBuildToolsAvailable) {
+        return
+    }
+    if (-not $AutoInstallRust) {
+        return
+    }
+
+    Assert-CommandAvailable -CommandName "winget" -InstallHint "Install Visual Studio 2022 Build Tools with the C++ workload before running the final Tauri build."
+    Write-Step "Installing MSVC C++ Build Tools for Tauri build"
+    winget install --id Microsoft.VisualStudio.2022.BuildTools -e --accept-package-agreements --accept-source-agreements --override "--wait --quiet --add Microsoft.VisualStudio.Workload.VCTools --includeRecommended"
+    Assert-LastCommandSucceeded -Action "Visual Studio Build Tools install"
+
+    if (-not (Test-WindowsMsvcBuildToolsAvailable)) {
+        throw "Visual Studio Build Tools installation finished, but the MSVC toolchain is still not visible. Close and reopen PowerShell, then rerun desktop-release."
+    }
+}
+
+function Invoke-DeliverySecretScan {
+    Write-Step "Scanning tracked files for accidental secrets"
+    $patterns = @(
+        'sk-[A-Za-z0-9_-]{20,}',
+        'TUSHARE_TOKEN\s*=\s*(?!your-|""|''''|$)[A-Za-z0-9_-]{20,}',
+        'LLM_API_KEY\s*=\s*(?!your-|""|''''|$)[A-Za-z0-9_-]{20,}'
+    )
+    $excludedPrefixes = @(
+        '.venv/',
+        'venv/',
+        'node_modules/',
+        'apps/frontend/node_modules/',
+        'apps/desktop/node_modules/',
+        'apps/frontend/out/',
+        'apps/desktop/dist/',
+        'apps/desktop/src-tauri/binaries/',
+        'site/',
+        'build/',
+        'dist/'
+    )
+
+    $files = git ls-files
+    foreach ($file in $files) {
+        $normalized = $file.Replace('\\', '/')
+        if ($normalized -eq '.env' -or $normalized -like '.env.*') {
+            if ($normalized -notmatch '^\.env\.(example|sample|template)$') {
+                throw "Local environment file is tracked: $file"
+            }
+        }
+        if ($excludedPrefixes | Where-Object { $normalized.StartsWith($_) }) {
+            continue
+        }
+        if (-not (Test-Path -LiteralPath $file -PathType Leaf)) {
+            continue
+        }
+        $content = Get-Content -LiteralPath $file -Raw -ErrorAction SilentlyContinue
+        if ($null -eq $content) {
+            continue
+        }
+        foreach ($pattern in $patterns) {
+            if ($content -match $pattern) {
+                throw "Potential secret found in tracked file: $file"
+            }
+        }
+    }
+    Write-Step "Secret scan passed"
+}
+
+function Invoke-DeliveryChecks {
+    if (-not $SkipTests) {
+        Write-Step "Running Python test suite"
+        python -m pytest
+        Assert-LastCommandSucceeded -Action "python -m pytest"
+    }
+
+    Write-Step "Running frontend lint"
+    npm --prefix apps/frontend run lint
+    Assert-LastCommandSucceeded -Action "frontend lint"
+
+    if (-not $SkipDocs) {
+        Write-Step "Building docs with strict MkDocs"
+        python -m mkdocs build --strict
+        Assert-LastCommandSucceeded -Action "mkdocs build --strict"
+    }
+
+    Write-Step "Checking backend app import"
+    python -c "from apps.backend.app import app; print(app.title)"
+    Assert-LastCommandSucceeded -Action "backend app import"
+
+    Write-Step "Checking sidecar entrypoint"
+    python -m apps.backend.sidecar --help
+    Assert-LastCommandSucceeded -Action "sidecar help"
+
+    Write-Step "Checking diff whitespace"
+    git diff --check
+    Assert-LastCommandSucceeded -Action "git diff --check"
+
+    Invoke-DeliverySecretScan
+}
+
+function Invoke-PythonEditableInstall {
+    Assert-CommandAvailable -CommandName "python" -InstallHint "Install Python 3.10+ before bootstrapping."
+    Write-Step "Installing Python package with all extras"
+
+    # Build isolation forces pip to fetch setuptools/wheel even when they are already
+    # installed locally. That makes the release flow brittle on locked-down networks,
+    # so prefer the local build environment and only fall back to isolated builds.
+    python -m pip install -e ".[all]" --no-build-isolation
+    if ($LASTEXITCODE -eq 0) {
+        return
+    }
+
+    Write-Host "Editable install without build isolation failed; retrying with pip build isolation." -ForegroundColor Yellow
+    python -m pip install -e ".[all]"
+    Assert-LastCommandSucceeded -Action "python editable install"
+}
+
+function Invoke-DesktopBootstrap {
+    Assert-CommandAvailable -CommandName "python" -InstallHint "Install Python 3.10+ before bootstrapping."
+    Assert-CommandAvailable -CommandName "node" -InstallHint "Install Node.js before bootstrapping."
+    Assert-CommandAvailable -CommandName "npm" -InstallHint "Install npm before bootstrapping."
+
+    Invoke-PythonEditableInstall
+
+    Invoke-NpmInstallInDirectory -Directory (Join-Path $PSScriptRoot "apps/frontend")
+    Invoke-NpmInstallInDirectory -Directory (Get-DesktopRoot)
+
+    if ($AutoInstallRust) {
+        Install-RustToolchainIfMissing
+    }
+}
+
+function Invoke-DesktopReleaseFlow {
+    Write-Step "Starting automated desktop release flow"
+    Invoke-DesktopBootstrap
+    Build-DesktopSidecar
+    Build-DesktopFrontend
+
+    if ($SkipDesktopBuild) {
+        Write-Host "Skipping final Tauri build because -SkipDesktopBuild was supplied." -ForegroundColor Yellow
+    }
+    else {
+        Install-RustToolchainIfMissing
+        Assert-DesktopPrerequisites
+        Write-Step "Building Tauri desktop bundle"
+        Push-Location (Get-DesktopRoot)
+        try {
+            $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
+            npm run build
+            Assert-LastCommandSucceeded -Action "Tauri desktop build"
+        }
+        finally {
+            Pop-Location
+        }
+    }
+
+    Invoke-DeliveryChecks
+    Write-Step "Automated desktop release flow completed"
 }
 
 Set-Location $PSScriptRoot
@@ -460,6 +806,7 @@ switch ($Mode) {
     }
     "desktop-doctor" {
         Write-Step "Checking desktop packaging prerequisites"
+        Add-CargoBinToPath
         foreach ($command in @("node", "npm", "python", "cargo")) {
             $found = Get-Command $command -ErrorAction SilentlyContinue
             if ($found) {
@@ -469,6 +816,14 @@ switch ($Mode) {
                 Write-Host "  MISSING: $command" -ForegroundColor Yellow
             }
         }
+        if ($IsWindows -or $env:OS -eq "Windows_NT") {
+            if (Test-WindowsMsvcBuildToolsAvailable) {
+                Write-Host "  OK: MSVC C++ Build Tools for Tauri" -ForegroundColor Green
+            }
+            else {
+                Write-Host "  MISSING: MSVC C++ Build Tools -> install Visual Studio 2022 Build Tools with the C++ workload" -ForegroundColor Yellow
+            }
+        }
         $sidecarPath = Get-DesktopSidecarPath
         if (Test-Path -LiteralPath $sidecarPath) {
             Write-Host "  OK: sidecar -> $sidecarPath" -ForegroundColor Green
@@ -476,15 +831,38 @@ switch ($Mode) {
         else {
             Write-Host "  MISSING: sidecar -> run .\start.bat -Mode desktop-sidecar" -ForegroundColor Yellow
         }
-        Write-Host "  Note: Tauri dev/build requires Rust/Cargo; current dev modern-ui path remains available without Rust." -ForegroundColor Cyan
+        $desktopNodeModules = Join-Path (Get-DesktopRoot) "node_modules"
+        if (Test-Path -LiteralPath $desktopNodeModules) {
+            Write-Host "  OK: desktop npm dependencies installed" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  MISSING: desktop npm dependencies -> run .\start.bat -Mode desktop-bootstrap" -ForegroundColor Yellow
+        }
+        $desktopDist = Join-Path (Get-DesktopRoot) "dist/index.html"
+        if (Test-Path -LiteralPath $desktopDist) {
+            Write-Host "  OK: desktop frontend assets -> $desktopDist" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  MISSING: desktop frontend assets -> run .\start.bat -Mode desktop-release -SkipDesktopBuild" -ForegroundColor Yellow
+        }
+        Write-Host "  Note: Tauri dev/build requires Rust/Cargo. Use -AutoInstallRust to let this script install Rust automatically." -ForegroundColor Cyan
+    }
+    "desktop-bootstrap" {
+        Invoke-DesktopBootstrap
     }
     "desktop-sidecar" {
         Build-DesktopSidecar
     }
     "desktop-dev" {
+        if ($AutoInstallRust) {
+            Install-RustToolchainIfMissing
+        }
         Assert-DesktopPrerequisites
         if (-not (Test-Path -LiteralPath (Get-DesktopSidecarPath))) {
             Build-DesktopSidecar
+        }
+        if (-not (Test-Path -LiteralPath (Join-Path (Get-DesktopRoot) "node_modules"))) {
+            Invoke-NpmInstallInDirectory -Directory (Get-DesktopRoot)
         }
         $desktopRoot = Get-DesktopRoot
         Write-Step "Starting Tauri desktop dev shell"
@@ -498,22 +876,31 @@ switch ($Mode) {
         }
     }
     "desktop-build" {
-        Assert-DesktopPrerequisites
-        Build-DesktopSidecar
-        Write-Step "Building desktop frontend assets"
-        npm --prefix apps/frontend run build:desktop
-        if ($LASTEXITCODE -ne 0) {
-            exit $LASTEXITCODE
+        if ($AutoInstallRust) {
+            Install-RustToolchainIfMissing
         }
+        Assert-DesktopPrerequisites
+        if (-not (Test-Path -LiteralPath (Join-Path (Get-DesktopRoot) "node_modules"))) {
+            Invoke-NpmInstallInDirectory -Directory (Get-DesktopRoot)
+        }
+        Build-DesktopSidecar
+        Build-DesktopFrontend
         Write-Step "Building Tauri desktop bundle"
         Push-Location (Get-DesktopRoot)
         try {
             $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
             npm run build
+            Assert-LastCommandSucceeded -Action "Tauri desktop build"
         }
         finally {
             Pop-Location
         }
+    }
+    "desktop-release" {
+        Invoke-DesktopReleaseFlow
+    }
+    "delivery-check" {
+        Invoke-DeliveryChecks
     }
     "scheduler" {
         Write-Step "Starting long-running scheduler"

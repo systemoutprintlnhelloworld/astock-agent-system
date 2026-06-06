@@ -200,7 +200,26 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 ## 9. 桌面版预览和打包验证
 
-最终目标是双击 Tauri 打包出的桌面 `.exe`，由桌面壳自动启动 Python FastAPI sidecar 并加载 Next.js 静态页面。开发期可以按以下顺序检验：
+最终目标是双击 Tauri 打包出的桌面 `.exe`，由桌面壳自动启动 Python FastAPI sidecar 并加载 Next.js 静态页面。优先使用全自动流程：
+
+```powershell
+# 自动安装 Python / npm 依赖、构建 sidecar、构建静态前端、运行质量门禁，并在需要时安装 Rust/Cargo 与 Windows C++ 构建工具后打包桌面安装包
+.\start.bat -Mode desktop-release -AutoInstallRust
+```
+
+如果你只想验证除最终 `.exe` 编译以外的所有步骤，可以运行：
+
+```powershell
+.\start.bat -Mode desktop-release -SkipDesktopBuild
+```
+
+如果只想跑提交前质量门禁，可以运行：
+
+```powershell
+.\start.bat -Mode delivery-check
+```
+
+分步骤检验仍然可用：
 
 ```powershell
 # 检查 Node/npm/Python/Cargo 和 sidecar 状态
@@ -218,7 +237,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 .\start.bat -Mode desktop-build
 ```
 
-如果 `desktop-doctor` 显示 `MISSING: cargo`，请先安装 Rust/Cargo（推荐 <https://rustup.rs/>），再执行 `desktop-dev` 或 `desktop-build`。没有 Cargo 时，仍然可以用 `modern-ui` 验证产品功能，用 `desktop-sidecar` 验证 Python 后端可被打包。
+如果 `desktop-doctor` 显示 `MISSING: cargo` 或 Windows C++ 构建工具缺失，可以直接运行 `desktop-release -AutoInstallRust` 让脚本自动安装 Rust/Cargo 与 Visual Studio C++ Build Tools；也可以手动安装 Rust/Cargo（推荐 <https://rustup.rs/>）和 MSVC C++ Build Tools，再执行 `desktop-dev` 或 `desktop-build`。没有 Cargo 或 MSVC 时，仍然可以用 `modern-ui` 验证产品功能，用 `desktop-release -SkipDesktopBuild` 验证除最终 `.exe` 编译外的完整链路。
 
 `desktop-build` 成功后，Windows 安装包会出现在：
 
