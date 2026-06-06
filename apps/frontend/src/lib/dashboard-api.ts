@@ -1,4 +1,14 @@
-export const BACKEND_BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+const DEFAULT_BACKEND_BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
+const BACKEND_PORT_START = 8000;
+const BACKEND_PORT_END = 8020;
+const BACKEND_DISCOVERY_ATTEMPTS = 30;
+const BACKEND_DISCOVERY_DELAY_MS = 500;
+const BACKEND_PROBE_TIMEOUT_MS = 350;
+
+export const BACKEND_BASE_URL = DEFAULT_BACKEND_BASE_URL;
+
+let resolvedBackendBaseUrl: string | null = null;
+let backendDiscoveryPromise: Promise<string> | null = null;
 
 export type AgentStatus = "idle" | "running" | "completed" | "failed" | "warning" | "skipped";
 
@@ -343,23 +353,115 @@ export interface ConfigDraft {
   };
 }
 
-async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
-  const response = await fetch(`${BACKEND_BASE_URL}${path}`, {
-    ...init,
-    headers: {
-      "Content-Type": "application/json",
-      ...(init?.headers || {}),
-    },
-    cache: "no-store",
+function sleep(ms: number): Promise<void> {
+  return new Promise((resolve) => window.setTimeout(resolve, ms));
+}
+
+function buildBackendCandidates(): string[] {
+  const candidates = new Set<string>([DEFAULT_BACKEND_BASE_URL]);
+
+  try {
+    const defaultUrl = new URL(DEFAULT_BACKEND_BASE_URL);
+    for (let port = BACKEND_PORT_START; port <= BACKEND_PORT_END; port += 1) {
+      const candidate = new URL(defaultUrl.toString());
+      candidate.port = String(port);
+      candidate.pathname = "";
+      candidate.search = "";
+      candidate.hash = "";
+      candidates.add(candidate.toString().replace(/\/+$/, ""));
+    }
+  } catch {
+    // Keep the configured backend URL as the only candidate if parsing fails.
+  }
+
+  return Array.from(candidates);
+}
+
+async function probeBackendBaseUrl(baseUrl: string): Promise<boolean> {
+  const controller = new AbortController();
+  const timeout = window.setTimeout(() => controller.abort(), BACKEND_PROBE_TIMEOUT_MS);
+  try {
+    const response = await fetch(`${baseUrl}/api/health`, {
+      cache: "no-store",
+      headers: { Accept: "application/json" },
+      signal: controller.signal,
+    });
+    if (!response.ok) {
+      return false;
+    }
+
+    const payload = (await response.json()) as Partial<HealthResponse>;
+    const appName = typeof payload.app === "string" ? payload.app.toLowerCase() : "";
+    return payload.status === "ok" && appName.includes("astock") && Array.isArray(payload.event_types);
+  } catch {
+    return false;
+  } finally {
+    window.clearTimeout(timeout);
+  }
+}
+
+async function discoverBackendBaseUrl(): Promise<string | null> {
+  for (const candidate of buildBackendCandidates()) {
+    if (await probeBackendBaseUrl(candidate)) {
+      return candidate;
+    }
+  }
+  return null;
+}
+
+export async function getBackendBaseUrl(): Promise<string> {
+  if (resolvedBackendBaseUrl) {
+    return resolvedBackendBaseUrl;
+  }
+
+  if (backendDiscoveryPromise) {
+    return backendDiscoveryPromise;
+  }
+
+  backendDiscoveryPromise = (async () => {
+    for (let attempt = 0; attempt < BACKEND_DISCOVERY_ATTEMPTS; attempt += 1) {
+      const discovered = await discoverBackendBaseUrl();
+      if (discovered) {
+        resolvedBackendBaseUrl = discovered;
+        return discovered;
+      }
+      await sleep(BACKEND_DISCOVERY_DELAY_MS);
+    }
+
+    return DEFAULT_BACKEND_BASE_URL;
+  })().finally(() => {
+    backendDiscoveryPromise = null;
   });
+
+  return backendDiscoveryPromise;
+}
+
+async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
+  const backendBaseUrl = await getBackendBaseUrl();
+  let response: Response;
+  try {
+    response = await fetch(`${backendBaseUrl}${path}`, {
+      ...init,
+      headers: {
+        "Content-Type": "application/json",
+        ...(init?.headers || {}),
+      },
+      cache: "no-store",
+    });
+  } catch (error) {
+    resolvedBackendBaseUrl = null;
+    throw error;
+  }
+
   if (!response.ok) {
+    resolvedBackendBaseUrl = null;
     throw new Error(`${response.status} ${response.statusText}`);
   }
   return (await response.json()) as T;
 }
 
-export function getWebSocketUrl(): string {
-  const url = new URL(BACKEND_BASE_URL);
+export async function getWebSocketUrl(): Promise<string> {
+  const url = new URL(await getBackendBaseUrl());
   url.protocol = url.protocol === "https:" ? "wss:" : "ws:";
   url.pathname = "/ws/events";
   return url.toString();

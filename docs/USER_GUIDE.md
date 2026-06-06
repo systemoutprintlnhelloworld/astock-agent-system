@@ -207,6 +207,10 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 .\start.bat -Mode desktop-release -AutoInstallRust
 ```
 
+桌面打包不再依赖 Google Fonts 在线拉取，前端使用系统字体兜底，因此在受限网络或离线网络中也不会因为字体下载失败而中断 Tauri `beforeBuildCommand`。
+
+打包后的桌面壳会在 `127.0.0.1:8000..8020` 范围内查找后端：如果已有健康的 AStock 后端，会直接复用；如果 `8000` 被其他非 AStock 程序占用，会自动选择第一个可用端口启动内置 sidecar。前端 HTTP 和 WebSocket 连接也会探测同一端口范围。
+
 如果你只想验证除最终 `.exe` 编译以外的所有步骤，可以运行：
 
 ```powershell

@@ -23,6 +23,8 @@ Fully automated release path:
 .\start.bat -Mode desktop-release -AutoInstallRust
 ```
 
+The desktop release is designed to build without fetching Google-hosted fonts. The frontend uses local system font fallbacks so locked-down or offline networks do not break the Tauri `beforeBuildCommand`.
+
 If you do not want the script to install Rust/Cargo and Windows C++ build tools automatically, omit `-AutoInstallRust`; the flow will stop with a clear prerequisite message. To validate everything except the final Tauri `.exe` build, use:
 
 ```powershell
@@ -54,4 +56,4 @@ npm --prefix apps/frontend run build:desktop
 .\start.bat -Mode desktop-build
 ```
 
-The build creates a PyInstaller sidecar in `apps/desktop/src-tauri/binaries`, including the Windows target-triple name expected by Tauri. The final bundle starts the Python FastAPI backend as a Tauri sidecar and loads the built frontend from `apps/desktop/dist`.
+The build creates a PyInstaller sidecar in `apps/desktop/src-tauri/binaries`, including the Windows target-triple name expected by Tauri. The final bundle starts the Python FastAPI backend and loads the built frontend from `apps/desktop/dist`. At runtime the desktop shell checks `127.0.0.1:8000..8020`, reuses an existing healthy AStock backend if one is already running, otherwise starts the bundled backend on the first free port. The frontend probes the same range before opening HTTP/WebSocket connections, so a non-AStock process occupying port `8000` no longer blocks the packaged app.

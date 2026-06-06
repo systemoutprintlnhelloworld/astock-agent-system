@@ -280,6 +280,42 @@ function Get-DesktopSidecarPath {
     return (Join-Path $binaryRoot "astock-backend")
 }
 
+function Get-DesktopReleaseExecutablePath {
+    $releaseRoot = Join-Path (Get-DesktopRoot) "src-tauri/target/release"
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        return (Join-Path $releaseRoot "astock-agent-desktop.exe")
+    }
+    return (Join-Path $releaseRoot "astock-agent-desktop")
+}
+
+function Get-DesktopInstallerArtifacts {
+    $installerRoot = Join-Path (Get-DesktopRoot) "src-tauri/target/release/bundle/nsis"
+    if (-not (Test-Path -LiteralPath $installerRoot)) {
+        return @()
+    }
+    return @(Get-ChildItem -LiteralPath $installerRoot -Filter "*.exe" -File -ErrorAction SilentlyContinue)
+}
+
+function Assert-DesktopReleaseArtifacts {
+    $releaseExe = Get-DesktopReleaseExecutablePath
+    if (-not (Test-Path -LiteralPath $releaseExe)) {
+        throw "Tauri build completed but the desktop executable was not created: $releaseExe"
+    }
+
+    Write-Step "Desktop executable ready: $releaseExe"
+
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        $installers = @(Get-DesktopInstallerArtifacts)
+        if (-not $installers.Count) {
+            throw "Tauri build completed but no NSIS installer was created under apps/desktop/src-tauri/target/release/bundle/nsis."
+        }
+
+        foreach ($installer in $installers) {
+            Write-Step "Desktop installer ready: $($installer.FullName)"
+        }
+    }
+}
+
 function Build-DesktopSidecar {
     Assert-CommandAvailable -CommandName "python" -InstallHint "Install Python 3.10+ and run: python -m pip install -e `".[all]`""
     Write-Step "Building Python FastAPI sidecar with PyInstaller"
@@ -304,6 +340,12 @@ function Build-DesktopSidecar {
         "--specpath", $buildRoot,
         "--collect-submodules", "apps.backend",
         "--collect-submodules", "astock_agent_system",
+        "--collect-all", "requests",
+        "--collect-all", "certifi",
+        "--collect-submodules", "urllib3",
+        "--collect-submodules", "charset_normalizer",
+        "--collect-submodules", "idna",
+        "--hidden-import", "yaml",
         $sidecarEntry
     )
     python -m PyInstaller @pyinstallerArgs
@@ -336,10 +378,40 @@ function Invoke-NpmInstallInDirectory {
     param([string]$Directory)
 
     Assert-CommandAvailable -CommandName "npm" -InstallHint "Install Node.js/npm before running frontend or desktop commands."
+    if (-not (Test-Path -LiteralPath (Join-Path $Directory "package.json"))) {
+        throw "npm package.json was not found in $Directory"
+    }
+
     Write-Step "Installing npm dependencies in $Directory"
     Push-Location $Directory
     try {
-        npm install
+        $nodeModules = Join-Path $Directory "node_modules"
+        $packageLock = Join-Path $Directory "package-lock.json"
+
+        if (Test-Path -LiteralPath $packageLock) {
+            npm ci --no-audit --no-fund
+            if ($LASTEXITCODE -eq 0) {
+                return
+            }
+            Write-Host "npm ci failed in $Directory; retrying npm install." -ForegroundColor Yellow
+        }
+
+        npm install --no-audit --no-fund
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        Write-Host "npm install failed in $Directory; retrying with legacy peer dependency resolution." -ForegroundColor Yellow
+        npm install --legacy-peer-deps --no-audit --no-fund
+        if ($LASTEXITCODE -eq 0) {
+            return
+        }
+
+        if (Test-Path -LiteralPath $nodeModules) {
+            Write-Host "npm install still failed in $Directory, but node_modules already exists; continuing and letting the following build/lint step validate dependency completeness." -ForegroundColor Yellow
+            return
+        }
+
         Assert-LastCommandSucceeded -Action "npm install in $Directory"
     }
     finally {
@@ -649,6 +721,7 @@ function Invoke-DesktopReleaseFlow {
             $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
             npm run build
             Assert-LastCommandSucceeded -Action "Tauri desktop build"
+            Assert-DesktopReleaseArtifacts
         }
         finally {
             Pop-Location
@@ -891,6 +964,7 @@ switch ($Mode) {
             $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
             npm run build
             Assert-LastCommandSucceeded -Action "Tauri desktop build"
+            Assert-DesktopReleaseArtifacts
         }
         finally {
             Pop-Location

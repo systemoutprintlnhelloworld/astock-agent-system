@@ -39,6 +39,7 @@ import {
   createConfigDraft,
   getAgentMemory,
   getAgentTools,
+  getBackendBaseUrl,
   getConfig,
   getDecisions,
   getEquity,
@@ -177,6 +178,7 @@ const nodeTypes = {
 
 export function TradingDashboard() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
+  const [backendBaseUrl, setBackendBaseUrl] = useState(BACKEND_BASE_URL);
   const [configDraft, setConfigDraft] = useState<ConfigDraft | null>(null);
   const [flowNodes, setFlowNodes] = useState(FALLBACK_FLOW_NODES);
   const [flowEdges, setFlowEdges] = useState(FALLBACK_FLOW_EDGES);
@@ -216,7 +218,7 @@ export function TradingDashboard() {
   const refreshDashboard = useCallback(async () => {
     setRefreshing(true);
     try {
-      const [healthData, configData, flowData, decisionsData, boardData, equityData, rankingsData, currentRun, timelineData, toolsData] = await Promise.all([
+      const [healthData, configData, flowData, decisionsData, boardData, equityData, rankingsData, currentRun, timelineData, toolsData, backendUrl] = await Promise.all([
         getHealth(),
         getConfig(),
         getFlow(),
@@ -227,6 +229,7 @@ export function TradingDashboard() {
         getRunStatus(),
         getEventTimeline(),
         getAgentTools(),
+        getBackendBaseUrl(),
       ]);
 
       setHealth(healthData);
@@ -241,6 +244,7 @@ export function TradingDashboard() {
       setRunStatus(currentRun);
       setTimelineEvents(timelineData.items);
       setAgentTools(toolsData.items);
+      setBackendBaseUrl(backendUrl);
       setErrorMessage(null);
       setConfigDraft((current) => (current && configDirtyRef.current ? current : createConfigDraft(configData.config)));
     } catch (error) {
@@ -339,44 +343,65 @@ export function TradingDashboard() {
     let disposed = false;
 
     const connect = () => {
-      socket = new WebSocket(getWebSocketUrl());
-
-      socket.onopen = () => {
-        setConnectionState("connected");
-        void refreshDashboard();
-        heartbeat = window.setInterval(() => {
-          if (socket?.readyState === WebSocket.OPEN) {
-            socket.send(JSON.stringify({ type: "ping", payload: { source: "frontend" } }));
-          }
-        }, 15000);
-      };
-
-      socket.onmessage = (message) => {
+      void (async () => {
+        let websocketUrl: string;
         try {
-          const event = JSON.parse(message.data) as BackendEvent;
-          setLiveEvents((current) => [event, ...current].slice(0, 40));
-          handleEvent(event);
+          const backendUrl = await getBackendBaseUrl();
+          websocketUrl = await getWebSocketUrl();
+          setBackendBaseUrl(backendUrl);
         } catch {
-          // Ignore malformed frames from dev servers.
+          setConnectionState("disconnected");
+          if (!disposed) {
+            reconnectTimer = window.setTimeout(() => {
+              connect();
+            }, 3000);
+          }
+          return;
         }
-      };
 
-      socket.onerror = () => {
-        setConnectionState("disconnected");
-      };
+        if (disposed) {
+          return;
+        }
 
-      socket.onclose = () => {
-        setConnectionState("disconnected");
-        if (heartbeat) {
-          window.clearInterval(heartbeat);
-          heartbeat = undefined;
-        }
-        if (!disposed) {
-          reconnectTimer = window.setTimeout(() => {
-            connect();
-          }, 3000);
-        }
-      };
+        socket = new WebSocket(websocketUrl);
+
+        socket.onopen = () => {
+          setConnectionState("connected");
+          void refreshDashboard();
+          heartbeat = window.setInterval(() => {
+            if (socket?.readyState === WebSocket.OPEN) {
+              socket.send(JSON.stringify({ type: "ping", payload: { source: "frontend" } }));
+            }
+          }, 15000);
+        };
+
+        socket.onmessage = (message) => {
+          try {
+            const event = JSON.parse(message.data) as BackendEvent;
+            setLiveEvents((current) => [event, ...current].slice(0, 40));
+            handleEvent(event);
+          } catch {
+            // Ignore malformed frames from dev servers.
+          }
+        };
+
+        socket.onerror = () => {
+          setConnectionState("disconnected");
+        };
+
+        socket.onclose = () => {
+          setConnectionState("disconnected");
+          if (heartbeat) {
+            window.clearInterval(heartbeat);
+            heartbeat = undefined;
+          }
+          if (!disposed) {
+            reconnectTimer = window.setTimeout(() => {
+              connect();
+            }, 3000);
+          }
+        };
+      })();
     };
 
     connect();
@@ -568,7 +593,7 @@ export function TradingDashboard() {
                 <StatusPill icon={Cpu} tone={runStatus?.status === "running" || running ? "info" : "neutral"}>
                   {runStatus?.status === "running" || running ? "自动投资运行中" : "等待新的投资轮次"}
                 </StatusPill>
-                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">后端地址：{BACKEND_BASE_URL}</span>
+                <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">后端地址：{backendBaseUrl}</span>
                 {health ? <span className="rounded-full border border-white/10 bg-black/20 px-3 py-1 text-slate-300">后端时间：{formatDateTime(health.time)}</span> : null}
               </div>
               <div className="flex flex-wrap gap-2">
