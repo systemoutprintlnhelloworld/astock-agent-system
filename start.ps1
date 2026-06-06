@@ -280,6 +280,109 @@ function Get-DesktopSidecarPath {
     return (Join-Path $binaryRoot "astock-backend")
 }
 
+function ConvertTo-NormalizedPathText {
+    param([string]$Path)
+
+    if (-not $Path) {
+        return ""
+    }
+
+    try {
+        $fullPath = [System.IO.Path]::GetFullPath($Path)
+    }
+    catch {
+        $fullPath = $Path
+    }
+
+    return (($fullPath -replace '^\\\\\?\\', '').ToLowerInvariant())
+}
+
+function Stop-ProcessesUsingPath {
+    param([string]$Path)
+
+    $targetPath = ConvertTo-NormalizedPathText -Path $Path
+    if (-not $targetPath) {
+        return
+    }
+
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        $_.ExecutablePath -and (ConvertTo-NormalizedPathText -Path $_.ExecutablePath) -eq $targetPath
+    })
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping process using ${Path}: PID $($process.ProcessId) $($process.Name)" -ForegroundColor Yellow
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processes.Count -gt 0) {
+        Start-Sleep -Milliseconds 1000
+    }
+}
+
+function Stop-DesktopBackendProcesses {
+    $desktopRoot = ConvertTo-NormalizedPathText -Path (Get-DesktopRoot)
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        if (-not $_.ExecutablePath -or $_.Name -notlike 'astock-backend*.exe') {
+            return $false
+        }
+        $processPath = ConvertTo-NormalizedPathText -Path $_.ExecutablePath
+        return $processPath.StartsWith($desktopRoot)
+    })
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping stale desktop backend sidecar: PID $($process.ProcessId) $($process.ExecutablePath)" -ForegroundColor Yellow
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processes.Count -gt 0) {
+        Start-Sleep -Milliseconds 1000
+    }
+}
+
+function Stop-DesktopShellProcesses {
+    $desktopRoot = ConvertTo-NormalizedPathText -Path (Get-DesktopRoot)
+    $processes = @(Get-CimInstance Win32_Process -ErrorAction SilentlyContinue | Where-Object {
+        if (-not $_.ExecutablePath -or $_.Name -ne 'astock-agent-desktop.exe') {
+            return $false
+        }
+        $processPath = ConvertTo-NormalizedPathText -Path $_.ExecutablePath
+        return $processPath.StartsWith($desktopRoot)
+    })
+
+    foreach ($process in $processes) {
+        Write-Host "Stopping stale desktop app before rebuild: PID $($process.ProcessId) $($process.ExecutablePath)" -ForegroundColor Yellow
+        Stop-Process -Id $process.ProcessId -Force -ErrorAction SilentlyContinue
+    }
+
+    if ($processes.Count -gt 0) {
+        Start-Sleep -Milliseconds 1000
+    }
+}
+
+function Copy-FileWithRetry {
+    param(
+        [string]$Source,
+        [string]$Destination,
+        [int]$Retries = 5
+    )
+
+    for ($attempt = 1; $attempt -le $Retries; $attempt++) {
+        try {
+            Copy-Item -LiteralPath $Source -Destination $Destination -Force -ErrorAction Stop
+            return
+        }
+        catch {
+            if ($attempt -eq $Retries) {
+                throw
+            }
+            Write-Host "Copy failed because the target may be locked; retrying after stopping stale sidecars ($attempt/$Retries)." -ForegroundColor Yellow
+            Stop-ProcessesUsingPath -Path $Destination
+            Stop-DesktopBackendProcesses
+            Start-Sleep -Milliseconds (500 * $attempt)
+        }
+    }
+}
+
 function Get-DesktopReleaseExecutablePath {
     $releaseRoot = Join-Path (Get-DesktopRoot) "src-tauri/target/release"
     if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -322,9 +425,16 @@ function Build-DesktopSidecar {
     $binaryRoot = Get-DesktopSidecarRoot
     New-Item -ItemType Directory -Force -Path $binaryRoot | Out-Null
     $buildRoot = Join-Path $PSScriptRoot "build/pyinstaller"
-    $workRoot = Join-Path $buildRoot "work"
+    $workRoot = Join-Path $buildRoot ("work-" + $PID)
+    $specRoot = Join-Path $buildRoot ("spec-" + $PID)
     New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
     New-Item -ItemType Directory -Force -Path $workRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $specRoot | Out-Null
+
+    Stop-DesktopShellProcesses
+    Stop-DesktopBackendProcesses
+    Stop-ProcessesUsingPath -Path (Join-Path $binaryRoot "astock-backend.exe")
+    Stop-ProcessesUsingPath -Path (Get-DesktopSidecarPath)
 
     $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
     $sidecarEntry = Join-Path $PSScriptRoot "apps/backend/sidecar.py"
@@ -337,7 +447,7 @@ function Build-DesktopSidecar {
         "--paths", (Join-Path $PSScriptRoot "src"),
         "--distpath", $binaryRoot,
         "--workpath", $workRoot,
-        "--specpath", $buildRoot,
+        "--specpath", $specRoot,
         "--collect-submodules", "apps.backend",
         "--collect-submodules", "astock_agent_system",
         "--collect-all", "requests",
@@ -357,7 +467,7 @@ function Build-DesktopSidecar {
         $baseExe = Join-Path $binaryRoot "astock-backend.exe"
         $targetExe = Get-DesktopSidecarPath
         if (Test-Path -LiteralPath $baseExe) {
-            Copy-Item -LiteralPath $baseExe -Destination $targetExe -Force
+            Copy-FileWithRetry -Source $baseExe -Destination $targetExe
         }
     }
     if (-not (Test-Path -LiteralPath (Get-DesktopSidecarPath))) {

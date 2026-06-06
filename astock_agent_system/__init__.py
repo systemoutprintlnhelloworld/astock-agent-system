@@ -10,6 +10,8 @@ from pathlib import Path
 
 _SRC_PACKAGE = Path(__file__).resolve().parent.parent / "src" / "astock_agent_system"
 if _SRC_PACKAGE.exists():
-    __path__.append(str(_SRC_PACKAGE))
+    src_package_path = str(_SRC_PACKAGE)
+    if src_package_path not in __path__:
+        __path__.insert(0, src_package_path)
 
 __version__ = "0.1.0"
