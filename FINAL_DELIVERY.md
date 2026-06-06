@@ -145,8 +145,8 @@ Push-Location apps/desktop; npm install; Pop-Location
 最新桌面链路已修复：
 
 - 前端静态构建不再依赖 Google Fonts 在线拉取，离线/受限网络不会因字体下载失败中断。
-- Tauri 桌面壳会扫描 `127.0.0.1:8000..8020`，复用健康 AStock 后端或在第一个空闲端口启动打包 sidecar。
-- 前端 HTTP/WebSocket 连接会探测同一端口范围，避免非本项目进程占用 `8000` 时后端无法连接。
+- Tauri 桌面壳会优先扫描 `127.0.0.1:18080..18100`，复用健康 AStock 后端或在第一个空闲端口启动打包 sidecar；旧的 `8000..8020` 仅用于兼容复用历史启动的同项目后端。
+- 前端 HTTP/WebSocket 连接会探测同一端口范围，避免非本项目进程占用常见 `8000` 时后端无法连接。
 - `desktop-release` 和 `desktop-build` 会检查 `astock-agent-desktop.exe` 与 NSIS 安装包是否真实生成。
 
 已验证产物：

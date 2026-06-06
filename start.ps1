@@ -6,7 +6,7 @@ param(
     [int]$MaxCount = 1,
     [int]$Days = 12,
     [int]$Port = 8501,
-    [int]$BackendPort = 8000,
+    [int]$BackendPort = 18080,
     [switch]$NoDocker,
     [switch]$AutoInstallRust,
     [switch]$SkipTests,
@@ -973,16 +973,17 @@ switch ($Mode) {
         streamlit run src/astock_agent_system/ui/streamlit_app.py --server.port $Port
     }
     "backend" {
-        $backendOccupant = Get-PortOccupant -Port $Port
+        $apiPort = if ($PSBoundParameters.ContainsKey("Port")) { $Port } else { $BackendPort }
+        $backendOccupant = Get-PortOccupant -Port $apiPort
         if (Test-IsProjectBackendProcess -ProcessInfo $backendOccupant) {
-            Write-Step "Reusing existing FastAPI backend adapter on port $Port"
-            Wait-ForHttpReady -Url "http://127.0.0.1:$Port/api/health" -ServiceName "Backend API" -TimeoutSeconds 30
+            Write-Step "Reusing existing FastAPI backend adapter on port $apiPort"
+            Wait-ForHttpReady -Url "http://127.0.0.1:$apiPort/api/health" -ServiceName "Backend API" -TimeoutSeconds 30
             break
         }
 
-        Ensure-PortAvailable -Port $Port -Purpose "FastAPI backend adapter"
+        Ensure-PortAvailable -Port $apiPort -Purpose "FastAPI backend adapter"
         Write-Step "Starting FastAPI backend adapter"
-        python -m uvicorn apps.backend.app:app --host 127.0.0.1 --port $Port
+        python -m uvicorn apps.backend.app:app --host 127.0.0.1 --port $apiPort
     }
     "frontend" {
         $frontendDirectory = Join-Path $PSScriptRoot "apps/frontend"

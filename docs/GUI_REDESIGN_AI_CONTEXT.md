@@ -32,7 +32,7 @@ src/           现有 Python 业务核心，多 Agent、数据、LLM、模拟账
 
 现象：桌面窗口显示等待 WebSocket，但浏览器访问 `/api/health` 看起来正常。
 
-主要原因：Tauri 打包后的 WebView 页面 origin 是 `tauri.localhost`，前端需要先用 HTTP `fetch` 探测 `127.0.0.1:8000..8020` 的 `/api/health`，再生成 `ws://127.0.0.1:<port>/ws/events`。如果 FastAPI CORS 没允许 `http://tauri.localhost` / `https://tauri.localhost`，HTTP 探测会被 WebView 拦截，导致前端端口发现失败，WebSocket 回退到错误端口。
+主要原因：Tauri 打包后的 WebView 页面 origin 是 `tauri.localhost`，前端需要先用 HTTP `fetch` 探测默认 `127.0.0.1:18080..18100`（并兼容旧 `8000..8020`）的 `/api/health`，再生成 `ws://127.0.0.1:<port>/ws/events`。如果 FastAPI CORS 没允许 `http://tauri.localhost` / `https://tauri.localhost`，HTTP 探测会被 WebView 拦截，导致前端端口发现失败，WebSocket 回退到错误端口。
 
 相关修复位置：
 
@@ -50,7 +50,7 @@ src/           现有 Python 业务核心，多 Agent、数据、LLM、模拟账
 端口探测命令：
 
 ```powershell
-for ($p=8000; $p -le 8020; $p++) { try { Invoke-RestMethod -Uri ("http://127.0.0.1:$p/api/health") -TimeoutSec 1 } catch {} }
+foreach ($p in 18080..18100 + 8000..8020) { try { Invoke-RestMethod -Uri ("http://127.0.0.1:$p/api/health") -TimeoutSec 1 } catch {} }
 ```
 
 ## 4. GUI 重构必须理解的产品规则
@@ -142,4 +142,3 @@ npm --prefix apps/frontend run build:desktop
 .\start.bat -Mode desktop-build
 .\start.bat -Mode delivery-check
 ```
-

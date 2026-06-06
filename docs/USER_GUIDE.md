@@ -146,7 +146,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 当前已经提供首版 Next.js 现代控制台，可直接联动 FastAPI 后端查看流程图、实时事件流、可折叠决策日志、股票看板、排行榜和长期曲线：
 
 ```powershell
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 启动后打开：
@@ -179,20 +179,20 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 如果只想单独检查后端接口，也可以单独启动：
 
 ```powershell
-.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode backend -Port 18080
 ```
 
 启动后可访问：
 
-- `http://127.0.0.1:8000/api/health`：健康检查。
-- `http://127.0.0.1:8000/api/config`：脱敏后的当前配置。
-- `http://127.0.0.1:8000/api/agents/flow`：前端流程图节点和动画边。
-- `http://127.0.0.1:8000/api/events/timeline`：事件时间线。
-- `http://127.0.0.1:8000/api/agents/tools`：Agent 工具、数据源和技能清单。
-- `http://127.0.0.1:8000/api/decisions`：结构化决策日志。
-- `http://127.0.0.1:8000/api/stocks/board`：持仓、候选股和交易记录。
-- `http://127.0.0.1:8000/api/metrics/rankings`：模型排行榜。
-- `ws://127.0.0.1:8000/ws/events`：实时事件 WebSocket。
+- `http://127.0.0.1:18080/api/health`：健康检查。
+- `http://127.0.0.1:18080/api/config`：脱敏后的当前配置。
+- `http://127.0.0.1:18080/api/agents/flow`：前端流程图节点和动画边。
+- `http://127.0.0.1:18080/api/events/timeline`：事件时间线。
+- `http://127.0.0.1:18080/api/agents/tools`：Agent 工具、数据源和技能清单。
+- `http://127.0.0.1:18080/api/decisions`：结构化决策日志。
+- `http://127.0.0.1:18080/api/stocks/board`：持仓、候选股和交易记录。
+- `http://127.0.0.1:18080/api/metrics/rankings`：模型排行榜。
+- `ws://127.0.0.1:18080/ws/events`：实时事件 WebSocket。
 
 也可以在现代控制台的 `设置 -> LLM` 中点击“检测 LLM 配置”，系统会检查当前表单里的网关、API Key 状态并尝试获取模型列表。检测响应不会回显真实 API Key。
 
@@ -209,7 +209,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 桌面打包不再依赖 Google Fonts 在线拉取，前端使用系统字体兜底，因此在受限网络或离线网络中也不会因为字体下载失败而中断 Tauri `beforeBuildCommand`。
 
-打包后的桌面壳会在 `127.0.0.1:8000..8020` 范围内查找后端：如果已有健康的 AStock 后端，会直接复用；如果 `8000` 被其他非 AStock 程序占用，会自动选择第一个可用端口启动内置 sidecar。前端 HTTP 和 WebSocket 连接也会探测同一端口范围。
+打包后的桌面壳会优先在 `127.0.0.1:18080..18100` 范围内查找或启动后端；旧的 `8000..8020` 只用于兼容复用历史启动的健康 AStock 后端。这样即使常见端口 `8000` 被其他项目占用，也不会阻塞新启动的内置 sidecar。前端 HTTP 和 WebSocket 连接会探测同样范围。
 
 如果你只想验证除最终 `.exe` 编译以外的所有步骤，可以运行：
 

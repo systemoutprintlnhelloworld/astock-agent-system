@@ -19,10 +19,10 @@ sequenceDiagram
     participant NextJS as Next.js Frontend
     participant Browser
     
-    User->>StartBat: .\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+    User->>StartBat: .\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
     
     Note over StartBat: 检查端口占用
-    StartBat->>StartBat: Get-PortOccupant 8000
+    StartBat->>StartBat: Get-PortOccupant 18080
     alt 端口被占用
         StartBat->>User: 显示占用进程信息
         User->>StartBat: 确认终止 [y/N]
@@ -30,7 +30,7 @@ sequenceDiagram
     end
     
     Note over StartBat: 启动后端
-    StartBat->>FastAPI: uvicorn apps.backend.app:app --port 8000
+    StartBat->>FastAPI: uvicorn apps.backend.app:app --port 18080
     activate FastAPI
     FastAPI->>FastAPI: 初始化 EventHub + RunStore
     FastAPI->>MongoDB: 尝试连接 (可选)
@@ -59,7 +59,7 @@ sequenceDiagram
     StartBat->>NextJS: GET http://127.0.0.1:3000
     NextJS-->>StartBat: HTTP 200
     
-    StartBat->>User: 打印访问地址<br/>前端: http://127.0.0.1:3000<br/>后端: http://127.0.0.1:8000
+    StartBat->>User: 打印访问地址<br/>前端: http://127.0.0.1:3000<br/>后端: http://127.0.0.1:18080
     
     User->>Browser: 打开 http://127.0.0.1:3000
     Browser->>NextJS: GET /
@@ -84,7 +84,7 @@ sequenceDiagram
 | 步骤 | 说明 | 如果失败怎么办 |
 |------|------|---------------|
 | **端口检查** | `Get-PortOccupant` 检查端口是否被占用 | 提示用户进程信息，确认后终止 |
-| **后端启动** | `uvicorn apps.backend.app:app --port 8000` | 检查是否 8000 端口被其他服务占用 |
+| **后端启动** | `uvicorn apps.backend.app:app --port 18080` | 检查是否 18080 端口被其他服务占用 |
 | **健康检查** | `GET /api/health` 最多等待 60 秒 | 如果超时，启动失败，检查后端日志 |
 | **前端启动** | `npx next dev --hostname 127.0.0.1 --port 3000` | 检查 `node_modules` 是否完整，运行 `npm install` |
 | **WebSocket连接** | 前端加载后自动连接 `/ws/events` | 前端显示"连接中"，30秒后超时重连 |

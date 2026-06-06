@@ -68,8 +68,8 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 .\start.bat -Mode bench
 .\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
 .\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
-.\start.bat -Mode backend -Port 8000
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode backend -Port 18080
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 ## 3. 当前验证状态
@@ -87,7 +87,7 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - 在线单模型 bench：`gpt-5.4-mini` 通过，JSON 可解析
 - 在线自动投资：通过；同一交易日重复运行触发幂等跳过，未重复买入
 - `modern-ui` 一键预览：`start.bat -Mode modern-ui -Port 3055 -BackendPort 8055` 启动通过
-- `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程
+- `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程
 - MkDocs strict build：通过
 - GitHub Pages：仓库已公开，Pages workflow 模式已启用
 - Cursor Hook：逐条 Shell 审批 Hook 保持关闭；Cursor `stop` hook 已启用，用于开发结束前检查文档同步、未提交变更和未推送提交。
@@ -96,7 +96,7 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - 桌面静态前端：`npm --prefix apps/frontend run build:desktop` 通过，产物复制到 `apps/desktop/dist`。
 - 桌面 sidecar：`start.bat -Mode desktop-sidecar` 可生成 `apps/desktop/src-tauri/binaries/astock-backend-x86_64-pc-windows-msvc.exe`。
 - 桌面 release：`start.bat -Mode desktop-release -AutoInstallRust` 可生成 `apps/desktop/src-tauri/target/release/astock-agent-desktop.exe` 和 `apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe`。
-- 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端会在 `127.0.0.1:8000..8020` 范围内复用健康 AStock 后端或选择空闲端口启动 sidecar。
+- 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端默认使用 `127.0.0.1:18080..18100`，并兼容探测旧的 `8000..8020` 健康 AStock 后端。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态

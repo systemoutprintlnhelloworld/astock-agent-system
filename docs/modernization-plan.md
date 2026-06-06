@@ -71,8 +71,8 @@ docs/
 - `apps/frontend` 已提供 Next.js 现代控制台首版，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 已补齐 Phase 2 透明化最小接口：事件时间线、Agent 记忆只读查询、LLM 配置检测、Agent 工具清单。
 - modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
-- `start.bat -Mode backend -Port 8000` 可单独启动本地 API 预览。
-- `start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 可一键拉起首版现代 UI 预览。
+- `start.bat -Mode backend -Port 18080` 可单独启动本地 API 预览。
+- `start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 可一键拉起首版现代 UI 预览。
 - `apps/desktop` 已新增 Tauri 2 桌面壳；`apps/backend/sidecar.py` 已作为 PyInstaller 入口；`start.bat` 已新增 `desktop-doctor`、`desktop-bootstrap`、`desktop-sidecar`、`desktop-dev`、`desktop-build`、`desktop-release` 和 `delivery-check`。
 - `apps/frontend` 已支持 `output: "export"` 的静态桌面构建，`npm --prefix apps/frontend run build:desktop` 会把产物复制到 `apps/desktop/dist`。
 
@@ -146,7 +146,7 @@ Tauri 主进程启动
 ```powershell
 .\start.bat -Mode status
 .\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 浏览器打开 `http://127.0.0.1:3000` 后，按“总览 → 流程 → 事件 → 智能体 → 设置”验证主要交付内容。

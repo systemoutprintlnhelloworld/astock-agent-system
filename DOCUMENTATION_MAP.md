@@ -189,7 +189,7 @@ graph TD
 - **最新文档**：`docs/` 目录下的所有文档、`AGENTS.md`、`apps/desktop/README.md`
 - **最新进度**：[docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) 和 [FINAL_DELIVERY.md](FINAL_DELIVERY.md)
 - **最新架构**：[docs/modernization-plan.md](docs/modernization-plan.md)
-- **最新桌面交付**：`desktop-release -AutoInstallRust` 可构建 `astock-agent-desktop.exe` 和 NSIS 安装包；前端/后端端口自动探测 `8000..8020`。
+- **最新桌面交付**：`desktop-release -AutoInstallRust` 可构建 `astock-agent-desktop.exe` 和 NSIS 安装包；前端/后端默认探测 `18080..18100`，并兼容旧的 `8000..8020` 健康 AStock 后端。
 - **最新收尾规范**：`.husky/pre-commit` 强制文档同步，`.husky/post-commit` 强制推送，`.cursor/hooks/enforce-session-end.ps1` 在开发会话结束前检查未提交和未推送状态。
 
 ## 文档更新频率

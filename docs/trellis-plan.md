@@ -70,8 +70,8 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode status
 .\start.bat -Mode offline -MaxCount 1 -Days 12
 .\start.bat -Mode dashboard
-.\start.bat -Mode backend -Port 8000
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode backend -Port 18080
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 在线 smoke：
@@ -99,7 +99,7 @@ python -m pip install -e ".[docs]"
 .\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
 
 # 3. 启动现代化 UI，浏览器访问 http://127.0.0.1:3000
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 
 # 4. 在 UI 内重点验证
 # - 总览：健康状态、候选股票、下一步操作
@@ -138,7 +138,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 
 `desktop-release` 是推荐入口；`desktop-build` 是底层分步入口。成功后，Windows 安装包位于 `apps/desktop/src-tauri/target/release/bundle/nsis/`。当前 `start.bat` 仍是开发/验证入口；最终交付目标是 Tauri 打出的 `AStock Agent System` 桌面 `.exe`。
 
-桌面 release 当前已加固：前端静态构建不依赖 Google Fonts；Tauri 壳和前端会在 `127.0.0.1:8000..8020` 范围内复用健康 AStock 后端或选择空闲端口启动 sidecar；`desktop-release` / `desktop-build` 会检查 `astock-agent-desktop.exe` 和 NSIS 安装包是否真实生成。
+桌面 release 当前已加固：前端静态构建不依赖 Google Fonts；Tauri 壳和前端默认使用 `127.0.0.1:18080..18100`，并兼容复用旧的 `8000..8020` 健康 AStock 后端；`desktop-release` / `desktop-build` 会检查 `astock-agent-desktop.exe` 和 NSIS 安装包是否真实生成。
 
 ## 5. 当前在线状态
 

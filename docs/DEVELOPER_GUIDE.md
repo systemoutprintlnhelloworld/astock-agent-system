@@ -15,8 +15,8 @@ python -m pytest
 ```powershell
 python -m astock_agent_system.cli --help
 astock-agent --help
-.\start.bat -Mode backend -Port 8000
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode backend -Port 18080
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 npm --prefix apps/frontend run lint
 ```
 

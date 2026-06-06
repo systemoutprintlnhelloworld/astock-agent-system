@@ -39,7 +39,7 @@ def _configure_project_root(project_root: str | None) -> Path | None:
 def main() -> None:
     parser = argparse.ArgumentParser(description="Run the AStock FastAPI backend sidecar.")
     parser.add_argument("--host", default="127.0.0.1")
-    parser.add_argument("--port", type=int, default=8000)
+    parser.add_argument("--port", type=int, default=18080)
     parser.add_argument("--project-root", default=os.getenv("ASTOCK_PROJECT_ROOT", ""))
     parser.add_argument("--log-level", default="info")
     args = parser.parse_args()

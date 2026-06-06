@@ -176,7 +176,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 如果要验证新的现代 UI 链路，可直接一键启动：
 
 ```powershell
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 启动后打开：
@@ -202,18 +202,18 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 如只想单独检查 API，也可以：
 
 ```powershell
-.\start.bat -Mode backend -Port 8000
+.\start.bat -Mode backend -Port 18080
 ```
 
 建议优先检查：
 
-- `http://127.0.0.1:8000/api/health`
-- `http://127.0.0.1:8000/api/config`
-- `http://127.0.0.1:8000/api/agents/flow`
-- `http://127.0.0.1:8000/api/decisions`
-- `http://127.0.0.1:8000/api/stocks/board`
-- `http://127.0.0.1:8000/api/metrics/rankings`
-- `ws://127.0.0.1:8000/ws/events`
+- `http://127.0.0.1:18080/api/health`
+- `http://127.0.0.1:18080/api/config`
+- `http://127.0.0.1:18080/api/agents/flow`
+- `http://127.0.0.1:18080/api/decisions`
+- `http://127.0.0.1:18080/api/stocks/board`
+- `http://127.0.0.1:18080/api/metrics/rankings`
+- `ws://127.0.0.1:18080/ws/events`
 
 ## 10. 启动长期调度器
 

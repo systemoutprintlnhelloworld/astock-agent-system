@@ -17,8 +17,10 @@ const BACKEND_BINARY_NAMES: &[&str] = &["astock-backend"];
 
 struct BackendSidecar(std::sync::Mutex<Option<Child>>);
 
-const DEFAULT_BACKEND_PORT: u16 = 8000;
-const MAX_BACKEND_PORT: u16 = 8020;
+const DEFAULT_BACKEND_PORT: u16 = 18080;
+const MAX_BACKEND_PORT: u16 = 18100;
+const LEGACY_BACKEND_PORT_START: u16 = 8000;
+const LEGACY_BACKEND_PORT_END: u16 = 8020;
 
 fn locate_project_root(app: &AppHandle) -> String {
     if let Ok(resource_dir) = app.path().resource_dir() {
@@ -104,6 +106,12 @@ fn is_port_available(port: u16) -> bool {
 
 fn select_backend_port() -> (u16, bool) {
     for port in DEFAULT_BACKEND_PORT..=MAX_BACKEND_PORT {
+        if is_astock_backend_healthy(port) {
+            return (port, false);
+        }
+    }
+
+    for port in LEGACY_BACKEND_PORT_START..=LEGACY_BACKEND_PORT_END {
         if is_astock_backend_healthy(port) {
             return (port, false);
         }

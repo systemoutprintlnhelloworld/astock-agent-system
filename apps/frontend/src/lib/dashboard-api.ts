@@ -1,6 +1,8 @@
-const DEFAULT_BACKEND_BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000").replace(/\/+$/, "");
-const BACKEND_PORT_START = 8000;
-const BACKEND_PORT_END = 8020;
+const DEFAULT_BACKEND_BASE_URL = (process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:18080").replace(/\/+$/, "");
+const BACKEND_PORT_START = 18080;
+const BACKEND_PORT_END = 18100;
+const LEGACY_BACKEND_PORT_START = 8000;
+const LEGACY_BACKEND_PORT_END = 8020;
 const BACKEND_DISCOVERY_ATTEMPTS = 30;
 const BACKEND_DISCOVERY_DELAY_MS = 500;
 const BACKEND_PROBE_TIMEOUT_MS = 350;
@@ -362,14 +364,19 @@ function buildBackendCandidates(): string[] {
 
   try {
     const defaultUrl = new URL(DEFAULT_BACKEND_BASE_URL);
-    for (let port = BACKEND_PORT_START; port <= BACKEND_PORT_END; port += 1) {
-      const candidate = new URL(defaultUrl.toString());
-      candidate.port = String(port);
-      candidate.pathname = "";
-      candidate.search = "";
-      candidate.hash = "";
-      candidates.add(candidate.toString().replace(/\/+$/, ""));
-    }
+    const appendPortRange = (start: number, end: number) => {
+      for (let port = start; port <= end; port += 1) {
+        const candidate = new URL(defaultUrl.toString());
+        candidate.port = String(port);
+        candidate.pathname = "";
+        candidate.search = "";
+        candidate.hash = "";
+        candidates.add(candidate.toString().replace(/\/+$/, ""));
+      }
+    };
+
+    appendPortRange(BACKEND_PORT_START, BACKEND_PORT_END);
+    appendPortRange(LEGACY_BACKEND_PORT_START, LEGACY_BACKEND_PORT_END);
   } catch {
     // Keep the configured backend URL as the only candidate if parsing fails.
   }

@@ -49,8 +49,8 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
 .\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
 .\start.bat -Mode dashboard
-.\start.bat -Mode backend -Port 8000
-.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+.\start.bat -Mode backend -Port 18080
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
 桌面交付验证入口：
@@ -76,7 +76,7 @@ apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-
 - `股票`：看持仓、候选池和交易记录。
 - `设置`：通过目录快速跳到数据源、LLM、风控和调度配置。
 
-如果 3000 / 8000 端口被占用，或者同一个 `apps/frontend` 目录下残留了旧的 Next.js dev 进程，一键脚本会先打印进程信息并要求确认后再释放冲突，再继续启动。
+如果 3000 / 18080 端口被占用，或者同一个 `apps/frontend` 目录下残留了旧的 Next.js dev 进程，一键脚本会先打印进程信息并要求确认后再释放冲突，再继续启动。后端默认使用 `18080..18100` 这一段 AStock 专用本地端口；前端仍会兼容探测旧的 `8000..8020`，方便连接历史启动的同项目后端，但新启动不再主动占用常见的 `8000`。
 
 如果不使用一键入口，也可以直接调用 CLI：
 
