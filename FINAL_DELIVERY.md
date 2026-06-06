@@ -216,7 +216,7 @@ docs/                        # 文档体系
 
 ### Phase 2.5: 开发规范强化
 - [x] Git Hooks 配置
-- [ ] 增强代码检查
+- [x] 增强代码检查：pre-commit 已检查 secrets、`.env`、代码变更配套文档；post-commit 默认推送到 GitHub。
 
 ---
 
@@ -255,14 +255,19 @@ docs/                        # 文档体系
 3. ✅ 已完成：全局搜索替换相关说法
 4. ✅ 已完成：提交前验证纳入本轮交付流程
 
-### 后续开发（Phase 2）
+### 当前计划状态
 
-按照 [`docs/technical/PRD_PHASE2.md`](docs/technical/PRD_PHASE2.md) 和 [`docs/trellis-plan.md`](docs/trellis-plan.md) 的规划进行：
+当前有效计划是 [`docs/trellis-plan.md`](docs/trellis-plan.md) 和 [`docs/modernization-plan.md`](docs/modernization-plan.md)。仓库中没有 `a股llm系统现代化重构_efa1eeac.plan.md` 文件；该名称属于历史/外部计划引用。
 
-1. 实现 Agent 记忆系统
-2. 实现事件轮询服务
-3. 前端增强（ChatGPT-like 日志）
-4. Agent 工具固化为 Skills
+当前 Trellis 任务系统没有 pending / in_progress 任务。本轮已完成：
+
+1. Agent 记忆最小可交付入口。
+2. 事件时间线最小可交付入口。
+3. modern-ui tabs、事件页、智能体页和 LLM 检测入口。
+4. Agent 工具清单接口。
+5. Git hooks 默认提交后推送到 GitHub。
+
+下一轮如继续深挖真实新闻/公告轮询、周总结、PortfolioManager 主动记忆检索、Tauri `.exe` 打包，应先在 Trellis 创建新任务并同步到持久化计划。
 
 ---
 

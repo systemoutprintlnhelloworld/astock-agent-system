@@ -157,8 +157,10 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 - `总览`：先确认后端连接、最近轮次和模型排行榜预览。
 - `流程`：观察多 Agent 流程图、节点状态和动画箭头。
+- `事件`：查看系统事件、数据源状态、新闻/公告输入如何进入 Agent 输入流；可点击手动轮询事件。
 - `日志`：看可折叠决策卡和实时事件流。
 - `股票`：切换当前持仓、候选股票和交易记录。
+- `智能体`：查看每个 Agent 的工具、数据源、技能，以及按模型账户隔离的历史记忆入口。
 - `设置`：通过左侧目录快速跳转到数据源、LLM、组合、风控和调度配置。
 
 如果你是第一次上手，建议先看 `总览` 页里的：
@@ -185,10 +187,14 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 - `http://127.0.0.1:8000/api/health`：健康检查。
 - `http://127.0.0.1:8000/api/config`：脱敏后的当前配置。
 - `http://127.0.0.1:8000/api/agents/flow`：前端流程图节点和动画边。
+- `http://127.0.0.1:8000/api/events/timeline`：事件时间线。
+- `http://127.0.0.1:8000/api/agents/tools`：Agent 工具、数据源和技能清单。
 - `http://127.0.0.1:8000/api/decisions`：结构化决策日志。
 - `http://127.0.0.1:8000/api/stocks/board`：持仓、候选股和交易记录。
 - `http://127.0.0.1:8000/api/metrics/rankings`：模型排行榜。
 - `ws://127.0.0.1:8000/ws/events`：实时事件 WebSocket。
+
+也可以在现代控制台的 `设置 -> LLM` 中点击“检测 LLM 配置”，系统会检查当前表单里的网关、API Key 状态并尝试获取模型列表。检测响应不会回显真实 API Key。
 
 注意：这里仍是模拟盘适配层，不会真实下单；返回配置时只显示 `has_api_key`、`has_tushare_token` 等布尔状态，不返回真实密钥。
 

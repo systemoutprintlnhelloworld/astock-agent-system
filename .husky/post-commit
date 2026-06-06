@@ -2,17 +2,30 @@
 
 echo "Post-commit check complete."
 
-if [ "${AUTO_PUSH_AFTER_COMMIT:-0}" != "1" ]; then
-  echo "Auto-push is disabled by default. Run 'git push' manually, or set AUTO_PUSH_AFTER_COMMIT=1."
+if [ "${SKIP_AUTO_PUSH:-0}" = "1" ]; then
+  echo "SKIP_AUTO_PUSH=1 set; skipping automatic push."
   exit 0
 fi
 
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
-echo "AUTO_PUSH_AFTER_COMMIT=1 set; pushing $BRANCH..."
+if [ "$BRANCH" = "HEAD" ]; then
+  echo "  ERROR: detached HEAD; cannot auto-push safely."
+  exit 1
+fi
 
-git push origin "$BRANCH" 2>/dev/null || {
-  echo "  WARNING: push failed. You may need to pull first or check network."
-  exit 0
-}
+REMOTE=${GIT_PUSH_REMOTE:-origin}
+echo "Auto-pushing $BRANCH to $REMOTE..."
 
-echo "  OK: pushed to $BRANCH"
+if git rev-parse --abbrev-ref --symbolic-full-name "@{u}" >/dev/null 2>&1; then
+  git push "$REMOTE" "$BRANCH" || {
+    echo "  ERROR: push failed. Please check network, credentials, or remote branch state."
+    exit 1
+  }
+else
+  git push -u "$REMOTE" "$BRANCH" || {
+    echo "  ERROR: initial push failed. Please check network, credentials, or remote permissions."
+    exit 1
+  }
+fi
+
+echo "  OK: pushed $BRANCH to $REMOTE"

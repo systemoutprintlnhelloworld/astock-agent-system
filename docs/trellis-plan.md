@@ -1,8 +1,12 @@
 # 持久化开发计划
 
-更新时间：2026-06-03
+更新时间：2026-06-06
 
 本计划记录当前交付批次的目标、完成状态和后续增强方向。所有配置示例均使用占位符，不包含真实密钥。
+
+> 当前有效计划：本文件与 [现代化重构计划](modernization-plan.md)。工作区中没有 `a股llm系统现代化重构_efa1eeac.plan.md` 文件；该名称来自历史/外部计划引用，不是当前仓库内可执行的 Trellis 计划文件。
+
+当前 Trellis 任务状态：任务系统中没有 pending / in_progress 任务；本轮现代化重构相关事项已落到本文档、`docs/modernization-plan.md`、`docs/technical/PRD_PHASE2.md` 和代码提交中。
 
 ## 1. 总目标
 
@@ -45,6 +49,9 @@
 | 现代化重构计划与分支准备 | 已完成 | 已创建 `tauri-rewrite` 开发分支；新增 `docs/modernization-plan.md`，用于约束 Tauri/Next/FastAPI/WebSocket 重构方向；MkDocs strict build 与密钥扫描通过。 |
 | FastAPI 后端适配层骨架 | 已完成首版 | 已新增 `apps/backend`，提供健康检查、脱敏配置、模型 bench、自动投资触发、React Flow 初始图、运行时配置保存、股票/决策/指标接口和 WebSocket 事件流。 |
 | Next.js 现代化前端控制台首版 | 已完成 | 已将默认 create-next-app 页面替换为现代化控制台，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。 |
+| Benchmark 架构修正 | 已完成 | 产品层统一为 Benchmark 模式：用户选择 N 个模型，每个模型驱动独立 8-Agent 系统和独立 `VirtualAccount`；不再区分“单 LLM / 多 LLM 模式”。 |
+| Phase 2 透明化最小接口 | 已完成 | 已新增事件时间线、Agent 记忆只读查询、LLM 配置检测和 Agent 工具清单接口，并接入 modern-ui 的事件/智能体/设置页签。 |
+| Git 结束流程自动推送 | 已完成 | `post-commit` 默认推送当前分支到 GitHub `origin`；如需临时跳过，可设置 `SKIP_AUTO_PUSH=1`。 |
 
 ## 4. 推荐一键运行路径
 
@@ -80,6 +87,26 @@ python -m pip install -e ".[docs]"
 .\start.bat -Mode docs
 ```
 
+当前产品测试顺序：
+
+```powershell
+# 1. 基础健康检查
+.\start.bat -Mode status
+
+# 2. 无密钥离线闭环，验证调度、Agent、模拟盘、持仓/排行榜数据
+.\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
+
+# 3. 启动现代化 UI，浏览器访问 http://127.0.0.1:3000
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+
+# 4. 在 UI 内重点验证
+# - 总览：健康状态、候选股票、下一步操作
+# - 流程：React Flow 节点状态和实时事件
+# - 事件：事件时间线和手动轮询
+# - 智能体：Agent 工具清单和按模型隔离记忆
+# - 设置：LLM 配置检测、模型列表、防呆提示
+```
+
 ## 5. 当前在线状态
 
 - LLM base URL 需要使用带 `/v1` 的 OpenAI-compatible 地址。
@@ -113,56 +140,19 @@ git status --short
 
 同时已执行密钥扫描，确认真实 key、token、`.env`、日志和运行产物没有进入 Git 暂存区。GitHub Actions `Deploy documentation` 工作流已成功完成，在线文档站可访问。
 
-## 8. 后续增强方向（Phase 2）
+## 8. Phase 2 当前完成状态
 
-这些是下一个迭代的重点任务：
+本节只记录当前有效交付状态，不再把未来设想写成未完成 to-do，避免和 Trellis 任务系统混淆。
 
-### Phase 2.1: 持续学习系统
+| 方向 | 当前状态 | 已落地位置 | 后续增强方向 |
+| --- | --- | --- | --- |
+| 持续学习系统 | 已完成最小可交付 | `src/astock_agent_system/agent_memory.py`、`GET /api/agents/{agent_id}/memory`、modern-ui 智能体页签 | 增加案例评分、周总结、PortfolioManager 主动检索 |
+| 事件驱动系统 | 已完成最小可交付 | `src/astock_agent_system/event_timeline.py`、`/api/events/timeline`、`/api/events/poll`、modern-ui 事件页签 | 接入真实 AkShare 新闻、Tushare 公告和重大事件实时路由 |
+| Agent 工具与知识库 | 已完成清单化展示 | `GET /api/agents/tools`、modern-ui 智能体页签、`docs/technical/PRD_PHASE2.md` | 将反复工作固化为更多项目 Skills，记录工具调用明细 |
+| 用户体验增强 | 已完成主要入口 | tab 化 UI、设置目录跳转、LLM 配置检测、自动模型列表读取、事件时间线 | 深化 ChatGPT-like 三层折叠日志和虚拟滚动 |
+| 开发规范强化 | 已完成当前门禁 | `.husky/pre-commit`、`.husky/post-commit`、`.husky/post-merge` | 如需更严格门禁，再增加 commit-msg 或格式化检查 |
 
-- [ ] 设计三层记忆系统（Redis短期 + MongoDB中期/长期）
-- [ ] 实现案例评估和存储逻辑
-- [ ] 在 PortfolioManager 中集成记忆检索
-- [ ] 实现每周总结 Cron 任务
-- [ ] 前端展示"历史案例"面板
-
-**参考项目**：
-- TradingGroup 的 Self-Reflection 机制
-- FinMem 的分层记忆设计
-- LangGraph 的 checkpointing
-
-### Phase 2.2: 事件驱动系统
-
-- [ ] 实现新闻轮询器（AkShare + smart-search）
-- [ ] 实现公告轮询器（Tushare）
-- [ ] 实现事件路由和过滤
-- [ ] 前端展示"事件时间线" tab
-- [ ] 支持混合模式（重大事件立即处理 + 普通事件定期批处理）
-
-**数据源**：
-- Tushare 公告接口：`pro.anns()`
-- AkShare 新闻接口：`stock_news_em()`
-- smart-search CLI
-
-### Phase 2.3: Agent 工具与知识库
-
-- [ ] 固化 Agent 工具为 Skills（`.cursor/skills/`）
-- [ ] 明确每个 Agent 的独有工具和知识库
-- [ ] 实现工具调用可视化（前端显示工具调用记录）
-
-**工具分配表**（详见 [PRD_PHASE2.md](technical/PRD_PHASE2.md)）
-
-### Phase 2.4: 用户体验增强
-
-- [ ] 实现 ChatGPT-like 日志三层折叠
-- [ ] 实现 LLM 配置防呆检查
-- [ ] 实现自动模型列表获取
-- [ ] 实现事件时间线可视化
-
-### Phase 2.5: 开发规范强化
-
-- [x] 配置 Git Hooks（pre-commit检查 + post-commit自动推送）
-- [ ] 增强 pre-commit 检查（代码格式、Lint）
-- [ ] 增加 commit-msg 检查（规范提交信息）
+未来增强项不作为当前交付阻塞项；进入新一轮开发前，应通过 Trellis 新建任务并在本文件中同步为新的“当前执行计划”。
 
 ---
 

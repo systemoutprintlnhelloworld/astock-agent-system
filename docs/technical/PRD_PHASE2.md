@@ -544,35 +544,37 @@ GET /api/agents/tools
 
 ---
 
-## 4. 实施计划
+## 4. 实施计划与当前完成状态
+
+当前有效 Trellis 计划以 `docs/trellis-plan.md` 和 `docs/modernization-plan.md` 为准；本 PRD 记录 Phase 2 的产品/技术要求和验收口径。任务系统当前没有 pending / in_progress 任务。
 
 ### Phase 1：基础设施（当前迭代）
 
-- [x] 调研 TradingAgents、FinMem、LangGraph 等项目
-- [ ] 设计 MongoDB schema 和 Redis keys
-- [ ] 实现记忆存储和检索基础类
-- [ ] 配置 Git Hooks（pre-commit + post-commit）
+- [x] 调研 TradingAgents、FinMem、LangGraph 等项目。
+- [x] 设计 MongoDB schema 和 Redis keys：本 PRD 已定义 `agent_decisions`、`memory_cases`、`weekly_summaries` 和短期 Redis key；当前代码复用 `agent_decisions` 作为最小可交付事实来源。
+- [x] 实现记忆存储和检索基础类：`src/astock_agent_system/agent_memory.py` 提供按 `agent_id` 隔离的只读记忆检索，后端通过 `GET /api/agents/{agent_id}/memory` 暴露给 modern-ui。
+- [x] 配置 Git Hooks（pre-commit + post-commit）：pre-commit 检查 secrets / `.env` / 文档同步，post-commit 默认推送当前分支到 GitHub。
 
 ### Phase 2：持续学习系统
 
-- [ ] 实现案例评估和存储逻辑
-- [ ] 在 PortfolioManager 中集成记忆检索
-- [ ] 实现每周总结 Cron 任务
-- [ ] 前端展示"历史案例"面板
+- [x] 实现基础案例读取逻辑：从 MongoDB `agent_decisions` 和当前运行内存生成可读案例。
+- [x] 前端展示历史案例入口：modern-ui “智能体”页签可按排行榜中的 `agent_id` 查看该模型驱动系统的记忆案例。
+- 后续增强：案例评分、每周总结 Cron、PortfolioManager 主动检索；这些不属于当前交付阻塞项。
 
 ### Phase 3：事件驱动系统
 
-- [ ] 实现新闻轮询器（AkShare + smart-search）
-- [ ] 实现公告轮询器（Tushare）
-- [ ] 实现事件路由和过滤
-- [ ] 前端展示"事件时间线"
+- [x] 实现事件路由和过滤的最小版本：`src/astock_agent_system/event_timeline.py` 与 `/api/events/timeline`、`/api/events/poll`。
+- [x] 前端展示“事件时间线”：modern-ui “事件”页签展示系统/数据源/Agent 输入事件。
+- [x] 支持混合模式说明：重大事件即时处理、普通事件批处理的策略已在 UI 和文档中说明。
+- 后续增强：AkShare 新闻轮询器和 Tushare 公告轮询器真实在线接入。
 
 ### Phase 4：用户体验增强
 
-- [ ] 实现 ChatGPT-like 日志三层折叠
-- [ ] 实现 LLM 配置防呆检查
-- [ ] 实现自动模型列表获取
-- [ ] 固化 Agent 工具为 Skills
+- [x] 实现 LLM 配置防呆检查：`POST /api/config/test-llm` 不回显 API Key，并返回诊断、警告和模型列表。
+- [x] 实现自动模型列表获取：通过 `LLMClient.list_models_safe()` 暴露给设置页检测面板。
+- [x] 固化 Agent 工具清单：`GET /api/agents/tools` 和 modern-ui “智能体”页签展示每个 Agent 的工具/数据源/技能。
+- [x] tab 化主界面和设置目录跳转：modern-ui 已从单页下滑改为总览/流程/表现/事件/日志/股票/智能体/设置 tabs。
+- 后续增强：ChatGPT-like 三层折叠日志的深度交互和虚拟滚动。
 
 ---
 
@@ -580,21 +582,23 @@ GET /api/agents/tools
 
 ### 5.1 持续学习系统
 
-- [ ] 系统能自动记录每笔交易的完整决策链
-- [ ] Agent 在分析股票时能检索到相似历史案例
-- [ ] 系统能生成每周经验总结报告
+- [x] 系统能记录并读取每个 `agent_id` 的历史决策链基础数据。
+- [x] 前端能按模型驱动账户查看隔离的历史案例入口。
+- 后续增强：Agent 主动检索相似案例和每周经验总结报告。
 
 ### 5.2 事件驱动系统
 
-- [ ] 系统能每30分钟检查一次新闻事件
-- [ ] 重大事件能立即触发决策流程
-- [ ] 前端能实时显示事件时间线
+- [x] 系统能手动轮询并展示事件时间线。
+- [x] 前端能实时显示时间线事件，并通过 WebSocket 接收 `timeline_event`。
+- 后续增强：每 30 分钟真实新闻/公告轮询、重大事件立即触发决策。
 
 ### 5.3 用户体验
 
-- [ ] 日志支持三层折叠展开
-- [ ] LLM 配置能自动验证并获取模型列表
-- [ ] Git commit 自动触发检查和推送
+- [x] 主界面支持 tabs，避免所有内容一路向下。
+- [x] 设置页支持目录式快速跳转。
+- [x] LLM 配置能自动验证并获取模型列表。
+- [x] Git commit 自动触发检查并默认推送到 GitHub。
+- 后续增强：日志三层折叠展开的深度交互。
 
 ---
 
@@ -611,7 +615,9 @@ GET /api/agents/tools
 
 ## 7. 后续增强方向
 
-- [ ] 支持向量数据库（Milvus）做语义检索
-- [ ] 支持 LLM fine-tune（TradingGroup 的 data-synthesis pipeline）
-- [ ] 支持实时 WebSocket 行情流
-- [ ] 支持多币种（港股、美股）
+以下条目是未来候选方向，不是当前 Trellis 交付 to-do：
+
+- 支持向量数据库（Milvus）做语义检索。
+- 支持 LLM fine-tune（TradingGroup 的 data-synthesis pipeline）。
+- 支持实时 WebSocket 行情流。
+- 支持多币种（港股、美股）。

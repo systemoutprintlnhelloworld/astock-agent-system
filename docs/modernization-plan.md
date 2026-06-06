@@ -1,8 +1,10 @@
 # 现代化重构计划
 
-更新时间：2026-06-03
+更新时间：2026-06-06
 
 本计划用于将当前 Python CLI + Streamlit MVP 渐进升级为小白可直接使用的现代化桌面产品。所有示例均使用占位符，不包含真实密钥。
+
+> 当前状态：本文件是现代化重构的有效计划文件之一，另一个有效计划入口是 [持久化开发计划](trellis-plan.md)。仓库中没有 `a股llm系统现代化重构_efa1eeac.plan.md`，该文件名不是当前可执行计划来源。
 
 ## 1. 产品目标
 
@@ -67,6 +69,8 @@ docs/
 
 - `apps/backend/app.py` 已提供 FastAPI 应用、CORS、健康检查、脱敏配置、bench、自动投资触发、流程图数据、股票/决策/指标接口、运行时配置保存和 WebSocket 事件流。
 - `apps/frontend` 已提供 Next.js 现代控制台首版，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
+- 已补齐 Phase 2 透明化最小接口：事件时间线、Agent 记忆只读查询、LLM 配置检测、Agent 工具清单。
+- modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
 - `start.bat -Mode backend -Port 8000` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 可一键拉起首版现代 UI 预览。
 
@@ -99,9 +103,10 @@ Tauri 主进程启动
 - `decision_made`
 - `trade_executed`
 - `risk_checked`
+- `timeline_event`
+- `llm_checked`
+- `memory_updated`
 - `config_updated`
-- `run_completed`
-- `run_failed`
 - `run_completed`
 - `run_failed`
 - `connection_established`
@@ -129,8 +134,20 @@ Tauri 主进程启动
 - 决策日志：折叠卡片、决策摘要、展开详情、风险和动作。
 - 股票看板：当前持仓、候选股票、当前价、盈亏和交易记录。
 - 曲线看板：权益曲线、回撤、排行榜、交易次数。
+- 事件时间线：交易时间、公告、新闻、系统事件如何进入 Agent 输入流。
+- 智能体清单：每个 Agent 的工具、数据源、技能和按模型隔离的记忆入口。
 - 设置中心：LLM、数据源、策略、风控、调度、通知、备份、日志、性能和主题。
 - 首次启动向导：引导用户先跑离线模式，再配置在线模式。
+
+当前可测试产品路径：
+
+```powershell
+.\start.bat -Mode status
+.\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+```
+
+浏览器打开 `http://127.0.0.1:3000` 后，按“总览 → 流程 → 事件 → 智能体 → 设置”验证主要交付内容。
 
 ## 7. 分阶段交付
 
