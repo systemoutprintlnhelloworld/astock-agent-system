@@ -383,6 +383,80 @@ function Copy-FileWithRetry {
     }
 }
 
+function Get-DesktopSmokePort {
+    for ($candidatePort = 8123; $candidatePort -le 8140; $candidatePort++) {
+        if (-not (Get-NetTCPConnection -LocalPort $candidatePort -ErrorAction SilentlyContinue)) {
+            return $candidatePort
+        }
+    }
+    throw "No free localhost port found for desktop sidecar smoke test."
+}
+
+function Test-DesktopSidecarBinary {
+    $sidecarPath = Get-DesktopSidecarPath
+    if (-not (Test-Path -LiteralPath $sidecarPath)) {
+        throw "Desktop sidecar smoke test cannot run because the binary does not exist: $sidecarPath"
+    }
+
+    $smokePort = Get-DesktopSmokePort
+    $stdoutPath = Join-Path ([System.IO.Path]::GetTempPath()) "astock-sidecar-smoke-out.txt"
+    $stderrPath = Join-Path ([System.IO.Path]::GetTempPath()) "astock-sidecar-smoke-err.txt"
+    Remove-Item -LiteralPath $stdoutPath, $stderrPath -ErrorAction SilentlyContinue
+
+    Write-Step "Smoke testing packaged sidecar on 127.0.0.1:$smokePort"
+    $sidecarArgs = @(
+        "--host", "127.0.0.1",
+        "--port", [string]$smokePort,
+        "--project-root", $PSScriptRoot,
+        "--log-level", "warning"
+    )
+    $process = Start-Process -FilePath $sidecarPath -ArgumentList $sidecarArgs -RedirectStandardOutput $stdoutPath -RedirectStandardError $stderrPath -PassThru
+    try {
+        $ready = $false
+        $lastError = ""
+        $deadline = (Get-Date).AddSeconds(120)
+        while ((Get-Date) -lt $deadline) {
+            if ($process.HasExited) {
+                break
+            }
+            try {
+                $health = Invoke-RestMethod -Uri ("http://127.0.0.1:$smokePort/api/health") -TimeoutSec 2
+                if ($health.status -eq "ok") {
+                    $ready = $true
+                    break
+                }
+            }
+            catch {
+                $lastError = $_.Exception.Message
+                Start-Sleep -Milliseconds 1000
+            }
+        }
+
+        if (-not $ready) {
+            $exitText = if ($process.HasExited) { [string]$process.ExitCode } else { "running" }
+            $stderrText = if (Test-Path -LiteralPath $stderrPath) { (Get-Content -LiteralPath $stderrPath -Raw -ErrorAction SilentlyContinue) } else { "" }
+            $stdoutText = if (Test-Path -LiteralPath $stdoutPath) { (Get-Content -LiteralPath $stdoutPath -Raw -ErrorAction SilentlyContinue) } else { "" }
+            throw "Packaged sidecar smoke test failed. exited=$($process.HasExited); exit=$exitText; lastError=$lastError; stderr=$stderrText; stdout=$stdoutText"
+        }
+
+        $websocket = [System.Net.WebSockets.ClientWebSocket]::new()
+        try {
+            $websocket.ConnectAsync([Uri]("ws://127.0.0.1:$smokePort/ws/events"), [Threading.CancellationToken]::None).GetAwaiter().GetResult()
+            if ($websocket.State -ne [System.Net.WebSockets.WebSocketState]::Open) {
+                throw "WebSocket smoke test ended in state $($websocket.State)."
+            }
+        }
+        finally {
+            $websocket.Dispose()
+        }
+    }
+    finally {
+        if ($process -and -not $process.HasExited) {
+            Stop-Process -Id $process.Id -Force -ErrorAction SilentlyContinue
+        }
+    }
+}
+
 function Get-DesktopReleaseExecutablePath {
     $releaseRoot = Join-Path (Get-DesktopRoot) "src-tauri/target/release"
     if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -438,16 +512,19 @@ function Build-DesktopSidecar {
 
     $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
     $sidecarEntry = Join-Path $PSScriptRoot "apps/backend/sidecar.py"
+    $addDataSeparator = [System.IO.Path]::PathSeparator
+    $srcPackageData = (Join-Path $PSScriptRoot "src/astock_agent_system") + $addDataSeparator + "src/astock_agent_system"
     $pyinstallerArgs = @(
         "--name", "astock-backend",
         "--onefile",
         "--clean",
         "--noconfirm",
-        "--paths", "$PSScriptRoot",
         "--paths", (Join-Path $PSScriptRoot "src"),
+        "--paths", "$PSScriptRoot",
         "--distpath", $binaryRoot,
         "--workpath", $workRoot,
         "--specpath", $specRoot,
+        "--add-data", $srcPackageData,
         "--collect-submodules", "apps.backend",
         "--collect-submodules", "astock_agent_system",
         "--collect-all", "requests",
@@ -458,9 +535,17 @@ function Build-DesktopSidecar {
         "--hidden-import", "yaml",
         $sidecarEntry
     )
-    python -m PyInstaller @pyinstallerArgs
-    if ($LASTEXITCODE -ne 0) {
-        exit $LASTEXITCODE
+    # Run PyInstaller from src so the real src-layout package wins over the
+    # repository-root import shim during hidden-import discovery.
+    Push-Location (Join-Path $PSScriptRoot "src")
+    try {
+        python -m PyInstaller @pyinstallerArgs
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+    }
+    finally {
+        Pop-Location
     }
 
     if ($IsWindows -or $env:OS -eq "Windows_NT") {
@@ -473,6 +558,7 @@ function Build-DesktopSidecar {
     if (-not (Test-Path -LiteralPath (Get-DesktopSidecarPath))) {
         throw "PyInstaller completed but the expected sidecar binary was not created: $(Get-DesktopSidecarPath)"
     }
+    Test-DesktopSidecarBinary
     Write-Step "Desktop sidecar ready: $(Get-DesktopSidecarPath)"
 }
 
