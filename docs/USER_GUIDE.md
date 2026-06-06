@@ -198,7 +198,35 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 注意：这里仍是模拟盘适配层，不会真实下单；返回配置时只显示 `has_api_key`、`has_tushare_token` 等布尔状态，不返回真实密钥。
 
-## 9. 启动长期调度器
+## 9. 桌面版预览和打包验证
+
+最终目标是双击 Tauri 打包出的桌面 `.exe`，由桌面壳自动启动 Python FastAPI sidecar 并加载 Next.js 静态页面。开发期可以按以下顺序检验：
+
+```powershell
+# 检查 Node/npm/Python/Cargo 和 sidecar 状态
+.\start.bat -Mode desktop-doctor
+
+# 构建 Python 后端 sidecar；此步骤不需要 Cargo
+.\start.bat -Mode desktop-sidecar
+
+# 构建桌面壳使用的静态前端；此步骤不需要 Cargo
+npm --prefix apps/frontend run build:desktop
+
+# 安装 Tauri CLI 包，并在 Rust/Cargo 可用后启动或打包桌面壳
+Push-Location apps/desktop; npm install; Pop-Location
+.\start.bat -Mode desktop-dev
+.\start.bat -Mode desktop-build
+```
+
+如果 `desktop-doctor` 显示 `MISSING: cargo`，请先安装 Rust/Cargo（推荐 <https://rustup.rs/>），再执行 `desktop-dev` 或 `desktop-build`。没有 Cargo 时，仍然可以用 `modern-ui` 验证产品功能，用 `desktop-sidecar` 验证 Python 后端可被打包。
+
+`desktop-build` 成功后，Windows 安装包会出现在：
+
+```text
+apps/desktop/src-tauri/target/release/bundle/nsis/
+```
+
+## 10. 启动长期调度器
 
 确认 `.env` 的调度配置：
 
@@ -216,7 +244,7 @@ python -m astock_agent_system.cli scheduler start
 
 调度器会在交易日指定时间运行自动投资轮次，并按间隔检查止损。
 
-## 10. 常见问题
+## 11. 常见问题
 
 ### bench 能列出模型，但单模型测试失败
 

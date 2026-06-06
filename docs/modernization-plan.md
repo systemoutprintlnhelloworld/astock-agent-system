@@ -73,6 +73,8 @@ docs/
 - modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
 - `start.bat -Mode backend -Port 8000` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 可一键拉起首版现代 UI 预览。
+- `apps/desktop` 已新增 Tauri 2 桌面壳；`apps/backend/sidecar.py` 已作为 PyInstaller 入口；`start.bat` 已新增 `desktop-doctor`、`desktop-sidecar`、`desktop-dev` 和 `desktop-build`。
+- `apps/frontend` 已支持 `output: "export"` 的静态桌面构建，`npm --prefix apps/frontend run build:desktop` 会把产物复制到 `apps/desktop/dist`。
 
 最终桌面打包目标：
 
@@ -149,6 +151,26 @@ Tauri 主进程启动
 
 浏览器打开 `http://127.0.0.1:3000` 后，按“总览 → 流程 → 事件 → 智能体 → 设置”验证主要交付内容。
 
+桌面打包检验路径：
+
+```powershell
+# 1. 检查 Node/npm/Python/Cargo 和 sidecar 状态
+.\start.bat -Mode desktop-doctor
+
+# 2. 构建 Python FastAPI sidecar；无需 Cargo
+.\start.bat -Mode desktop-sidecar
+
+# 3. 构建 Tauri 使用的 Next.js 静态前端；无需 Cargo
+npm --prefix apps/frontend run build:desktop
+
+# 4. 安装 Tauri CLI 包并启动/打包桌面壳；需要 Rust/Cargo
+Push-Location apps/desktop; npm install; Pop-Location
+.\start.bat -Mode desktop-dev
+.\start.bat -Mode desktop-build
+```
+
+如果 `desktop-doctor` 显示 `MISSING: cargo`，说明当前机器还不能本地编译最终 `.exe`；这时 `modern-ui`、`desktop-sidecar` 和 `build:desktop` 仍可验证，最终 Tauri `.exe` 需先安装 Rust/Cargo 后再执行 `desktop-build`。
+
 ## 7. 分阶段交付
 
 | 阶段 | 目标 | 可验收结果 |
@@ -157,7 +179,7 @@ Tauri 主进程启动
 | Week 2-3 | 配置中心和首次启动向导 | UI 可配置并保存，后端返回脱敏配置。 |
 | Week 3-4 | 实时流程图和决策日志 | Agent 节点状态可更新，日志可折叠展开。 |
 | Week 4-5 | 股票看板和长期曲线 | 持仓、候选股、权益曲线、排行榜可视化。 |
-| Week 5-6 | Tauri sidecar 和便携版准备 | Tauri 配置、PyInstaller sidecar 策略、阶段验证。 |
+| Week 5-6 | Tauri sidecar 和便携版准备 | Tauri 配置、PyInstaller sidecar、静态前端构建和阶段验证入口。 |
 | Week 6+ | 文档站现代化 | 学习 OpenClaw/Claude 风格，改造内容组织和视觉。 |
 
 ## 8. 风险和约束
@@ -177,6 +199,17 @@ python -m pytest
 python -m mkdocs build --strict
 git status --short
 ```
+
+涉及桌面打包后再补充：
+
+```powershell
+python -m apps.backend.sidecar --help
+.\start.bat -Mode desktop-doctor
+.\start.bat -Mode desktop-sidecar
+npm --prefix apps/frontend run build:desktop
+```
+
+`desktop-dev` / `desktop-build` 属于最终桌面壳编译验证，必须在 Rust/Cargo 可用后执行；若 Cargo 缺失，应记录为环境前置条件，而不是标记为代码失败。
 
 涉及 API/前端后再补充：
 

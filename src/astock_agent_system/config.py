@@ -13,7 +13,7 @@ from pathlib import Path
 from typing import Any
 
 
-PROJECT_ROOT = Path(__file__).resolve().parents[2]
+PROJECT_ROOT = Path(os.getenv("ASTOCK_PROJECT_ROOT", Path(__file__).resolve().parents[2])).resolve()
 DEFAULT_CONFIG_PATH = PROJECT_ROOT / "config" / "config.yaml"
 RUNTIME_CONFIG_PATH = PROJECT_ROOT / "data" / "runtime" / "settings.override.json"
 

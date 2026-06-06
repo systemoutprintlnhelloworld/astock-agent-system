@@ -1159,37 +1159,38 @@ export function TradingDashboard() {
   );
 }
 
-function AgentNodeCard({ data }: NodeProps<FlowNodeData>) {
-  const progress = typeof data.metrics.progress === "number" ? data.metrics.progress : null;
+function AgentNodeCard({ data }: NodeProps) {
+  const nodeData = data as FlowNodeData;
+  const progress = typeof nodeData.metrics.progress === "number" ? nodeData.metrics.progress : null;
 
   return (
     <div
       className={cn(
         "w-52 rounded-2xl border p-4 shadow-2xl backdrop-blur",
-        data.status === "running" && "border-indigo-400/60 bg-indigo-500/15 shadow-indigo-500/20",
-        data.status === "completed" && "border-emerald-400/50 bg-emerald-500/10 shadow-emerald-500/10",
-        data.status === "warning" && "border-amber-400/60 bg-amber-500/10 shadow-amber-500/10",
-        data.status === "failed" && "border-rose-400/60 bg-rose-500/10 shadow-rose-500/10",
-        data.status === "idle" && "border-white/10 bg-slate-950/85 shadow-black/20",
+        nodeData.status === "running" && "border-indigo-400/60 bg-indigo-500/15 shadow-indigo-500/20",
+        nodeData.status === "completed" && "border-emerald-400/50 bg-emerald-500/10 shadow-emerald-500/10",
+        nodeData.status === "warning" && "border-amber-400/60 bg-amber-500/10 shadow-amber-500/10",
+        nodeData.status === "failed" && "border-rose-400/60 bg-rose-500/10 shadow-rose-500/10",
+        nodeData.status === "idle" && "border-white/10 bg-slate-950/85 shadow-black/20",
       )}
     >
       <div className="flex items-start justify-between gap-3">
         <div>
-          <div className="text-sm font-semibold text-white">{data.label}</div>
-          <div className="mt-1 text-xs leading-5 text-slate-300">{data.description}</div>
+          <div className="text-sm font-semibold text-white">{nodeData.label}</div>
+          <div className="mt-1 text-xs leading-5 text-slate-300">{nodeData.description}</div>
         </div>
-        <StatusDot status={data.status} />
+        <StatusDot status={nodeData.status} />
       </div>
       <div className="mt-4 space-y-2">
         <div className="flex items-center justify-between text-[11px] uppercase tracking-[0.2em] text-slate-400">
           <span>状态</span>
-          <span>{data.status}</span>
+          <span>{nodeData.status}</span>
         </div>
         <div className="h-2 overflow-hidden rounded-full bg-white/10">
           <div
             className={cn(
               "h-full rounded-full transition-all",
-              data.status === "running" ? "bg-indigo-400" : data.status === "completed" ? "bg-emerald-400" : "bg-slate-500",
+              nodeData.status === "running" ? "bg-indigo-400" : nodeData.status === "completed" ? "bg-emerald-400" : "bg-slate-500",
             )}
             style={{ width: `${Math.max(8, Math.round((progress ?? 0.08) * 100))}%` }}
           />
@@ -1585,7 +1586,7 @@ function EquityChart({ series }: { series: EquityMetricPoint[] }) {
             <Tooltip
               contentStyle={{ background: "#020617", border: "1px solid rgba(148,163,184,0.18)", borderRadius: 16 }}
               labelStyle={{ color: "#cbd5e1" }}
-              formatter={(value: number) => formatMoney(value)}
+              formatter={(value) => formatMoney(typeof value === "number" ? value : Number(value ?? 0))}
             />
             {topLines.map((line, index) => (
               <Line

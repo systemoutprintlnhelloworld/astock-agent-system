@@ -75,6 +75,7 @@ export interface ConfigResponse {
 }
 
 export interface FlowNodeData {
+  [key: string]: unknown;
   label: string;
   status: AgentStatus;
   description: string;

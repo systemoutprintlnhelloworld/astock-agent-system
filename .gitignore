@@ -6,6 +6,14 @@ venv/
 node_modules/
 apps/frontend/node_modules/
 apps/frontend/.next/
+apps/frontend/out/
+apps/desktop/dist/
+apps/desktop/node_modules/
+apps/desktop/src-tauri/target/
+apps/desktop/src-tauri/gen/
+apps/desktop/src-tauri/binaries/astock-backend*.exe
+apps/desktop/src-tauri/binaries/astock-backend
+!apps/desktop/src-tauri/binaries/.gitkeep
 *.tsbuildinfo
 __pycache__/
 *.py[cod]

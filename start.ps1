@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "scheduler", "docs")]
+    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "desktop-doctor", "desktop-sidecar", "desktop-dev", "desktop-build", "scheduler", "docs")]
     [string]$Mode = "status",
     [string]$Models = "",
     [string]$BenchModel = "",
@@ -236,6 +236,83 @@ function Wait-ForHttpReady {
     throw "$ServiceName did not become ready within $TimeoutSeconds seconds: $Url"
 }
 
+function Assert-CommandAvailable {
+    param(
+        [string]$CommandName,
+        [string]$InstallHint
+    )
+
+    if (-not (Get-Command $CommandName -ErrorAction SilentlyContinue)) {
+        throw "$CommandName is not available. $InstallHint"
+    }
+}
+
+function Get-DesktopRoot {
+    return (Join-Path $PSScriptRoot "apps/desktop")
+}
+
+function Get-DesktopSidecarRoot {
+    return (Join-Path (Get-DesktopRoot) "src-tauri/binaries")
+}
+
+function Get-DesktopSidecarPath {
+    $binaryRoot = Get-DesktopSidecarRoot
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        return (Join-Path $binaryRoot "astock-backend-x86_64-pc-windows-msvc.exe")
+    }
+    return (Join-Path $binaryRoot "astock-backend")
+}
+
+function Build-DesktopSidecar {
+    Assert-CommandAvailable -CommandName "python" -InstallHint "Install Python 3.10+ and run: python -m pip install -e `".[all]`""
+    Write-Step "Building Python FastAPI sidecar with PyInstaller"
+    $binaryRoot = Get-DesktopSidecarRoot
+    New-Item -ItemType Directory -Force -Path $binaryRoot | Out-Null
+    $buildRoot = Join-Path $PSScriptRoot "build/pyinstaller"
+    $workRoot = Join-Path $buildRoot "work"
+    New-Item -ItemType Directory -Force -Path $buildRoot | Out-Null
+    New-Item -ItemType Directory -Force -Path $workRoot | Out-Null
+
+    $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
+    $sidecarEntry = Join-Path $PSScriptRoot "apps/backend/sidecar.py"
+    $pyinstallerArgs = @(
+        "--name", "astock-backend",
+        "--onefile",
+        "--clean",
+        "--noconfirm",
+        "--paths", "$PSScriptRoot",
+        "--paths", (Join-Path $PSScriptRoot "src"),
+        "--distpath", $binaryRoot,
+        "--workpath", $workRoot,
+        "--specpath", $buildRoot,
+        "--collect-submodules", "apps.backend",
+        "--collect-submodules", "astock_agent_system",
+        $sidecarEntry
+    )
+    python -m PyInstaller @pyinstallerArgs
+    if ($LASTEXITCODE -ne 0) {
+        exit $LASTEXITCODE
+    }
+
+    if ($IsWindows -or $env:OS -eq "Windows_NT") {
+        $baseExe = Join-Path $binaryRoot "astock-backend.exe"
+        $targetExe = Get-DesktopSidecarPath
+        if (Test-Path -LiteralPath $baseExe) {
+            Copy-Item -LiteralPath $baseExe -Destination $targetExe -Force
+        }
+    }
+    if (-not (Test-Path -LiteralPath (Get-DesktopSidecarPath))) {
+        throw "PyInstaller completed but the expected sidecar binary was not created: $(Get-DesktopSidecarPath)"
+    }
+    Write-Step "Desktop sidecar ready: $(Get-DesktopSidecarPath)"
+}
+
+function Assert-DesktopPrerequisites {
+    Assert-CommandAvailable -CommandName "node" -InstallHint "Install Node.js before running desktop UI commands."
+    Assert-CommandAvailable -CommandName "npm" -InstallHint "Install Node.js/npm before running desktop UI commands."
+    Assert-CommandAvailable -CommandName "cargo" -InstallHint "Install Rust from https://rustup.rs/ before running Tauri dev/build."
+}
+
 Set-Location $PSScriptRoot
 Import-LocalEnv
 
@@ -379,6 +456,63 @@ switch ($Mode) {
         }
         if ($backendProcess) {
             Write-Host "Backend window PID:  $($backendProcess.Id)" -ForegroundColor DarkGreen
+        }
+    }
+    "desktop-doctor" {
+        Write-Step "Checking desktop packaging prerequisites"
+        foreach ($command in @("node", "npm", "python", "cargo")) {
+            $found = Get-Command $command -ErrorAction SilentlyContinue
+            if ($found) {
+                Write-Host "  OK: $command -> $($found.Source)" -ForegroundColor Green
+            }
+            else {
+                Write-Host "  MISSING: $command" -ForegroundColor Yellow
+            }
+        }
+        $sidecarPath = Get-DesktopSidecarPath
+        if (Test-Path -LiteralPath $sidecarPath) {
+            Write-Host "  OK: sidecar -> $sidecarPath" -ForegroundColor Green
+        }
+        else {
+            Write-Host "  MISSING: sidecar -> run .\start.bat -Mode desktop-sidecar" -ForegroundColor Yellow
+        }
+        Write-Host "  Note: Tauri dev/build requires Rust/Cargo; current dev modern-ui path remains available without Rust." -ForegroundColor Cyan
+    }
+    "desktop-sidecar" {
+        Build-DesktopSidecar
+    }
+    "desktop-dev" {
+        Assert-DesktopPrerequisites
+        if (-not (Test-Path -LiteralPath (Get-DesktopSidecarPath))) {
+            Build-DesktopSidecar
+        }
+        $desktopRoot = Get-DesktopRoot
+        Write-Step "Starting Tauri desktop dev shell"
+        Push-Location $desktopRoot
+        try {
+            $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
+            npm run dev
+        }
+        finally {
+            Pop-Location
+        }
+    }
+    "desktop-build" {
+        Assert-DesktopPrerequisites
+        Build-DesktopSidecar
+        Write-Step "Building desktop frontend assets"
+        npm --prefix apps/frontend run build:desktop
+        if ($LASTEXITCODE -ne 0) {
+            exit $LASTEXITCODE
+        }
+        Write-Step "Building Tauri desktop bundle"
+        Push-Location (Get-DesktopRoot)
+        try {
+            $env:ASTOCK_PROJECT_ROOT = $PSScriptRoot
+            npm run build
+        }
+        finally {
+            Pop-Location
         }
     }
     "scheduler" {

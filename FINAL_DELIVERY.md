@@ -121,6 +121,19 @@
 3. 打开浏览器
 ```
 
+### 当前桌面打包入口（Phase 3 准备完成）
+
+```powershell
+.\start.bat -Mode desktop-doctor
+.\start.bat -Mode desktop-sidecar
+npm --prefix apps/frontend run build:desktop
+Push-Location apps/desktop; npm install; Pop-Location
+.\start.bat -Mode desktop-dev
+.\start.bat -Mode desktop-build
+```
+
+其中 `desktop-sidecar` 负责通过 PyInstaller 生成 Tauri sidecar，`build:desktop` 负责生成 `apps/desktop/dist` 静态前端，`desktop-dev` / `desktop-build` 负责启动和打包 Tauri 桌面壳。若 `desktop-doctor` 显示缺少 Cargo，需要先安装 Rust/Cargo 后再执行最终 `.exe` 编译。
+
 ### 目标状态（Phase 3）
 
 ```
