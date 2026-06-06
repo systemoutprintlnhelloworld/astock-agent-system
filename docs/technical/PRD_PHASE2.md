@@ -553,7 +553,8 @@ GET /api/agents/tools
 - [x] 调研 TradingAgents、FinMem、LangGraph 等项目。
 - [x] 设计 MongoDB schema 和 Redis keys：本 PRD 已定义 `agent_decisions`、`memory_cases`、`weekly_summaries` 和短期 Redis key；当前代码复用 `agent_decisions` 作为最小可交付事实来源。
 - [x] 实现记忆存储和检索基础类：`src/astock_agent_system/agent_memory.py` 提供按 `agent_id` 隔离的只读记忆检索，后端通过 `GET /api/agents/{agent_id}/memory` 暴露给 modern-ui。
-- [x] 配置 Git Hooks（pre-commit + post-commit）：pre-commit 检查 secrets / `.env` / 文档同步，post-commit 默认推送当前分支到 GitHub。
+- [x] 配置 Git Hooks（pre-commit + post-commit）：pre-commit 检查 secrets / `.env` / 文档同步，post-commit 强制推送当前分支到 GitHub。
+- [x] 配置 Cursor `stop` hook：开发会话结束前检查未提交变更、文档同步和未推送提交。
 
 ### Phase 2：持续学习系统
 
@@ -597,7 +598,7 @@ GET /api/agents/tools
 - [x] 主界面支持 tabs，避免所有内容一路向下。
 - [x] 设置页支持目录式快速跳转。
 - [x] LLM 配置能自动验证并获取模型列表。
-- [x] Git commit 自动触发检查并默认推送到 GitHub。
+- [x] Git commit 自动触发检查并强制推送到 GitHub；如网络/TLS 失败，需要保留本地提交并明确重试命令。
 - 后续增强：日志三层折叠展开的深度交互。
 
 ---
@@ -608,7 +609,7 @@ GET /api/agents/tools
 |------|------|---------|
 | 记忆检索性能 | 高 | MongoDB 创建索引 + Redis 缓存热数据 |
 | 事件轮询频率限制 | 中 | 实现指数退避 + 缓存去重 |
-| Git Hook 失败阻塞提交 | 中 | 提供 `--no-verify` 绕过选项 |
+| Git Hook 失败阻塞提交 | 中 | 默认必须修复失败项；仅在用户明确授权的紧急场景才允许人工绕过，并需补齐文档/提交/推送闭环 |
 | 前端日志数据量过大 | 中 | 虚拟滚动 + 懒加载 |
 
 ---

@@ -1,6 +1,6 @@
 # 文档导航地图
 
-更新时间：2026-06-04
+更新时间：2026-06-07
 
 本文档是整个项目的文档导航中心，帮助你快速找到需要的信息。
 
@@ -16,6 +16,7 @@
 | 查看现代化重构路线 | [docs/modernization-plan.md](docs/modernization-plan.md) | 15 分钟 |
 | 了解未来规划 | [docs/trellis-plan.md](docs/trellis-plan.md) | 10 分钟 |
 | 发布到 GitHub | [docs/GITHUB_PUBLISHING.md](docs/GITHUB_PUBLISHING.md) | 10 分钟 |
+| 验证桌面 `.exe` 交付 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md#9-桌面版预览和打包验证) + [apps/desktop/README.md](apps/desktop/README.md) | 15 分钟 |
 
 ## 按角色导航
 
@@ -33,6 +34,7 @@
 .\start.bat -Mode status                    # 检查环境
 .\start.bat -Mode offline -MaxCount 1       # 离线体验
 .\start.bat -Mode modern-ui -Port 3000      # 启动现代控制台
+.\start.bat -Mode desktop-release -AutoInstallRust  # 构建桌面 exe / 安装包
 ```
 
 ### 我是开发者
@@ -50,6 +52,8 @@
 python -m pytest                            # 运行测试
 npm --prefix apps/frontend run lint         # 前端 lint
 python -m mkdocs build --strict             # 构建文档站
+.\start.bat -Mode delivery-check            # 交付质量门禁
+.\start.bat -Mode desktop-doctor            # 桌面打包环境与产物检查
 ```
 
 ### 我是核心开发者（技术深入）
@@ -126,6 +130,8 @@ python -m mkdocs build --strict             # 构建文档站
     ↓ 了解开发规范
 [docs/trellis-plan.md]
     ↓ 查看后续规划和待做任务
+[AGENTS.md]
+    ↓ 查看强制文档同步、验证、提交和推送闭环
 [.cursor/skills/astock-delivery-workflow/SKILL.md]
     ↓ 了解交付工作流
 [运行测试和验证]
@@ -179,10 +185,12 @@ graph TD
 - `docs/DEVELOPER_GUIDE.md` - 开发者手册
 - `docs/ONLINE_RUNBOOK.md` - 在线运行手册
 
-### 2026-06-04（当前）
-- **最新文档**：`docs/` 目录下的所有文档
-- **最新进度**：[docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md)
+### 2026-06-07（当前）
+- **最新文档**：`docs/` 目录下的所有文档、`AGENTS.md`、`apps/desktop/README.md`
+- **最新进度**：[docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) 和 [FINAL_DELIVERY.md](FINAL_DELIVERY.md)
 - **最新架构**：[docs/modernization-plan.md](docs/modernization-plan.md)
+- **最新桌面交付**：`desktop-release -AutoInstallRust` 可构建 `astock-agent-desktop.exe` 和 NSIS 安装包；前端/后端端口自动探测 `8000..8020`。
+- **最新收尾规范**：`.husky/pre-commit` 强制文档同步，`.husky/post-commit` 强制推送，`.cursor/hooks/enforce-session-end.ps1` 在开发会话结束前检查未提交和未推送状态。
 
 ## 文档更新频率
 
@@ -193,6 +201,7 @@ graph TD
 | `docs/modernization-plan.md` | 架构变更时 | 更新技术决策和接口边界 |
 | `docs/USER_GUIDE.md` | 功能变更时 | 更新使用说明和命令示例 |
 | `docs/DEVELOPER_GUIDE.md` | 模块变更时 | 更新架构说明和开发约定 |
+| `AGENTS.md` / `.cursor/skills/*` | 开发流程变更时 | 更新 Agent 必须遵循的收尾规则 |
 
 ## 如何使用这份导航
 

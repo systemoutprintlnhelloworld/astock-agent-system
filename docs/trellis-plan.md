@@ -43,7 +43,7 @@
 | 替换 LLM 网关并验证在线流程 | 已完成 | `.env` 本地切换到可用 OpenAI-compatible 网关；`bench --list-models` 和 `gpt-5.4-mini` 单模型 smoke 通过；在线自动投资通过并触发同日幂等保护。 |
 | 封装一键启动和调试入口 | 已完成 | 新增 `start.ps1` 和 `start.bat`，支持 `status`、`storage`、`offline`、`online`、`bench`、`dashboard`、`backend`、`frontend`、`modern-ui`、`scheduler`、`docs`。 |
 | 搭建 GitHub Pages 文档站和自动部署 | 已完成 | 新增 MkDocs Material 文档站和 `.github/workflows/docs.yml`；仓库已转为 Public；Pages workflow 模式已启用。 |
-| 创建 Cursor Hook 与项目 Skill 固化规范 | 已调整 | 新增项目 Skill 和可选 guard 脚本；按用户要求关闭自动 Shell 审批 Hook，避免命令反复人工批准。 |
+| 创建 Cursor Hook 与项目 Skill 固化规范 | 已强化 | 项目 Skill、`.husky` 和 Cursor `stop` hook 已固化强制收尾；仍不启用逐条 Shell 审批，避免命令反复人工批准。 |
 | 更新持久化计划、文档与交付总结 | 已完成 | 本文件、交付总结、README、使用者/开发者/在线运行文档已同步更新。 |
 | 验证、提交并推送本轮交付 | 已完成 | 测试、文档构建、密钥扫描、GitHub Pages 状态检查均通过；提交 `023d4ad` 已推送到 `main`，Pages workflow 已成功部署。 |
 | 现代化重构计划与分支准备 | 已完成 | 已创建 `tauri-rewrite` 开发分支；新增 `docs/modernization-plan.md`，用于约束 Tauri/Next/FastAPI/WebSocket 重构方向；MkDocs strict build 与密钥扫描通过。 |
@@ -51,8 +51,9 @@
 | Next.js 现代化前端控制台首版 | 已完成 | 已将默认 create-next-app 页面替换为现代化控制台，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。 |
 | Benchmark 架构修正 | 已完成 | 产品层统一为 Benchmark 模式：用户选择 N 个模型，每个模型驱动独立 8-Agent 系统和独立 `VirtualAccount`；不再区分“单 LLM / 多 LLM 模式”。 |
 | Phase 2 透明化最小接口 | 已完成 | 已新增事件时间线、Agent 记忆只读查询、LLM 配置检测和 Agent 工具清单接口，并接入 modern-ui 的事件/智能体/设置页签。 |
-| Git 结束流程自动推送 | 已完成 | `post-commit` 默认推送当前分支到 GitHub `origin`；如需临时跳过，可设置 `SKIP_AUTO_PUSH=1`。 |
-| Tauri 桌面壳与 sidecar 打包入口 | 已完成阶段版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式。 |
+| Git 结束流程强制推送 | 已强化 | `post-commit` 强制推送当前分支到 GitHub `origin`，不再提供跳过环境变量；网络/TLS 失败时保留本地提交并明确 retry 命令。 |
+| Cursor 开发结束 Hook | 已完成 | 新增 `.cursor/hooks/enforce-session-end.ps1` 并在 `.cursor/hooks.json` 启用 `stop` hook，检查未提交变更、文档同步和未推送提交。 |
+| Tauri 桌面壳与 sidecar 打包入口 | 已完成可验证版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式；已验证 `.exe` 和 NSIS 安装包产物。 |
 
 ## 4. 推荐一键运行路径
 
@@ -137,6 +138,8 @@ Push-Location apps/desktop; npm install; Pop-Location
 
 `desktop-release` 是推荐入口；`desktop-build` 是底层分步入口。成功后，Windows 安装包位于 `apps/desktop/src-tauri/target/release/bundle/nsis/`。当前 `start.bat` 仍是开发/验证入口；最终交付目标是 Tauri 打出的 `AStock Agent System` 桌面 `.exe`。
 
+桌面 release 当前已加固：前端静态构建不依赖 Google Fonts；Tauri 壳和前端会在 `127.0.0.1:8000..8020` 范围内复用健康 AStock 后端或选择空闲端口启动 sidecar；`desktop-release` / `desktop-build` 会检查 `astock-agent-desktop.exe` 和 NSIS 安装包是否真实生成。
+
 ## 5. 当前在线状态
 
 - LLM base URL 需要使用带 `/v1` 的 OpenAI-compatible 地址。
@@ -182,6 +185,8 @@ git status --short
 | 用户体验增强 | 已完成主要入口 | tab 化 UI、设置目录跳转、LLM 配置检测、自动模型列表读取、事件时间线 | 深化 ChatGPT-like 三层折叠日志和虚拟滚动 |
 | 开发规范强化 | 已完成当前门禁 | `.husky/pre-commit`、`.husky/post-commit`、`.husky/post-merge` | 如需更严格门禁，再增加 commit-msg 或格式化检查 |
 
+当前收尾规则是强制门禁：代码、桌面、启动脚本、配置、`.husky` 或 `.cursor/hooks` 变更必须同步至少一个受影响文档；每次开发结束前必须运行相关验证、提交并推送。Cursor `stop` hook 会在会话结束前提示未满足项，Git `pre-commit` 会阻止无文档同步的代码/自动化提交，Git `post-commit` 会强制推送当前分支。
+
 未来增强项不作为当前交付阻塞项；进入新一轮开发前，应通过 Trellis 新建任务并在本文件中同步为新的“当前执行计划”。
 
 ---
@@ -192,7 +197,7 @@ git status --short
 | --- | --- | --- |
 | 记忆检索性能 | 高 | MongoDB 创建索引 + Redis 缓存热数据 |
 | 事件轮询频率限制 | 中 | 实现指数退避 + 缓存去重 |
-| Git Hook 失败阻塞提交 | 中 | 提供 `--no-verify` 绕过选项 |
+| Git Hook 失败阻塞提交 | 中 | 默认必须修复失败项；只有用户明确授权的紧急场景才允许人工绕过，并需补齐文档、提交和推送闭环 |
 | 前端日志数据量过大 | 中 | 虚拟滚动 + 懒加载 |
 | LLM API 费用 | 中 | 支持离线模式 + rule-baseline 基准 |
 

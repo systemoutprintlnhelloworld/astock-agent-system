@@ -23,12 +23,15 @@ Use this workflow when developing or delivering this repository:
 4. Update docs with every delivery change.
    - Update `README.md`, `docs/USER_GUIDE.md`, `docs/ONLINE_RUNBOOK.md`, `docs/DEVELOPER_GUIDE.md`, `docs/GITHUB_PUBLISHING.md`, and `docs/DELIVERY_SUMMARY.md` when relevant.
    - Keep `docs/trellis-plan.md` aligned with the current delivery plan.
+   - Code, desktop, startup-script, config, `.husky`, or `.cursor/hooks` changes must be paired with at least one affected developer/user-facing documentation update.
 5. Use Git carefully.
    - Inspect `git status`, `git diff`, and recent commits before committing.
    - Do not amend or force push unless explicitly requested.
    - Commit only after validation and secret checks pass.
+   - End-of-work commit and push are mandatory for this project. The `post-commit` hook pushes the current branch to `origin`; if push fails because of network/TLS, keep the local commit and report the exact retry command.
 6. Keep automation unblocked.
    - Do not enable project-level shell approval gates unless the user explicitly asks.
+   - The project-level Cursor `stop` hook is intentionally enabled to enforce close-out checks without interrupting each shell command.
    - If a guard is used, prefer automatic `allow` or `deny`; avoid `ask` responses that slow down normal development.
 
 ## Recommended validation set
@@ -43,6 +46,16 @@ python -m astock_agent_system.cli storage status --strict
 .\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
 python -m mkdocs build --strict
 git status --short
+```
+
+For desktop delivery changes, additionally verify the relevant subset:
+
+```powershell
+.\start.bat -Mode desktop-doctor
+.\start.bat -Mode desktop-sidecar
+npm --prefix apps/frontend run build:desktop
+.\start.bat -Mode desktop-release -AutoInstallRust
+.\start.bat -Mode delivery-check
 ```
 
 For GitHub Pages, confirm repository visibility and Pages status with `gh repo view` and `gh api repos/<owner>/<repo>/pages`.

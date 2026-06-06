@@ -2,7 +2,7 @@
 
 **交付时间**：2026-06-06  
 **当前分支**：`tauri-rewrite`  
-**最新提交**：已修正 Benchmark 架构理解
+**最新提交**：已完成桌面 release 运行时加固与强制交付闭环 Hook
 
 ---
 
@@ -23,9 +23,10 @@
 
 | Hook | 状态 | 功能 |
 |------|------|------|
-| **.husky/pre-commit** | ✅ 完成 | Secrets检查、.env文件防护 |
-| **.husky/post-commit** | ✅ 完成 | 自动推送到远程分支 |
+| **.husky/pre-commit** | ✅ 已强化 | Secrets 检查、.env 文件防护、代码/自动化变更必须配套文档更新 |
+| **.husky/post-commit** | ✅ 已强化 | 提交后强制推送当前分支到 GitHub `origin` |
 | **.husky/post-merge** | ✅ 完成 | 检查代码变更，提醒更新文档 |
+| **Cursor stop hook** | ✅ 新增 | 会话结束前检查未提交变更、文档同步和未推送提交 |
 
 ### 3. 文档导航体系
 
@@ -121,7 +122,7 @@
 3. 打开浏览器
 ```
 
-### 当前桌面打包入口（Phase 3 准备完成）
+### 当前桌面打包入口（Phase 3 已可验证）
 
 ```powershell
 # 推荐：全自动桌面交付流程
@@ -140,6 +141,20 @@ Push-Location apps/desktop; npm install; Pop-Location
 ```
 
 其中 `desktop-release` 会串联依赖安装、PyInstaller sidecar、Next.js 静态导出、质量门禁和 Tauri 桌面打包；`delivery-check` 可单独运行质量门禁。若缺少 Cargo，可加 `-AutoInstallRust` 自动安装，也可用 `-SkipDesktopBuild` 只验证除最终 `.exe` 编译外的链路。
+
+最新桌面链路已修复：
+
+- 前端静态构建不再依赖 Google Fonts 在线拉取，离线/受限网络不会因字体下载失败中断。
+- Tauri 桌面壳会扫描 `127.0.0.1:8000..8020`，复用健康 AStock 后端或在第一个空闲端口启动打包 sidecar。
+- 前端 HTTP/WebSocket 连接会探测同一端口范围，避免非本项目进程占用 `8000` 时后端无法连接。
+- `desktop-release` 和 `desktop-build` 会检查 `astock-agent-desktop.exe` 与 NSIS 安装包是否真实生成。
+
+已验证产物：
+
+```text
+apps/desktop/src-tauri/target/release/astock-agent-desktop.exe
+apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe
+```
 
 ### 目标状态（Phase 3）
 
@@ -236,7 +251,8 @@ docs/                        # 文档体系
 
 ### Phase 2.5: 开发规范强化
 - [x] Git Hooks 配置
-- [x] 增强代码检查：pre-commit 已检查 secrets、`.env`、代码变更配套文档；post-commit 默认推送到 GitHub。
+- [x] 增强代码检查：pre-commit 已检查 secrets、`.env`、代码/自动化变更配套文档；post-commit 强制推送到 GitHub。
+- [x] Cursor stop hook：开发会话结束前强制检查未提交变更、未推送提交和文档同步。
 
 ---
 
@@ -263,6 +279,8 @@ docs/                        # 文档体系
 - [x] Git Hooks 配置完成
 - [x] 文档更新检查机制
 - [x] Secrets 检查机制
+- [x] Cursor stop hook 收尾检查机制
+- [x] post-commit 强制推送机制
 
 ---
 
@@ -285,9 +303,11 @@ docs/                        # 文档体系
 2. 事件时间线最小可交付入口。
 3. modern-ui tabs、事件页、智能体页和 LLM 检测入口。
 4. Agent 工具清单接口。
-5. Git hooks 默认提交后推送到 GitHub。
+5. Git hooks 提交后强制推送到 GitHub。
+6. Cursor stop hook 强制开发结束前检查文档、提交和推送闭环。
+7. 桌面 `.exe`/NSIS 安装包构建与端口自发现运行时加固。
 
-下一轮如继续深挖真实新闻/公告轮询、周总结、PortfolioManager 主动记忆检索、Tauri `.exe` 打包，应先在 Trellis 创建新任务并同步到持久化计划。
+下一轮如继续深挖真实新闻/公告轮询、周总结、PortfolioManager 主动记忆检索或桌面自动更新/发布，应先在 Trellis 创建新任务并同步到持久化计划。
 
 ---
 
@@ -303,4 +323,4 @@ docs/                        # 文档体系
 ---
 
 **最后更新**：2026-06-06  
-**状态**：Phase 1-2 文档体系与 Benchmark 架构修正完成，Phase 2 最小接口和现代 UI 入口已接入
+**状态**：Phase 1-2 文档体系与 Benchmark 架构修正完成，Phase 2 最小接口、现代 UI、桌面 release 链路和强制收尾 Hook 已接入

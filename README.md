@@ -18,7 +18,8 @@
 - 调度器可每天自动运行一次自动投资轮次，并按间隔执行止损检查。
 - 一键启动脚本覆盖离线、在线、bench、看板、调度器和文档预览。
 - GitHub Pages 文档站由 GitHub Actions 自动部署。
-- 项目级 Cursor Skill 已固化交付规范；自动 Shell 审批 Hook 默认关闭，避免影响开发效率。
+- 项目级 Cursor Skill 和 Cursor `stop` hook 已固化交付规范：开发结束前会检查文档同步、未提交变更和未推送提交；自动 Shell 审批 Hook 默认关闭，避免影响开发效率。
+- Tauri 桌面打包链路已可生成桌面 `.exe` 和 Windows NSIS 安装包，并内置 Python FastAPI sidecar。
 
 ## 安全约定
 
@@ -50,6 +51,21 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode dashboard
 .\start.bat -Mode backend -Port 8000
 .\start.bat -Mode modern-ui -Port 3000 -BackendPort 8000
+```
+
+桌面交付验证入口：
+
+```powershell
+.\start.bat -Mode desktop-release -AutoInstallRust
+.\start.bat -Mode desktop-doctor
+.\start.bat -Mode delivery-check
+```
+
+成功后主要产物位于：
+
+```text
+apps/desktop/src-tauri/target/release/astock-agent-desktop.exe
+apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe
 ```
 
 现代控制台启动后，建议先按这个顺序体验：
@@ -183,6 +199,7 @@ reports/                      # 运行报告输出，默认不提交
 python -m pytest
 .\start.bat -Mode status
 .\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
+.\start.bat -Mode delivery-check
 python -m mkdocs build --strict
 ```
 

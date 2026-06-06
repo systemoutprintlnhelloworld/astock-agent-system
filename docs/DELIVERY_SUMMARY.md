@@ -1,6 +1,6 @@
 # 交付总结
 
-生成时间：2026-06-03
+生成时间：2026-06-07
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
@@ -22,7 +22,8 @@
 - 一键启动脚本：`start.bat` / `start.ps1` 覆盖状态检查、离线运行、在线 bench、在线自动投资、看板、调度器和文档预览。
 - Git/GitHub 文档托管：仓库已转为 Public，并启用 GitHub Pages workflow 模式。
 - MkDocs Material 文档站：推送到 `main` 后由 GitHub Actions 自动构建并部署。
-- Cursor Skill 与可选 guard 脚本：已固化交付工作流；自动 Shell 审批 Hook 默认关闭，避免开发命令反复人工批准。
+- Cursor Skill 与强制收尾 Hook：项目级 Skill、`.husky/pre-commit`、`.husky/post-commit` 和 Cursor `stop` hook 已固化交付闭环；自动 Shell 审批 Hook 默认关闭，避免开发命令反复人工批准。
+- Tauri 桌面交付链路：`desktop-release -AutoInstallRust` 可构建桌面 `.exe` 和 Windows NSIS 安装包，桌面壳内置 Python FastAPI sidecar。
 - 现代化重构计划：已新增 `docs/modernization-plan.md`，明确 Tauri/Next/FastAPI/WebSocket 架构、事件协议、风险和验证门禁。
 - FastAPI 后端适配层预览：已新增 `apps/backend`，支持 `health`、脱敏配置、bench、自动投资触发、运行时配置保存、流程图/决策/股票/指标接口和 WebSocket 事件流。
 - Next.js 现代控制台首版：已新增 `apps/frontend`，支持 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
@@ -89,9 +90,14 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 8000` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程
 - MkDocs strict build：通过
 - GitHub Pages：仓库已公开，Pages workflow 模式已启用
-- Cursor Hook：自动 Shell 审批 Hook 已按用户要求关闭；保留可选 guard 脚本供手动验证密钥/危险命令策略
+- Cursor Hook：逐条 Shell 审批 Hook 保持关闭；Cursor `stop` hook 已启用，用于开发结束前检查文档同步、未提交变更和未推送提交。
 - Git ignore 检查：`.env` 和运行产物已忽略
 - 文档/代码密钥扫描：未发现真实密钥或真实网关地址
+- 桌面静态前端：`npm --prefix apps/frontend run build:desktop` 通过，产物复制到 `apps/desktop/dist`。
+- 桌面 sidecar：`start.bat -Mode desktop-sidecar` 可生成 `apps/desktop/src-tauri/binaries/astock-backend-x86_64-pc-windows-msvc.exe`。
+- 桌面 release：`start.bat -Mode desktop-release -AutoInstallRust` 可生成 `apps/desktop/src-tauri/target/release/astock-agent-desktop.exe` 和 `apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe`。
+- 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端会在 `127.0.0.1:8000..8020` 范围内复用健康 AStock 后端或选择空闲端口启动 sidecar。
+- 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态
 
@@ -127,6 +133,21 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 4. 可折叠决策日志、股票看板、模型排行榜和长期表现曲线。
 5. Tauri 2.0 桌面壳与 Python sidecar，为后续便携版做准备。
 6. UI 稳定后再进行文档站视觉和结构升级。
+
+桌面交付当前推荐验证路径：
+
+```powershell
+.\start.bat -Mode desktop-doctor
+.\start.bat -Mode desktop-release -AutoInstallRust
+.\start.bat -Mode delivery-check
+```
+
+成功后主要产物：
+
+```text
+apps/desktop/src-tauri/target/release/astock-agent-desktop.exe
+apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe
+```
 
 ## 7. 后续可选增强
 

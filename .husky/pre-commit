@@ -3,14 +3,14 @@
 echo "Running pre-commit checks..."
 
 STAGED_FILES=$(git diff --cached --name-only --diff-filter=ACMR)
-CHANGED_CODE=$(printf '%s\n' "$STAGED_FILES" | sed -n '/^src\//p;/^apps\//p')
-CHANGED_DOCS=$(printf '%s\n' "$STAGED_FILES" | sed -n '/^docs\//p;/^DOCUMENTATION_MAP\.md$/p;/^FINAL_DELIVERY\.md$/p')
+CHANGED_CODE=$(printf '%s\n' "$STAGED_FILES" | sed -n '/^src\//p;/^apps\/backend\//p;/^apps\/frontend\/src\//p;/^apps\/frontend\/scripts\//p;/^apps\/desktop\/src-tauri\//p;/^start\.ps1$/p;/^start\.bat$/p;/^config\//p;/^\.cursor\/hooks\.json$/p;/^\.cursor\/hooks\//p;/^\.husky\//p')
+CHANGED_DOCS=$(printf '%s\n' "$STAGED_FILES" | sed -n '/^docs\//p;/^README\.md$/p;/^DOCUMENTATION_MAP\.md$/p;/^FINAL_DELIVERY\.md$/p;/^AGENTS\.md$/p;/^apps\/desktop\/README\.md$/p;/^\.cursor\/skills\//p')
 
 # 1. Secrets check on staged file contents.
 echo "  - Checking staged files for secrets..."
 printf '%s\n' "$STAGED_FILES" | while IFS= read -r file; do
   [ -n "$file" ] || continue
-  git show ":$file" 2>/dev/null | LC_ALL=C grep -E 'sk-[A-Za-z0-9]{48}|TUSHARE_TOKEN[[:space:]]*=[[:space:]]*[A-Za-z0-9]{32,}' >/dev/null 2>&1 || continue
+  git show ":$file" 2>/dev/null | LC_ALL=C grep -E 'sk-[A-Za-z0-9_-]{20,}|TUSHARE_TOKEN[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{20,}|LLM_API_KEY[[:space:]]*=[[:space:]]*[A-Za-z0-9_-]{20,}' >/dev/null 2>&1 || continue
   echo "  ERROR: potential API key or Tushare token found in $file"
   exit 1
 done || exit 1
@@ -22,9 +22,9 @@ if printf '%s\n' "$STAGED_FILES" | grep -E '^\.env(\..*)?$' | grep -Ev '^\.env\.
 fi
 
 # 3. Keep code and developer-facing documentation moving together.
-if [ -n "$CHANGED_CODE" ] && [ -z "$CHANGED_DOCS" ] && [ "${SKIP_DOC_CHECK:-0}" != "1" ]; then
+if [ -n "$CHANGED_CODE" ] && [ -z "$CHANGED_DOCS" ]; then
   echo "  ERROR: code changed without a staged documentation update."
-  echo "  Update docs/technical, DOCUMENTATION_MAP.md, or FINAL_DELIVERY.md; or set SKIP_DOC_CHECK=1 if docs are not needed."
+  echo "  Update docs/, README.md, DOCUMENTATION_MAP.md, FINAL_DELIVERY.md, apps/desktop/README.md, or the project skill before committing."
   printf '%s\n' "$CHANGED_CODE" | sed 's/^/    - /'
   exit 1
 fi

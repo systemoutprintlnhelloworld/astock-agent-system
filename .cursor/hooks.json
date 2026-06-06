@@ -1,4 +1,13 @@
 {
   "version": 1,
-  "hooks": {}
+  "hooks": {
+    "stop": [
+      {
+        "command": "powershell -NoProfile -ExecutionPolicy Bypass -File .cursor/hooks/enforce-session-end.ps1",
+        "timeout": 20,
+        "failClosed": true,
+        "loop_limit": 3
+      }
+    ]
+  }
 }

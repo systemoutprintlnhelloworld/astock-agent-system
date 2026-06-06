@@ -121,15 +121,29 @@ python -m mkdocs build --strict
 - 对外部服务调用必须有异常保护和脱敏。
 - 不要在代码或文档中写真实 token。
 
-## 9. Cursor Skill 与可选 Guard 脚本
+## 9. Cursor Skill、Hooks 与强制收尾
 
 项目包含：
 
-- `.cursor/hooks.json`：当前保持空 hooks，避免 Shell 命令反复要求人工审批，保证自动化开发效率。
-- `.cursor/hooks/guard-shell.ps1`：可选手动 guard 脚本，可用于验证 `.env` 入库、真实密钥形态命令、force push/reset 等策略。
+- `.cursor/hooks.json`：启用项目级 `stop` hook，用于开发会话结束前检查交付闭环。
+- `.cursor/hooks/enforce-session-end.ps1`：检查未提交变更、代码/自动化变更是否同步文档、当前分支是否仍 ahead 未推送。
 - `.cursor/skills/astock-delivery-workflow/SKILL.md`：交付工作流 skill，提醒维护一键启动、文档、验证和密钥保护。
+- `.husky/pre-commit`：提交前强制密钥扫描、禁止本地 `.env` 入库、禁止代码/自动化变更无文档同步提交。
+- `.husky/post-commit`：提交后强制推送当前分支到 GitHub `origin`。
 
-默认不启用 `beforeShellExecution` gate。若未来重新启用 hook，应避免返回 `ask`，只在真实密钥或 `.env` 入库等高风险场景自动 `deny`，普通开发命令应直接 `allow`。
+默认不启用 `beforeShellExecution` gate，避免 Shell 命令反复要求人工审批。当前强制点放在 `pre-commit`、`post-commit` 和 Cursor `stop` hook：开发结束前必须更新受影响文档、运行相关验证、提交并推送。如果 GitHub push 因网络/TLS 失败，应保留本地提交并在交付说明中明确待执行命令。
+
+常规收尾顺序：
+
+```powershell
+.\start.bat -Mode delivery-check
+git status --short --branch
+git add <changed-files>
+git commit -m "<message>"
+git push origin <branch>
+```
+
+若未来重新启用 shell 审批 hook，应避免返回 `ask`，只在真实密钥或 `.env` 入库等高风险场景自动 `deny`，普通开发命令应直接 `allow`。
 
 ## 10. 后续开发建议
 

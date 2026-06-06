@@ -2,11 +2,6 @@
 
 echo "Post-commit check complete."
 
-if [ "${SKIP_AUTO_PUSH:-0}" = "1" ]; then
-  echo "SKIP_AUTO_PUSH=1 set; skipping automatic push."
-  exit 0
-fi
-
 BRANCH=$(git rev-parse --abbrev-ref HEAD)
 if [ "$BRANCH" = "HEAD" ]; then
   echo "  ERROR: detached HEAD; cannot auto-push safely."
