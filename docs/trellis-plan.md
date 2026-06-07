@@ -64,6 +64,7 @@
 | Git 结束流程强制推送 | 已强化 | `post-commit` 强制推送当前分支到 GitHub `origin`，不再提供跳过环境变量；网络/TLS 失败时保留本地提交并明确 retry 命令。 |
 | Cursor 开发结束 Hook | 已完成 | 新增 `.cursor/hooks/enforce-session-end.ps1` 并在 `.cursor/hooks.json` 启用 `stop` hook，检查未提交变更、文档同步和未推送提交。 |
 | Tauri 桌面壳与 sidecar 打包入口 | 已完成可验证版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式；已验证 `.exe` 和 NSIS 安装包产物。 |
+| Agent Markdown 持续学习系统 | 已完成首版 | 新增 `config/agents/*.md`、`config/user_profile.yaml`、Agent descriptor/learning 核心模块、后端管理接口、TUI `/agent` 命令骨架和 `docs/technical/AGENT_MD_LEARNING.md`；学习系统只生成建议，不静默改策略或实盘交易。 |
 
 ## 4. 推荐一键运行路径
 

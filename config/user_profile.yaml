@@ -1,0 +1,8 @@
+user_profile:
+  risk_preference: moderate
+  focus_areas:
+    - technical_momentum
+    - fundamental_value
+  custom_rules:
+    - "当前只做模拟盘，不允许自动接入真实下单。"
+    - "默认保持中等风险偏好，任何策略调整先生成建议并等待人工确认。"

@@ -48,6 +48,14 @@ from apps.backend.schemas import (
     StockBoardResponse,
     TradeRow,
 )
+from astock_agent_system.agent_descriptor import (
+    backup_agent_descriptor,
+    list_agent_descriptors,
+    load_agent_descriptor,
+    load_user_profile,
+    rollback_agent_descriptor,
+)
+from astock_agent_system.agent_learning import get_learning_status, trigger_learning_if_ready
 from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import Settings, load_settings, save_runtime_overrides
 from astock_agent_system.event_timeline import EventTimelineService, filter_timeline_events
@@ -89,6 +97,12 @@ class LlmConfigCheckRequest(BaseModel):
     models: list[str] | None = None
     run_bench: bool = False
     limit: int = Field(default=5, ge=1, le=20)
+
+
+class AgentRollbackRequest(BaseModel):
+    """Request to restore one backed-up Agent Markdown descriptor."""
+
+    version_file: str
 
 
 class EventHub:
@@ -322,6 +336,38 @@ def create_app() -> FastAPI:
             items = _memory_cases_from_current_run(agent_id, stock_code=stock_code, outcome=outcome, limit=limit)
         next_steps = [] if items else ["Run a benchmark round first; memory is isolated per model-driven Agent account."]
         return AgentMemoryResponse(agent_id=agent_id, items=items, next_steps=next_steps).model_dump(mode="json")
+
+    @api.get("/api/agents/descriptors")
+    def get_agent_descriptors(include_content: bool = False) -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "items": [descriptor.to_public_dict(include_content=include_content) for descriptor in list_agent_descriptors()],
+            "user_profile": load_user_profile().to_context(),
+            "next_steps": ["Use /api/agents/{agent_id}/descriptor to inspect one Agent Markdown file."],
+        }
+
+    @api.get("/api/agents/{agent_id}/descriptor")
+    def get_agent_descriptor(agent_id: str, include_content: bool = True) -> dict[str, Any]:
+        descriptor = load_agent_descriptor(agent_id)
+        return {"status": "ok", "item": descriptor.to_public_dict(include_content=include_content)}
+
+    @api.post("/api/agents/{agent_id}/descriptor/backup")
+    def backup_agent_md(agent_id: str) -> dict[str, Any]:
+        path = backup_agent_descriptor(agent_id)
+        return {"status": "ok", "backup_path": str(path)}
+
+    @api.post("/api/agents/{agent_id}/descriptor/rollback")
+    def rollback_agent_md(agent_id: str, request: AgentRollbackRequest) -> dict[str, Any]:
+        path = rollback_agent_descriptor(agent_id, request.version_file)
+        return {"status": "ok", "restored_path": str(path)}
+
+    @api.get("/api/agents/learning/status")
+    def get_agent_learning_status() -> dict[str, Any]:
+        return {"status": "ok", "learning": get_learning_status()}
+
+    @api.post("/api/agents/learning/trigger")
+    def trigger_agent_learning(force: bool = False) -> dict[str, Any]:
+        return {"status": "ok", "learning": trigger_learning_if_ready(force=force)}
 
     @api.post("/api/config/test-llm")
     async def test_llm_config(request: LlmConfigCheckRequest | None = None) -> dict[str, Any]:

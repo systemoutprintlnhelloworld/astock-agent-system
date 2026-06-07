@@ -6,6 +6,8 @@ import json
 import subprocess
 from typing import Any
 
+from astock_agent_system.agent_descriptor import load_agent_descriptor
+from astock_agent_system.agent_learning import load_experiences
 from astock_agent_system.config import Settings, load_settings
 from astock_agent_system.llm import LLMClient
 from astock_agent_system.models import AnalysisResult
@@ -35,6 +37,10 @@ class SentimentAnalyst:
     def __init__(self, settings: Settings | None = None, llm_client: LLMClient | None = None) -> None:
         self.settings = settings or load_settings()
         self.llm_client = llm_client or LLMClient(self.settings)
+        try:
+            self.descriptor = load_agent_descriptor("sentiment_analyst")
+        except (FileNotFoundError, OSError, ValueError):
+            self.descriptor = None
 
     def analyze(self, stock_code: str, stock_name: str = "", sector: str = "") -> AnalysisResult:
         if not self.settings.smart_search.enabled:
@@ -104,16 +110,22 @@ class SentimentAnalyst:
     def _score_with_llm(self, stock_code: str, text: str) -> float | None:
         if not self.llm_client.is_configured or not self.llm_client.settings.default_model:
             return None
+        system_prompt = "你是A股舆情分析助手，只输出JSON。"
+        user_prompt = f"请对 {stock_code} 的舆情摘要打分，输出 {{\"score\": 0到1, \"label\": \"...\"}}。摘要：\n{text[:3000]}"
+        if self.descriptor is not None and self.descriptor.prompt_template:
+            system_prompt = self.descriptor.system_prompt or system_prompt
+            user_prompt = self.descriptor.render_prompt(
+                {
+                    "stock_code": stock_code,
+                    "text": text[:3000],
+                    "learning_context": _recent_learning_context(),
+                }
+            )
         try:
             result = self.llm_client.chat_json(
                 messages=[
-                    {"role": "system", "content": "你是A股舆情分析助手，只输出JSON。"},
-                    {
-                        "role": "user",
-                        "content": (
-                            f"请对 {stock_code} 的舆情摘要打分，输出 {{\"score\": 0到1, \"label\": \"...\"}}。摘要：\n{text[:3000]}"
-                        ),
-                    },
+                    {"role": "system", "content": system_prompt},
+                    {"role": "user", "content": user_prompt},
                 ]
             )
         except Exception:
@@ -150,3 +162,19 @@ def _keyword_sentiment_score(text: str) -> float:
     if positive == 0 and negative == 0:
         return 0.50
     return _clamp(0.50 + (positive - negative) * 0.06)
+
+
+def _recent_learning_context(limit: int = 5) -> str:
+    entries = load_experiences(limit=limit)
+    if not entries:
+        return "暂无足够历史经验。"
+    lines: list[str] = []
+    for entry in entries:
+        outcome = entry.get("outcome", {}) if isinstance(entry.get("outcome", {}), dict) else {}
+        lines.append(
+            f"- {entry.get('date', '')} {entry.get('stock_code', '')}: "
+            f"模型={entry.get('llm_model', '')}, "
+            f"收益={outcome.get('return_pct', 0)}%, "
+            f"结果={outcome.get('result', '')}"
+        )
+    return "\n".join(lines)

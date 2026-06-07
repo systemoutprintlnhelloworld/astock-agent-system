@@ -13,6 +13,8 @@ from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
 
+from astock_agent_system.agent_descriptor import load_agent_descriptor
+from astock_agent_system.agent_learning import load_experiences, record_competition_experience, trigger_learning_if_ready
 from astock_agent_system.agents import MasterAgent
 from astock_agent_system.backtest.virtual_account import VirtualAccount
 from astock_agent_system.config import Settings, load_settings
@@ -69,6 +71,7 @@ class MultiAgentOrchestrator:
         trade_date: str | None = None,
         persist: bool = True,
         continue_from_storage: bool = True,
+        collect_learning: bool | None = None,
     ) -> dict[str, Any]:
         """Run one simulated trading round for each model.
 
@@ -109,6 +112,9 @@ class MultiAgentOrchestrator:
         }
         if persist:
             payload["persisted"] = self._persist_competition(payload)
+        should_collect_learning = persist if collect_learning is None else collect_learning
+        if should_collect_learning:
+            payload["learning"] = self._record_learning_safely(payload)
         return payload
 
     def _run_one_agent(
@@ -213,6 +219,7 @@ class MultiAgentOrchestrator:
             return {"source": "rule_fallback", "reason": "llm_not_configured"}
 
         payload = _compact_report_for_llm(report)
+        system_prompt = "你是严格遵守风控的A股模拟盘基金经理，只输出JSON。"
         prompt = (
             "你正在管理一个独立的A股模拟盘账户。请复核规则Agent的报告，"
             "在不违反风控的前提下给出你的最终动作。只能输出JSON："
@@ -222,10 +229,22 @@ class MultiAgentOrchestrator:
             + json.dumps(payload, ensure_ascii=False)
         )
         try:
+            descriptor = load_agent_descriptor("master_agent")
+            if descriptor.prompt_template:
+                system_prompt = descriptor.system_prompt or system_prompt
+                prompt = descriptor.render_prompt(
+                    {
+                        "report_json": json.dumps(payload, ensure_ascii=False),
+                        "learning_context": _recent_learning_context(),
+                    }
+                )
+        except (FileNotFoundError, OSError, ValueError):
+            pass
+        try:
             result = client.chat_json(
                 model=llm_model,
                 messages=[
-                    {"role": "system", "content": "你是严格遵守风控的A股模拟盘基金经理，只输出JSON。"},
+                    {"role": "system", "content": system_prompt},
                     {"role": "user", "content": prompt},
                 ],
                 temperature=0.2,
@@ -259,6 +278,15 @@ class MultiAgentOrchestrator:
         except Exception as exc:
             logger.warning("Loading previous account snapshots skipped: %s", exc)
             return {}
+
+    def _record_learning_safely(self, payload: dict[str, Any]) -> dict[str, Any]:
+        try:
+            recorded = record_competition_experience(payload)
+            status = trigger_learning_if_ready()
+            return {"recorded": recorded, "status": status}
+        except Exception as exc:  # pragma: no cover - learning persistence is best-effort
+            logger.warning("Agent learning collection skipped: %s", exc)
+            return {"recorded": {"recorded": 0}, "status": "skipped", "reason": str(exc)}
 
     def _persist_competition(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -328,6 +356,22 @@ def _normalize_models(models: list[str] | None, default_model: str = "") -> list
 
 def _agent_id_for_model(model: str) -> str:
     return "agent-" + "".join(ch.lower() if ch.isalnum() else "-" for ch in model).strip("-")
+
+
+def _recent_learning_context(limit: int = 5) -> str:
+    entries = load_experiences(limit=limit)
+    if not entries:
+        return "暂无足够历史经验。"
+    lines: list[str] = []
+    for entry in entries:
+        outcome = entry.get("outcome", {}) if isinstance(entry.get("outcome", {}), dict) else {}
+        lines.append(
+            f"- {entry.get('date', '')} {entry.get('stock_code', '')}: "
+            f"模型={entry.get('llm_model', '')}, "
+            f"收益={outcome.get('return_pct', 0)}%, "
+            f"结果={outcome.get('result', '')}"
+        )
+    return "\n".join(lines)
 
 
 def _is_same_trade_date_snapshot(snapshot: dict[str, Any] | None, trade_date: str) -> bool:

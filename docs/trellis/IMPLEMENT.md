@@ -18,10 +18,26 @@
 | `apps/backend` | FastAPI + WebSocket；健康检查、配置、bench、自动投资、流程、决策、股票、指标、事件、记忆、工具接口。 |
 | `apps/frontend` | Next.js 现代控制台；tabs、React Flow、Recharts、设置、事件、智能体、LLM 检测。 |
 | `apps/desktop` | Tauri 2 shell；PyInstaller sidecar；`.exe` 和 NSIS 安装包构建链路。 |
+| Agent Markdown 持续学习 | 已新增 8 个 Agent Markdown 描述文件、用户偏好、经验记录、学习建议、后端管理接口和 TUI `/agent` 命令骨架。 |
 | Hooks | pre-commit 文档同步/密钥检查，post-commit 自动 push，Cursor stop hook 收尾检查。 |
 | Docs | README、用户/开发/在线手册、Trellis、现代化计划、技术文档、交付总结。 |
 
 ## 3. 本轮正在收尾的代码修复
+
+本轮新增 Agent Markdown 持续学习系统，用 Markdown 维护投资 Agent 指令和可调权重，保持固定工作流，不引入 MCP / ACP / 插件总线。核心落点：
+
+| 文件 | 目的 |
+| --- | --- |
+| `config/agents/*.md` | 8 个 Agent 的人类可读描述、机器可读规则、LLM Prompt 模板和学习入口。 |
+| `config/user_profile.yaml` | 非密钥用户投资偏好，注入 LLM Prompt。 |
+| `src/astock_agent_system/agent_descriptor.py` | Agent Markdown 加载、Prompt 渲染、备份和回滚。 |
+| `src/astock_agent_system/agent_learning.py` | 经验 JSONL 记录、学习状态、统计分析和建议生成。 |
+| `apps/backend/app.py` | 暴露 Agent descriptor 与 learning status/trigger API，供 GUI/TUI 共用。 |
+| `apps/tui/commands/agent.py` | `/agent list/view/edit/backup/learning` 命令骨架。 |
+| `apps/tui/widgets/agent_panel.py` | Agent 管理面板和学习进度文本渲染骨架。 |
+| `docs/technical/AGENT_MD_LEARNING.md` | Agent MD 格式、接口和维护说明。 |
+
+旧 handoff 批次遗留修复记录如下：
 
 | 文件 | 目的 |
 | --- | --- |

@@ -4,6 +4,7 @@ from __future__ import annotations
 
 import math
 
+from astock_agent_system.agent_descriptor import load_agent_descriptor
 from astock_agent_system.models import AnalysisResult, StockBar
 
 
@@ -57,6 +58,17 @@ def _label(score: float) -> str:
 class TechnicalAnalyst:
     """Score price trend, momentum, RSI and volatility without pandas."""
 
+    def __init__(self) -> None:
+        try:
+            self.descriptor = load_agent_descriptor("technical_analyst")
+        except (FileNotFoundError, OSError, ValueError):
+            self.descriptor = None
+
+    def _rule(self, name: str, default: float) -> float:
+        if self.descriptor is None:
+            return default
+        return self.descriptor.get_rule_float(name, default)
+
     def analyze(self, stock_code: str, bars: list[StockBar]) -> AnalysisResult:
         if len(bars) < 5:
             return AnalysisResult(
@@ -83,42 +95,48 @@ class TechnicalAnalyst:
         risks: list[str] = []
 
         if ma5 > ma20:
-            score += 0.16
+            score += self._rule("ma_cross_bonus", 0.16)
             reasons.append("MA5 高于 MA20，短期趋势占优")
         else:
-            score -= 0.12
+            score += self._rule("ma_cross_penalty", -0.12)
             risks.append("MA5 不高于 MA20，短期趋势偏弱")
 
         if latest_close > ma20:
-            score += 0.10
+            score += self._rule("close_above_ma20_bonus", 0.10)
             reasons.append("收盘价站上 MA20")
         else:
-            score -= 0.08
+            score += self._rule("close_below_ma20_penalty", -0.08)
             risks.append("收盘价低于 MA20")
 
         if return_20d > 0:
-            momentum_bonus = min(0.16, return_20d * 1.8)
+            momentum_bonus = min(
+                self._rule("momentum_positive_cap", 0.16),
+                return_20d * self._rule("momentum_positive_multiplier", 1.8),
+            )
             score += momentum_bonus
             reasons.append(f"近20日收益为 {return_20d:.2%}")
         else:
-            score += max(-0.16, return_20d * 1.5)
+            score += max(
+                self._rule("momentum_negative_floor", -0.16),
+                return_20d * self._rule("momentum_negative_multiplier", 1.5),
+            )
             risks.append(f"近20日收益为 {return_20d:.2%}")
 
         if 45 <= rsi14 <= 70:
-            score += 0.08
+            score += self._rule("rsi_healthy_bonus", 0.08)
             reasons.append(f"RSI14={rsi14:.1f}，动量处于相对健康区间")
         elif rsi14 > 80:
-            score -= 0.10
+            score += self._rule("rsi_overheated_penalty", -0.10)
             risks.append(f"RSI14={rsi14:.1f}，短线过热")
         elif rsi14 < 30:
-            score -= 0.04
+            score += self._rule("rsi_weak_penalty", -0.04)
             risks.append(f"RSI14={rsi14:.1f}，弱势或超跌状态")
 
         if volatility <= 0.35:
-            score += 0.06
+            score += self._rule("volatility_low_bonus", 0.06)
             reasons.append(f"年化波动率约 {volatility:.2%}，在保守阈值内")
         else:
-            score -= 0.12
+            score += self._rule("volatility_high_penalty", -0.12)
             risks.append(f"年化波动率约 {volatility:.2%}，超过保守阈值")
 
         final_score = round(_clamp(score), 4)
@@ -137,5 +155,6 @@ class TechnicalAnalyst:
                 "return_20d": round(return_20d, 6),
                 "rsi14": round(rsi14, 2),
                 "volatility": round(volatility, 6),
+                "agent_descriptor_version": self.descriptor.version if self.descriptor else "fallback",
             },
         )

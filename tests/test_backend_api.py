@@ -224,6 +224,24 @@ def test_agent_flow_endpoint_returns_animated_react_flow_edges() -> None:
     assert all(edge["animated"] is True for edge in payload["edges"])
 
 
+def test_agent_descriptor_and_learning_endpoints_are_available() -> None:
+    client = TestClient(app)
+
+    descriptors = client.get("/api/agents/descriptors").json()
+    assert descriptors["status"] == "ok"
+    assert any(item["agent_id"] == "technical_analyst" for item in descriptors["items"])
+    assert descriptors["user_profile"]["risk_preference"] == "moderate"
+
+    detail = client.get("/api/agents/technical/descriptor").json()
+    assert detail["status"] == "ok"
+    assert detail["item"]["agent_id"] == "technical_analyst"
+    assert "TechnicalAnalyst" in detail["item"]["content"]
+
+    learning = client.get("/api/agents/learning/status").json()
+    assert learning["status"] == "ok"
+    assert "progress" in learning["learning"]
+
+
 def test_websocket_events_support_ping_pong() -> None:
     client = TestClient(app)
 

@@ -26,6 +26,9 @@ dist/
 logs/
 reports/
 data/runtime/
+config/agents/learning/*.json
+config/agents/learning/*.jsonl
+config/agents/versions/
 *.log
 cc-export.txt
 .coverage

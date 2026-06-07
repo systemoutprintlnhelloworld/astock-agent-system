@@ -70,6 +70,7 @@ docs/
 - `apps/backend/app.py` 已提供 FastAPI 应用、CORS、健康检查、脱敏配置、bench、自动投资触发、流程图数据、股票/决策/指标接口、运行时配置保存和 WebSocket 事件流。
 - `apps/frontend` 已提供 Next.js 现代控制台首版，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 已补齐 Phase 2 透明化最小接口：事件时间线、Agent 记忆只读查询、LLM 配置检测、Agent 工具清单。
+- 已新增 Agent Markdown 持续学习接口：Agent 描述文件查询、备份、回滚、学习状态和手动触发建议生成；GUI 和 TUI 通过同一后端 API 使用这些能力。
 - modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
 - `start.bat -Mode backend -Port 18080` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 可一键拉起首版现代 UI 预览。

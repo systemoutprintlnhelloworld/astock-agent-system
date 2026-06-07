@@ -54,6 +54,7 @@ nav:
           - 设计决策: technical/DESIGN_DECISIONS.md
           - 同类项目对比: technical/COMPARISON.md
           - 用户需求映射: technical/USER_NEEDS_MAPPING.md
+          - Agent Markdown 持续学习: technical/AGENT_MD_LEARNING.md
           - Phase 2 PRD: technical/PRD_PHASE2.md
 
 markdown_extensions:
