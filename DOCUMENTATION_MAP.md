@@ -13,8 +13,10 @@
 | 接入真实 LLM 和 Tushare | [docs/ONLINE_RUNBOOK.md](docs/ONLINE_RUNBOOK.md) | 20 分钟 |
 | 理解系统架构和模块 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | 30 分钟 |
 | 了解当前开发进度 | [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) | 10 分钟 |
+| 让下一位 AI 接手继续开发 | [docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md) | 10 分钟 |
 | 查看现代化重构路线 | [docs/modernization-plan.md](docs/modernization-plan.md) | 15 分钟 |
 | 了解未来规划 | [docs/trellis-plan.md](docs/trellis-plan.md) | 10 分钟 |
+| 查看 Trellis PRD / Design / Implement | [docs/trellis/PRD.md](docs/trellis/PRD.md) + [docs/trellis/DESIGN.md](docs/trellis/DESIGN.md) + [docs/trellis/IMPLEMENT.md](docs/trellis/IMPLEMENT.md) | 20 分钟 |
 | 发布到 GitHub | [docs/GITHUB_PUBLISHING.md](docs/GITHUB_PUBLISHING.md) | 10 分钟 |
 | 验证桌面 `.exe` 交付 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md#9-桌面版预览和打包验证) + [apps/desktop/README.md](apps/desktop/README.md) | 15 分钟 |
 
@@ -42,10 +44,11 @@
 **推荐阅读顺序**：
 
 1. [README.md](README.md) - 项目总览
-2. [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) - 架构、模块边界、开发约定
-3. [docs/modernization-plan.md](docs/modernization-plan.md) - 现代化重构架构（Tauri/Next.js/FastAPI）
-4. [docs/trellis-plan.md](docs/trellis-plan.md) - 持久化开发计划和后续方向
-5. [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) - 当前交付状态和验证结果
+2. [docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md) - 新对话 / 新 Agent 接手入口
+3. [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) - 架构、模块边界、开发约定
+4. [docs/modernization-plan.md](docs/modernization-plan.md) - 现代化重构架构（Tauri/Next.js/FastAPI）
+5. [docs/trellis-plan.md](docs/trellis-plan.md) - 持久化开发计划和后续方向
+6. [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) - 当前交付状态和验证结果
 
 **关键命令**：
 ```powershell
@@ -71,6 +74,17 @@ python -m mkdocs build --strict             # 构建文档站
 - 怎么实现的（系统架构图、时序图、数据流）
 - 和同类项目比有什么优劣（FinRL、AutoGPT等）
 - 用户操作如何映射到代码（快速定位代码位置）
+
+### 我是新接手的 AI / 交接开发者
+
+**必须按顺序阅读**：
+
+1. [AGENTS.md](AGENTS.md) - 强制交付闭环和安全红线
+2. [.cursor/skills/astock-trellis-handoff/SKILL.md](.cursor/skills/astock-trellis-handoff/SKILL.md) - Trellis handoff 工作流
+3. [docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md) - 当前接手入口
+4. [docs/trellis/PHASE0_GRILLME.md](docs/trellis/PHASE0_GRILLME.md) - Phase 0 需求拷问共识
+5. [docs/trellis/PRD.md](docs/trellis/PRD.md)、[docs/trellis/DESIGN.md](docs/trellis/DESIGN.md)、[docs/trellis/IMPLEMENT.md](docs/trellis/IMPLEMENT.md) - Phase 1 PRD / Design / Implement
+6. [docs/trellis-plan.md](docs/trellis-plan.md) 与 [docs/modernization-plan.md](docs/modernization-plan.md) - 当前有效计划
 
 ### 我是运维人员
 
@@ -126,6 +140,8 @@ python -m mkdocs build --strict             # 构建文档站
 ### 场景 4：参与开发
 
 ```
+[docs/trellis/HANDOFF.md]
+    ↓ 新对话 / 新 Agent 先建立接手上下文
 [docs/DEVELOPER_GUIDE.md]
     ↓ 了解开发规范
 [docs/trellis-plan.md]
@@ -148,9 +164,11 @@ graph TD
     QuickStart -->|理解架构| DevGuide[docs/DEVELOPER_GUIDE.md<br/>开发者手册]
     QuickStart -->|在线部署| OnlineRunbook[docs/ONLINE_RUNBOOK.md<br/>在线运行手册]
     QuickStart -->|查看进度| DeliverySummary[docs/DELIVERY_SUMMARY.md<br/>交付总结]
+    QuickStart -->|AI接手| Handoff[docs/trellis/HANDOFF.md<br/>Trellis Handoff]
     
     UserGuide --> ModernUI[启动 modern-ui<br/>现代化控制台]
     OnlineRunbook --> TrellisPlan[docs/trellis-plan.md<br/>了解后续规划]
+    Handoff --> TrellisDocs[docs/trellis/*<br/>Phase 0/1 文档]
     DevGuide --> ModernizationPlan[docs/modernization-plan.md<br/>现代化架构]
     
     DeliverySummary --> GitHubPublish[docs/GITHUB_PUBLISHING.md<br/>GitHub 发布]
@@ -189,6 +207,7 @@ graph TD
 - **最新文档**：`docs/` 目录下的所有文档、`AGENTS.md`、`apps/desktop/README.md`
 - **最新进度**：[docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) 和 [FINAL_DELIVERY.md](FINAL_DELIVERY.md)
 - **最新架构**：[docs/modernization-plan.md](docs/modernization-plan.md)
+- **最新 Trellis 交接**：[docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md)、[docs/trellis/PHASE0_GRILLME.md](docs/trellis/PHASE0_GRILLME.md)、[docs/trellis/PRD.md](docs/trellis/PRD.md)、[docs/trellis/DESIGN.md](docs/trellis/DESIGN.md)、[docs/trellis/IMPLEMENT.md](docs/trellis/IMPLEMENT.md)
 - **最新桌面交付**：`desktop-release -AutoInstallRust` 可构建 `astock-agent-desktop.exe` 和 NSIS 安装包；前端/后端默认探测 `18080..18100`，并兼容旧的 `8000..8020` 健康 AStock 后端。
 - **最新收尾规范**：`.husky/pre-commit` 强制文档同步，`.husky/post-commit` 强制推送，`.cursor/hooks/enforce-session-end.ps1` 在开发会话结束前检查未提交和未推送状态。
 
@@ -198,6 +217,7 @@ graph TD
 |---------|---------|------|
 | `docs/DELIVERY_SUMMARY.md` | 每次交付后 | 反映最新可用功能和验证状态 |
 | `docs/trellis-plan.md` | 每个迭代后 | 更新已完成任务和后续规划 |
+| `docs/trellis/*` | 每次 handoff / 计划变更后 | 更新 Phase 0 / PRD / Design / Implement / Handoff 接手状态 |
 | `docs/modernization-plan.md` | 架构变更时 | 更新技术决策和接口边界 |
 | `docs/USER_GUIDE.md` | 功能变更时 | 更新使用说明和命令示例 |
 | `docs/DEVELOPER_GUIDE.md` | 模块变更时 | 更新架构说明和开发约定 |

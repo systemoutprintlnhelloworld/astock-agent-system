@@ -1,36 +1,38 @@
-This is a [Next.js](https://nextjs.org) project bootstrapped with [`create-next-app`](https://nextjs.org/docs/app/api-reference/cli/create-next-app).
+# AStock Modern Frontend
 
-## Getting Started
+This is the Next.js / React control console for the AStock Agent desktop and modern UI preview.
 
-First, run the development server:
+## Development preview
 
-```bash
-npm run dev
-# or
-yarn dev
-# or
-pnpm dev
-# or
-bun dev
+Prefer the repository launcher so the FastAPI backend URL is injected consistently:
+
+```powershell
+.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 ```
 
-Open [http://localhost:3000](http://localhost:3000) with your browser to see the result.
+If you run the frontend directly, start it from this folder:
 
-You can start editing the page by modifying `app/page.tsx`. The page auto-updates as you edit the file.
+```powershell
+npm run dev
+```
 
-This project uses [`next/font`](https://nextjs.org/docs/app/building-your-application/optimizing/fonts) to automatically optimize and load [Geist](https://vercel.com/font), a new font family for Vercel.
+`npm run dev` intentionally uses `next dev --webpack`. Next 16's Turbopack dev server can panic on Windows when its local persistence cache is corrupted, with errors such as `range start index ... out of range`. To reproduce or investigate Turbopack specifically, use:
 
-## Learn More
+```powershell
+npm run dev:turbo
+```
 
-To learn more about Next.js, take a look at the following resources:
+The default backend URL is `http://127.0.0.1:18080`. Override it when needed:
 
-- [Next.js Documentation](https://nextjs.org/docs) - learn about Next.js features and API.
-- [Learn Next.js](https://nextjs.org/learn) - an interactive Next.js tutorial.
+```powershell
+$env:NEXT_PUBLIC_BACKEND_URL = "http://127.0.0.1:18080"
+npm run dev
+```
 
-You can check out [the Next.js GitHub repository](https://github.com/vercel/next.js) - your feedback and contributions are welcome!
+## Desktop build
 
-## Deploy on Vercel
+```powershell
+npm run build:desktop
+```
 
-The easiest way to deploy your Next.js app is to use the [Vercel Platform](https://vercel.com/new?utm_medium=default-template&filter=next.js&utm_source=create-next-app&utm_campaign=create-next-app-readme) from the creators of Next.js.
-
-Check out our [Next.js deployment documentation](https://nextjs.org/docs/app/building-your-application/deploying) for more details.
+This exports the static frontend and copies it to `apps/desktop/dist` for the Tauri shell.

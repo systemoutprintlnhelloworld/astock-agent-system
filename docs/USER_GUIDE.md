@@ -174,6 +174,8 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 2. 询问你是否要终止该进程。
 3. 在确认后自动释放端口，再继续拉起后端和前端。
 
+现代控制台默认使用 Next.js 的 webpack dev server，以避开 Next 16 Turbopack 在 Windows 本地缓存损坏时可能出现的 `range start index ... out of range` panic。如果你看到错误日志路径来自其他项目，例如 `项目1-审稿agent系统\frontend\.next-gui`，说明当前浏览器访问的不是本项目的 modern UI，而是另一个项目占用了前端端口；请在启动脚本提示时确认终止该进程，或换一个 `-Port`。
+
 此外，一键启动会先等待后端健康检查通过，再启动前端，避免出现“前端先打开但后端还没接上”的情况。
 
 如果只想单独检查后端接口，也可以单独启动：

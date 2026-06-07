@@ -62,19 +62,16 @@ function Start-Storage {
     Invoke-AStockCli @("storage", "status", "--strict")
 }
 
-function Get-PortOccupant {
-    param([int]$Port)
+function New-PortOccupantInfo {
+    param(
+        [int]$Port,
+        [object]$Connection
+    )
 
-    $connections = Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue
-    if (-not $connections) {
-        return $null
-    }
-
-    $connection = $connections | Select-Object -First 1
-    $process = Get-Process -Id $connection.OwningProcess -ErrorAction SilentlyContinue
+    $process = Get-Process -Id $Connection.OwningProcess -ErrorAction SilentlyContinue
     $processDetail = $null
     try {
-        $processDetail = Get-CimInstance Win32_Process -Filter "ProcessId = $($connection.OwningProcess)" -ErrorAction Stop
+        $processDetail = Get-CimInstance Win32_Process -Filter "ProcessId = $($Connection.OwningProcess)" -ErrorAction Stop
     }
     catch {
         $processDetail = $null
@@ -82,12 +79,33 @@ function Get-PortOccupant {
 
     [PSCustomObject]@{
         Port = $Port
-        ProcessId = $connection.OwningProcess
+        ProcessId = $Connection.OwningProcess
         ProcessName = if ($process) { $process.ProcessName } elseif ($processDetail) { $processDetail.Name } else { "unknown" }
-        State = $connection.State
+        State = $Connection.State
         Path = if ($processDetail) { $processDetail.ExecutablePath } else { $null }
         CommandLine = if ($processDetail) { $processDetail.CommandLine } else { $null }
     }
+}
+
+function Get-PortOccupants {
+    param([int]$Port)
+
+    $connections = @(Get-NetTCPConnection -LocalPort $Port -ErrorAction SilentlyContinue | Where-Object {
+        $_.OwningProcess -gt 0 -and $_.State -eq "Listen"
+    })
+    if (-not $connections) {
+        return @()
+    }
+
+    $connections |
+        Sort-Object OwningProcess -Unique |
+        ForEach-Object { New-PortOccupantInfo -Port $Port -Connection $_ }
+}
+
+function Get-PortOccupant {
+    param([int]$Port)
+
+    @(Get-PortOccupants -Port $Port) | Select-Object -First 1
 }
 
 function Test-IsProjectBackendProcess {
@@ -123,31 +141,37 @@ function Ensure-PortAvailable {
         [string]$Purpose
     )
 
-    $occupant = Get-PortOccupant -Port $Port
-    if (-not $occupant) {
+    $occupants = @(Get-PortOccupants -Port $Port)
+    if (-not $occupants.Count) {
         return
     }
 
     Write-Host "Port $Port is already used by $Purpose." -ForegroundColor Yellow
-    Write-Host "  PID: $($occupant.ProcessId)" -ForegroundColor Yellow
-    Write-Host "  Process: $($occupant.ProcessName)" -ForegroundColor Yellow
-    if ($occupant.Path) {
-        Write-Host "  Path: $($occupant.Path)" -ForegroundColor Yellow
-    }
-    if ($occupant.CommandLine) {
-        Write-Host "  Command: $($occupant.CommandLine)" -ForegroundColor DarkYellow
+    foreach ($occupant in $occupants) {
+        Write-Host "  PID: $($occupant.ProcessId)" -ForegroundColor Yellow
+        Write-Host "  Process: $($occupant.ProcessName)" -ForegroundColor Yellow
+        if ($occupant.Path) {
+            Write-Host "  Path: $($occupant.Path)" -ForegroundColor Yellow
+        }
+        if ($occupant.CommandLine) {
+            Write-Host "  Command: $($occupant.CommandLine)" -ForegroundColor DarkYellow
+        }
     }
 
-    $confirmation = Read-Host "Terminate this process and continue? [y/N]"
+    $confirmation = Read-Host "Terminate these process(es) and continue? [y/N]"
     if ($confirmation -notmatch '^(y|yes)$') {
         throw "Startup cancelled because port $Port is occupied."
     }
 
-    Stop-Process -Id $occupant.ProcessId -Force -ErrorAction Stop
+    $occupants | ForEach-Object {
+        Stop-Process -Id $_.ProcessId -Force -ErrorAction Stop
+    }
     Start-Sleep -Milliseconds 800
 
-    if (Get-PortOccupant -Port $Port) {
-        throw "Port $Port is still occupied after trying to stop PID $($occupant.ProcessId)."
+    $remainingOccupants = @(Get-PortOccupants -Port $Port)
+    if ($remainingOccupants.Count -gt 0) {
+        $remainingPids = ($remainingOccupants | ForEach-Object { $_.ProcessId }) -join ", "
+        throw "Port $Port is still occupied after trying to stop PID(s): $remainingPids."
     }
 }
 
@@ -179,6 +203,16 @@ function Get-NextDevProcesses {
                 CommandLine = $_.CommandLine
             }
         }
+}
+
+function Start-NextDevelopmentServer {
+    param([int]$Port)
+
+    # Next 16 can default to Turbopack in dev. On Windows, corrupted
+    # Turbopack persistence caches can panic before the page renders, so the
+    # local preview path intentionally uses webpack unless the user runs their
+    # own frontend command.
+    npx next dev --webpack --hostname 127.0.0.1 --port $Port
 }
 
 function Ensure-NoExistingNextDevServer {
@@ -1004,7 +1038,7 @@ switch ($Mode) {
                 Write-Host "Overriding NEXT_PUBLIC_BACKEND_URL for local modern UI preview: $desiredBackendUrl" -ForegroundColor Yellow
             }
             $env:NEXT_PUBLIC_BACKEND_URL = $desiredBackendUrl
-            npx next dev --hostname 127.0.0.1 --port $Port
+            Start-NextDevelopmentServer -Port $Port
         }
         finally {
             Pop-Location

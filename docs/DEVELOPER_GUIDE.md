@@ -20,6 +20,8 @@ astock-agent --help
 npm --prefix apps/frontend run lint
 ```
 
+`apps/frontend` 的 `npm run dev` 和 `start.bat -Mode frontend/modern-ui` 默认使用 `next dev --webpack`。Next 16 的 Turbopack 在 Windows 本地持久化缓存损坏时可能触发 `range start index ... out of range` panic；只有需要复现 Turbopack 问题时才使用 `npm --prefix apps/frontend run dev:turbo`。
+
 ## 2. 目录和模块边界
 
 ```text
@@ -127,6 +129,7 @@ python -m mkdocs build --strict
 
 - `.cursor/hooks.json`：启用项目级 `stop` hook，用于开发会话结束前检查交付闭环。
 - `.cursor/hooks/enforce-session-end.ps1`：检查未提交变更、代码/自动化变更是否同步文档、当前分支是否仍 ahead 未推送。
+- `.cursor/skills/astock-trellis-handoff/SKILL.md`：Trellis handoff skill，固化新对话接手顺序、Phase 0/Phase 1 文档位置、smart-search/context-weaver/find-skills/create-skill 使用边界。
 - `.cursor/skills/astock-delivery-workflow/SKILL.md`：交付工作流 skill，提醒维护一键启动、文档、验证和密钥保护。
 - `.husky/pre-commit`：提交前强制密钥扫描、禁止本地 `.env` 入库、禁止代码/自动化变更无文档同步提交。
 - `.husky/post-commit`：提交后强制推送当前分支到 GitHub `origin`。
@@ -144,6 +147,8 @@ git push origin <branch>
 ```
 
 若未来重新启用 shell 审批 hook，应避免返回 `ask`，只在真实密钥或 `.env` 入库等高风险场景自动 `deny`，普通开发命令应直接 `allow`。
+
+新开对话或新 Agent 接手时，先读 `docs/trellis/HANDOFF.md`，再按该文档进入 `PHASE0_GRILLME.md`、`PRD.md`、`DESIGN.md` 和 `IMPLEMENT.md`。不要把未来设想写成已完成状态；如果 smart-search 不健康，只记录失败命令，不要声称完成了新的外部调研。
 
 ## 10. 后续开发建议
 

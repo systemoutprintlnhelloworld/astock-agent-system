@@ -78,6 +78,8 @@ apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-
 
 如果 3000 / 18080 端口被占用，或者同一个 `apps/frontend` 目录下残留了旧的 Next.js dev 进程，一键脚本会先打印进程信息并要求确认后再释放冲突，再继续启动。后端默认使用 `18080..18100` 这一段 AStock 专用本地端口；前端仍会兼容探测旧的 `8000..8020`，方便连接历史启动的同项目后端，但新启动不再主动占用常见的 `8000`。
 
+现代控制台的开发预览默认使用 Next.js webpack dev server，而不是 Turbopack。Next 16 的 Turbopack 在 Windows 上可能因为本地持久化缓存损坏触发 `range start index ... out of range` panic；如需专门复现 Turbopack，可在 `apps/frontend` 里运行 `npm run dev:turbo`。
+
 如果不使用一键入口，也可以直接调用 CLI：
 
 ```powershell
@@ -92,6 +94,7 @@ python -m astock_agent_system.cli run-daily --offline --max-count 3 --days 24
 
 - 在线文档站（GitHub Pages）：https://systemoutprintlnhelloworld.github.io/astock-agent-system/
 - [交付总结](docs/DELIVERY_SUMMARY.md)：当前可用能力、最短运行路径、验证状态和外部服务状态。
+- [Trellis Handoff](docs/trellis/HANDOFF.md)：新对话 / 新 Agent 接手入口，包含 Phase 0 grill-me、Phase 1 PRD/design/implement 读序。
 - [使用者手册](docs/USER_GUIDE.md)：从安装到看板、自动投资、常见问题。
 - [在线运行手册](docs/ONLINE_RUNBOOK.md)：Tushare、LLM、MongoDB/Redis、在线 smoke 顺序。
 - [开发者手册](docs/DEVELOPER_GUIDE.md)：架构、模块边界、测试和开发约定。

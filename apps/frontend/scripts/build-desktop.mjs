@@ -12,7 +12,7 @@ const staticPlaceholder = join(desktopDist, "index.html");
 rmSync(desktopDist, { force: true, recursive: true });
 mkdirSync(desktopDist, { recursive: true });
 
-const env = { ...process.env, NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:8000" };
+const env = { ...process.env, NEXT_PUBLIC_BACKEND_URL: process.env.NEXT_PUBLIC_BACKEND_URL || "http://127.0.0.1:18080" };
 const result = spawnSync("npx", ["next", "build"], { cwd: frontendRoot, env, shell: process.platform === "win32", stdio: "inherit" });
 if (result.status !== 0) {
   process.exit(result.status ?? 1);

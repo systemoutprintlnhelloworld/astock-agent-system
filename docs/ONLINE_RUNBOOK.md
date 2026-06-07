@@ -199,6 +199,8 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 `start.bat -Mode modern-ui` 现在会先检查前后端端口，并检查同一个 `apps/frontend` 目录下是否已经存在旧的 Next.js dev 进程；如发现冲突，会打印进程信息并在你确认后自动结束该进程。脚本还会等待 `api/health` 可用后再拉起前端，减少“前端已开但后端未接上”的假失败。
 
+本项目的 modern-ui 开发预览默认走 Next.js webpack dev server。若看到 `Turbopack` panic 或错误路径来自其他项目的 `.next-gui` 缓存，通常是其他 Next dev 进程占用了前端端口，而不是 AStock 后端错误；先按脚本提示释放端口，或使用 `-Port 3002` 等空闲端口重新启动。
+
 如只想单独检查 API，也可以：
 
 ```powershell

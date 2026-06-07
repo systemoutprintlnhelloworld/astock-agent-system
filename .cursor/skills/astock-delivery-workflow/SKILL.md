@@ -22,7 +22,8 @@ Use this workflow when developing or delivering this repository:
    - Do not run compile commands unless the user explicitly asks.
 4. Update docs with every delivery change.
    - Update `README.md`, `docs/USER_GUIDE.md`, `docs/ONLINE_RUNBOOK.md`, `docs/DEVELOPER_GUIDE.md`, `docs/GITHUB_PUBLISHING.md`, and `docs/DELIVERY_SUMMARY.md` when relevant.
-   - Keep `docs/trellis-plan.md` aligned with the current delivery plan.
+   - Keep `docs/trellis-plan.md` and `docs/trellis/*` aligned with the current delivery plan and handoff state.
+   - For Trellis or handoff changes, update `docs/trellis/HANDOFF.md`, `docs/trellis/PHASE0_GRILLME.md`, `docs/trellis/PRD.md`, `docs/trellis/DESIGN.md`, or `docs/trellis/IMPLEMENT.md` as appropriate.
    - Code, desktop, startup-script, config, `.husky`, or `.cursor/hooks` changes must be paired with at least one affected developer/user-facing documentation update.
 5. Use Git carefully.
    - Inspect `git status`, `git diff`, and recent commits before committing.
@@ -42,9 +43,11 @@ Run the subset relevant to the change:
 python -m pytest
 python -m astock_agent_system.cli storage status --strict
 .\start.bat -Mode status
+npm --prefix apps/frontend run lint
 .\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
 .\start.bat -Mode offline -MaxCount 1 -Days 12 -NoDocker
 python -m mkdocs build --strict
+.\start.bat -Mode delivery-check
 git status --short
 ```
 

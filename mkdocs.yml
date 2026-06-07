@@ -39,7 +39,14 @@ nav:
       - 开发者手册: DEVELOPER_GUIDE.md
       - GitHub 发布说明: GITHUB_PUBLISHING.md
       - 持久化开发计划: trellis-plan.md
+      - Trellis 交接:
+          - Handoff 接手入口: trellis/HANDOFF.md
+          - Phase 0 需求拷问: trellis/PHASE0_GRILLME.md
+          - Phase 1 PRD: trellis/PRD.md
+          - Phase 1 Design: trellis/DESIGN.md
+          - Phase 1 Implement: trellis/IMPLEMENT.md
       - 现代化重构计划: modernization-plan.md
+      - GUI 重构交接上下文: GUI_REDESIGN_AI_CONTEXT.md
       - 架构修正完成记录: FIX_TODO.md
       - 技术文档:
           - 系统架构: technical/ARCHITECTURE.md

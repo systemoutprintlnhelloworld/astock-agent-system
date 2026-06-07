@@ -1,12 +1,21 @@
 # 持久化开发计划
 
-更新时间：2026-06-06
+更新时间：2026-06-07
 
 本计划记录当前交付批次的目标、完成状态和后续增强方向。所有配置示例均使用占位符，不包含真实密钥。
 
-> 当前有效计划：本文件与 [现代化重构计划](modernization-plan.md)。工作区中没有 `a股llm系统现代化重构_efa1eeac.plan.md` 文件；该名称来自历史/外部计划引用，不是当前仓库内可执行的 Trellis 计划文件。
+> 当前有效计划：本文件、[现代化重构计划](modernization-plan.md) 与 `docs/trellis/` 下的 Phase 0 / Phase 1 / Handoff 文档。工作区中没有 `a股llm系统现代化重构_efa1eeac.plan.md` 文件；该名称来自历史/外部计划引用，不是当前仓库内可执行的 Trellis 计划文件。
 
-当前 Trellis 任务状态：任务系统中没有 pending / in_progress 任务；本轮现代化重构相关事项已落到本文档、`docs/modernization-plan.md`、`docs/technical/PRD_PHASE2.md` 和代码提交中。
+当前 Trellis 任务状态：本轮重点是 handoff 和可交接性固化；当前计划、需求拷问、PRD、设计、实现状态和下一轮任务已落到 `docs/trellis/`，供新开对话的 AI 继续接手。
+
+新对话 / 新 Agent 接手时必须先读：
+
+1. [docs/trellis/HANDOFF.md](trellis/HANDOFF.md)
+2. [docs/trellis/PHASE0_GRILLME.md](trellis/PHASE0_GRILLME.md)
+3. [docs/trellis/PRD.md](trellis/PRD.md)
+4. [docs/trellis/DESIGN.md](trellis/DESIGN.md)
+5. [docs/trellis/IMPLEMENT.md](trellis/IMPLEMENT.md)
+6. 仓库根目录 `DOCUMENTATION_MAP.md`
 
 ## 1. 总目标
 
@@ -45,6 +54,7 @@
 | 搭建 GitHub Pages 文档站和自动部署 | 已完成 | 新增 MkDocs Material 文档站和 `.github/workflows/docs.yml`；仓库已转为 Public；Pages workflow 模式已启用。 |
 | 创建 Cursor Hook 与项目 Skill 固化规范 | 已强化 | 项目 Skill、`.husky` 和 Cursor `stop` hook 已固化强制收尾；仍不启用逐条 Shell 审批，避免命令反复人工批准。 |
 | 更新持久化计划、文档与交付总结 | 已完成 | 本文件、交付总结、README、使用者/开发者/在线运行文档已同步更新。 |
+| Trellis Handoff 文档固化 | 已完成 | 新增 `docs/trellis/PHASE0_GRILLME.md`、`PRD.md`、`DESIGN.md`、`IMPLEMENT.md`、`HANDOFF.md`，并在文档地图和项目 skill 中固化接手顺序。 |
 | 验证、提交并推送本轮交付 | 已完成 | 测试、文档构建、密钥扫描、GitHub Pages 状态检查均通过；提交 `023d4ad` 已推送到 `main`，Pages workflow 已成功部署。 |
 | 现代化重构计划与分支准备 | 已完成 | 已创建 `tauri-rewrite` 开发分支；新增 `docs/modernization-plan.md`，用于约束 Tauri/Next/FastAPI/WebSocket 重构方向；MkDocs strict build 与密钥扫描通过。 |
 | FastAPI 后端适配层骨架 | 已完成首版 | 已新增 `apps/backend`，提供健康检查、脱敏配置、模型 bench、自动投资触发、React Flow 初始图、运行时配置保存、股票/决策/指标接口和 WebSocket 事件流。 |

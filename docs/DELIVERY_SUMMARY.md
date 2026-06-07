@@ -87,7 +87,7 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - 在线单模型 bench：`gpt-5.4-mini` 通过，JSON 可解析
 - 在线自动投资：通过；同一交易日重复运行触发幂等跳过，未重复买入
 - `modern-ui` 一键预览：`start.bat -Mode modern-ui -Port 3055 -BackendPort 8055` 启动通过
-- `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程
+- `modern-ui` 默认端口链路：`start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 启动通过；可复用同项目后端并识别/清理残留 Next.js dev 进程；开发预览默认使用 Next.js webpack dev server，避免 Windows Turbopack 缓存损坏 panic 阻塞启动。
 - MkDocs strict build：通过
 - GitHub Pages：仓库已公开，Pages workflow 模式已启用
 - Cursor Hook：逐条 Shell 审批 Hook 保持关闭；Cursor `stop` hook 已启用，用于开发结束前检查文档同步、未提交变更和未推送提交。
@@ -118,6 +118,7 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - [使用者手册](USER_GUIDE.md)
 - [在线运行手册](ONLINE_RUNBOOK.md)
 - [开发者手册](DEVELOPER_GUIDE.md)
+- [Trellis Handoff](trellis/HANDOFF.md)
 - [GitHub 发布说明](GITHUB_PUBLISHING.md)
 - [持久化开发计划](trellis-plan.md)
 - [现代化重构计划](modernization-plan.md)
