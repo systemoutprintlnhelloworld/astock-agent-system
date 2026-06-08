@@ -157,6 +157,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 - `总览`：先确认后端连接、最近轮次和模型排行榜预览。
 - `流程`：观察多 Agent 流程图、节点状态和动画箭头。
+- `表现`：查看权益曲线、长期收益和模型排行榜。
 - `事件`：查看系统事件、数据源状态、新闻/公告输入如何进入 Agent 输入流；可点击手动轮询事件。
 - `日志`：看可折叠决策卡和实时事件流。
 - `股票`：切换当前持仓、候选股票和交易记录。
@@ -188,7 +189,11 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 - `http://127.0.0.1:18080/api/health`：健康检查。
 - `http://127.0.0.1:18080/api/config`：脱敏后的当前配置。
+- `http://127.0.0.1:18080/api/data/providers`：provider chain、适配能力和缺失凭证诊断。
 - `http://127.0.0.1:18080/api/agents/flow`：前端流程图节点和动画边。
+- `http://127.0.0.1:18080/api/agents/descriptors`：Agent Markdown 描述符列表。
+- `http://127.0.0.1:18080/api/agents/learning/status`：Agent Markdown 学习进度。
+- `http://127.0.0.1:18080/api/agents/learning/suggestions`：最近一次人工审查学习建议。
 - `http://127.0.0.1:18080/api/events/timeline`：事件时间线。
 - `http://127.0.0.1:18080/api/agents/tools`：Agent 工具、数据源和技能清单。
 - `http://127.0.0.1:18080/api/decisions`：结构化决策日志。
@@ -200,7 +205,51 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 注意：这里仍是模拟盘适配层，不会真实下单；返回配置时只显示 `has_api_key`、`has_tushare_token` 等布尔状态，不返回真实密钥。
 
-## 9. 桌面版预览和打包验证
+## 9. 启动终端 TUI 客户端
+
+如果现代 GUI 在本机调试困难，优先使用 TUI 验证同一套后端能力：
+
+```powershell
+.\start.bat -Mode tui -BackendPort 18080
+```
+
+这个入口会先检查或启动 FastAPI 后端，再在当前终端打开 `python -m apps.tui`。TUI 与 GUI 共用接口：配置、模型列表、自动投资、决策日志、股票看板、排行榜、Agent Markdown 学习和数据源诊断都来自 `apps/backend`。
+
+首次进入时会出现初始化配置向导。配置保存到本地运行时文件：
+
+```text
+data/runtime/settings.override.json
+```
+
+该目录已被 `.gitignore` 忽略，不会随 Git 提交。向导中的 API Key、Tushare Token、JQData 密码等密钥不会在摘要中回显。
+
+常用命令：
+
+```text
+/help                                      # 查看命令
+/status                                    # 后端、任务、上下文和权限状态
+/models                                    # 刷新模型列表
+/models set rule-baseline,gpt-5.4-mini     # 选择模型账户
+/workflow offline                          # 选择工作流；auto/daily 不能与其他类型多选
+/start --offline --max-count 1 --days 12   # 后台提交一次模拟盘轮次
+/providers                                 # 查看 provider chain、适配能力和缺失凭证
+/dashboard rankings                        # 查看模型排行榜
+/dashboard stocks                          # 查看持仓、候选和交易
+/dashboard decisions                       # 查看可折叠式决策日志文本
+/agent learning stats                      # 查看 Agent Markdown 学习进度
+/agent learning suggestions                # 查看最近一次人工审查学习建议
+/compact                                   # 手动压缩本地 TUI 对话上下文
+/attachments show                          # 预览拖入终端的非敏感文本文件
+/permission ask                            # 设置本地交互权限提示模式
+/sandbox read-only                         # 设置本地 TUI 沙盒提示状态
+/exit                                      # 退出 TUI，不强制中断后端任务
+```
+
+默认 `/start` 调用 `/api/auto-investment/background`，后端会立即返回 `run_id`，模拟盘任务继续在后端进程中执行。即使终端关闭，只要后端进程仍在，任务仍会继续；重新进入 TUI 后用 `/status` 或 `/dashboard rankings` 查看结果。
+
+拖拽文件到终端时，TUI 会识别绝对路径。对 `.env`、`credentials.json`、文件名含 `secret/token/password` 等疑似敏感文件，`/attachments show` 会拒绝预览，避免把密钥打印到终端。
+
+## 10. 桌面版预览和打包验证
 
 最终目标是双击 Tauri 打包出的桌面 `.exe`，由桌面壳自动启动 Python FastAPI sidecar 并加载 Next.js 静态页面。优先使用全自动流程：
 
@@ -251,7 +300,7 @@ Push-Location apps/desktop; npm install; Pop-Location
 apps/desktop/src-tauri/target/release/bundle/nsis/
 ```
 
-## 10. 启动长期调度器
+## 11. 启动长期调度器
 
 确认 `.env` 的调度配置：
 
@@ -269,7 +318,7 @@ python -m astock_agent_system.cli scheduler start
 
 调度器会在交易日指定时间运行自动投资轮次，并按间隔检查止损。
 
-## 11. 常见问题
+## 12. 常见问题
 
 ### bench 能列出模型，但单模型测试失败
 

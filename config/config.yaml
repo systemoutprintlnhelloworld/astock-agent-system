@@ -2,6 +2,10 @@ data:
   mode: offline
   offline_data_path: data/samples/stocks.json
   dynamic_universe_limit: 20
+  provider_chain:
+    - tushare
+    - baostock
+    - akshare
 
 portfolio:
   initial_capital: 100000

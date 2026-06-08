@@ -30,6 +30,16 @@ def _cmd_config(args: argparse.Namespace) -> int:
     payload = {
         "data_mode": settings.data.mode,
         "offline_data_path": settings.data.offline_data_path,
+        "data": {
+            "mode": settings.data.mode,
+            "offline_data_path": settings.data.offline_data_path,
+            "dynamic_universe_limit": settings.data.dynamic_universe_limit,
+            "provider_chain": settings.data.provider_chain,
+            "has_tushare_token": bool(settings.data.tushare_token),
+            "has_alpha_vantage_api_key": bool(settings.data.alpha_vantage_api_key),
+            "has_jqdata_username": bool(settings.data.jqdata_username),
+            "has_jqdata_password": bool(settings.data.jqdata_password),
+        },
         "initial_capital": settings.portfolio.initial_capital,
         "risk": {
             "max_position_per_stock": settings.risk.max_position_per_stock,

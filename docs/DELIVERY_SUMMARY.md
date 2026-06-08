@@ -11,7 +11,7 @@
 ## 1. 已可直接使用的能力
 
 - 离线样例数据运行：无密钥时也能验证主流程。
-- 在线数据接入：支持 Tushare、AkShare，并保留离线兜底。
+- 在线数据接入：支持可配置 provider chain，默认 Tushare、Baostock、AkShare，并保留离线兜底；AData/OpenBB/yfinance/Alpha Vantage/JQData 可作为手动参考源。
 - LLM 模型 bench：支持 `bench` 和兼容旧命令 `bench-models`。
 - 多模型虚拟账户：每个 LLM/规则模型独立管理一个模拟账户。
 - 自动投资轮次：可手动运行，也可由调度器定时运行。
@@ -53,6 +53,7 @@ Copy-Item .env.example .env
 
 ```env
 DATA_MODE=online
+DATA_PROVIDER_CHAIN=tushare,baostock,akshare
 TUSHARE_TOKEN=your-tushare-token
 LLM_BASE_URL=https://your-gateway.example/v1
 LLM_API_KEY=your-api-key
@@ -109,7 +110,8 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 
 1. `.env` 中的 Tushare token。
 2. `.env` 中的 LLM gateway base URL 和 API key。
-3. 如需邮件/IM 推送，后续填写对应 webhook 或 SMTP 配置。
+3. 可选 Alpha Vantage key、JQData 账号密码；只有主动加入 `DATA_PROVIDER_CHAIN` 时才使用。
+4. 如需邮件/IM 推送，后续填写对应 webhook 或 SMTP 配置。
 
 ## 5. 文档入口
 

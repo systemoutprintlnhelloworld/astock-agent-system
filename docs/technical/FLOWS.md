@@ -76,7 +76,7 @@ sequenceDiagram
     Browser->>FastAPI: GET /api/config
     FastAPI-->>Browser: 脱敏配置
     
-    Note over Browser: 用户看到完整控制台<br/>总览 / 流程 / 性能 / 日志 / 股票 / 设置
+    Note over Browser: 用户看到完整控制台<br/>总览 / 流程 / 表现 / 事件 / 日志 / 股票 / 智能体 / 设置
 ```
 
 ### 1.2 关键步骤说明
@@ -97,7 +97,7 @@ sequenceDiagram
 
 ```mermaid
 flowchart TD
-    start[用户点击 启动运行] --> uiRequest[前端发送 POST /api/run]
+    start[用户点击 启动运行] --> uiRequest[前端发送 POST /api/auto-investment]
     uiRequest --> backendReceive[FastAPI 接收请求]
     
     backendReceive --> createRunID[生成 run_id]
@@ -155,7 +155,7 @@ flowchart TD
     loopModels --> sortRankings[按 total_return 排序]
     sortRankings --> broadcastComplete[WebSocket 推送 run_completed]
     broadcastComplete --> returnResult[返回排行榜 + 账户详情]
-    returnResult --> uiDisplay[前端更新 UI:<br/>性能页显示排行榜<br/>股票页显示持仓<br/>日志页显示决策]
+    returnResult --> uiDisplay[前端更新 UI:<br/>表现页显示排行榜<br/>股票页显示持仓<br/>日志页显示决策]
 ```
 
 ### 2.2 关键阶段说明
@@ -181,7 +181,7 @@ flowchart TD
 #### 阶段 2：动态选股（10-30秒）
 
 **职责**：
-- `StockScreener` 从 Tushare/AkShare 获取股票池
+- `StockScreener` 通过 `DataAgent` provider chain 获取股票池
 - 技术指标 + 基本面指标初筛
 - 返回候选股列表 + 得分
 
@@ -223,10 +223,7 @@ flowchart TD
 - 如果模型不是 `rule-baseline`，调用 LLM API 复核规则决策
 - LLM 可能覆盖规则决策（例如规则说 BUY，LLM 说 REJECT）
 
-**WebSocket 事件**：
-```json
-{"type": "llm_review", "stock_code": "600519", "original": "BUY", "llm_override": "HOLD"}
-```
+**事件与日志呈现**：当前实现不会单独广播 `llm_review` 事件；LLM 复核结果作为决策详情字段进入 `decision_made` / 决策日志，前端在日志卡片中展示“LLM 复核”标签和覆盖差异。
 
 **用户看到**：
 - 日志页：决策卡片显示 "LLM 复核" 标签
@@ -260,11 +257,7 @@ flowchart TD
 - 强制卖出触发止损的持仓
 - `mark_to_market` 结算当日权益
 
-**WebSocket 事件**：
-```json
-{"type": "stop_loss_triggered", "stock_code": "600000", "reason": "跌幅超过 -8%"}
-{"type": "trade_executed", "stock_code": "600000", "side": "SELL", "reason": "forced_stop_loss"}
-```
+**事件与日志呈现**：当前 WebSocket schema 未声明独立的 `stop_loss_triggered` 类型；止损检查通过 `risk_checked`、`trade_executed`、运行结果和决策/交易日志体现。若后续需要独立止损事件，必须先同步更新 `apps/backend/schemas.py` 的 `EVENT_TYPES`、前端事件处理和测试。
 
 **用户看到**：
 - 股票页：持仓 tab 实时更新（减少或清空持仓）
@@ -284,8 +277,8 @@ flowchart TD
 ```
 
 **用户看到**：
-- 性能页：排行榜 tab 显示最新排名
-- 性能页：权益曲线更新（新增今日数据点）
+- 表现页：排行榜 tab 显示最新排名
+- 表现页：权益曲线更新（新增今日数据点）
 
 ---
 
@@ -302,7 +295,7 @@ flowchart TD
 | **决策详情** | 用户点击展开：显示理由、风险、评分、动作 | `DecisionReport.to_dict()` 包含完整结构化数据 |
 | **交易执行** | 股票页实时显示新持仓 + 新交易 | `VirtualAccount.buy()` / `sell()` 更新 `positions` 和 `trades` |
 | **止损触发** | 日志页显示止损事件 + 强制卖出交易 | `MultiAgentOrchestrator._apply_forced_stop_loss()` 检查并执行 |
-| **排行榜** | 性能页显示排名 + 权益曲线 | `MultiAgentOrchestrator` 按 `total_return` 排序并返回 |
+| **排行榜** | 表现页显示排名 + 权益曲线 | `MultiAgentOrchestrator` 按 `total_return` 排序并返回 |
 | **幂等保护** | 用户再次点击"启动运行"，日志页显示"今日已运行，跳过" | `_is_same_trade_date_snapshot()` 检查快照日期，跳过交易执行 |
 
 ### 3.2 用户旅程示例
@@ -349,12 +342,14 @@ journey
 | `agent_started` | Agent 开始执行 | `agent_id`, `stock_code` | 流程图对应节点变为 "running" |
 | `agent_step` | Agent 执行中间步骤 | `agent_id`, `stock_code`, `signal` | 实时日志追加事件 |
 | `agent_completed` | Agent 执行完成 | `agent_id`, `stock_code` | 流程图对应节点变为 "completed" |
-| `decision_made` | PortfolioManager 做出决策 | `stock_code`, `action`, `confidence` | 日志页追加决策卡片 |
+| `decision_made` | PortfolioManager 做出决策 | `stock_code`, `action`, `confidence`, `llm_review` 等决策详情 | 日志页追加决策卡片 |
 | `trade_executed` | VirtualAccount 执行交易 | `stock_code`, `side`, `shares`, `price` | 股票页更新持仓 + 交易记录 |
 | `risk_checked` | RiskManager 风控评估完成 | `stock_code`, `risk_score`, `rejected` | 日志页显示风控结果 |
-| `stop_loss_triggered` | 触发止损 | `stock_code`, `reason` | 日志页追加止损事件 |
+| `timeline_event` | 事件时间线更新 | `category`, `source`, `title` | 事件页追加时间线记录 |
+| `llm_checked` | LLM 配置检测完成 | `configured`, `models`, `warnings` | 设置页显示检测结果 |
+| `memory_updated` | Agent 记忆更新 | `agent_id`, `items` | 智能体页更新记忆入口 |
 | `config_updated` | 配置保存成功 | `timestamp` | 设置页显示"保存成功" |
-| `run_completed` | 运行完成 | `run_id`, `rankings` | 性能页更新排行榜，流程图所有节点恢复 "idle" |
+| `run_completed` | 运行完成 | `run_id`, `rankings` | 表现页更新排行榜，流程图所有节点恢复 "idle" |
 | `run_failed` | 运行失败 | `run_id`, `error` | 显示错误提示 |
 | `error` | 任何错误 | `message`, `details` | 显示错误提示 |
 | `pong` | 响应 ping 心跳 | `timestamp` | 保持连接活跃 |

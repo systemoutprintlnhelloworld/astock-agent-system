@@ -120,6 +120,34 @@ def get_learning_status(
     return summary.to_dict()
 
 
+def load_learning_suggestions(path: Path | None = None) -> dict[str, Any]:
+    """Load the latest human-reviewable learning suggestions."""
+    target = path or SUGGESTIONS_PATH
+    default_payload: dict[str, Any] = {
+        "analyzed_at": "",
+        "analyzed_count": 0,
+        "threshold": DEFAULT_LEARNING_THRESHOLD,
+        "suggestions": [],
+    }
+    if not target.exists():
+        return default_payload
+    try:
+        payload = json.loads(target.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError):
+        return default_payload
+    if not isinstance(payload, dict):
+        return default_payload
+    suggestions = payload.get("suggestions", [])
+    if not isinstance(suggestions, list):
+        suggestions = []
+    return {
+        "analyzed_at": str(payload.get("analyzed_at", "")),
+        "analyzed_count": int(payload.get("analyzed_count", 0) or 0),
+        "threshold": int(payload.get("threshold", DEFAULT_LEARNING_THRESHOLD) or DEFAULT_LEARNING_THRESHOLD),
+        "suggestions": [item for item in suggestions if isinstance(item, dict)],
+    }
+
+
 def trigger_learning_if_ready(
     path: Path | None = None,
     state_path: Path | None = None,

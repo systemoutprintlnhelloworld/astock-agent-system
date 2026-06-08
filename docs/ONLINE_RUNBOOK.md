@@ -7,8 +7,13 @@
 必需项：
 
 - Docker Desktop：用于 MongoDB 和 Redis。
-- Tushare token：用于在线 A 股数据。
+- Tushare token：用于在线 A 股主数据源。
 - OpenAI-compatible LLM 网关：用于模型 bench 和 LLM 决策。
+
+可选项：
+
+- Baostock / AkShare：免费 A 股补充源，可安装 `.[market]` 后作为降级链使用。
+- Alpha Vantage / JQData：只有在用户本地维护相应凭证时才启用。
 
 建议先保留 `rule-baseline`，这样 LLM 临时不可用时仍有规则基线账户可跑。
 
@@ -24,7 +29,11 @@ Copy-Item .env.example .env
 
 ```env
 DATA_MODE=online
+DATA_PROVIDER_CHAIN=tushare,baostock,akshare
 TUSHARE_TOKEN=your-tushare-token
+ALPHA_VANTAGE_API_KEY=
+JQDATA_USERNAME=
+JQDATA_PASSWORD=
 
 LLM_BASE_URL=https://your-gateway.example/v1
 LLM_API_KEY=your-api-key
@@ -47,6 +56,7 @@ STOP_LOSS_INTERVAL_MINUTES=5
 注意：
 
 - `LLM_BASE_URL` 通常要带 `/v1`。
+- `DATA_PROVIDER_CHAIN` 控制在线数据源降级顺序；离线样例始终是最后兜底。
 - `.env` 不要提交到 GitHub。
 - CLI `config` 只显示是否存在 key，不显示完整 key。
 
@@ -76,6 +86,7 @@ python -m astock_agent_system.cli config
 重点确认：
 
 - `data_mode` 是 `online`。
+- `data.provider_chain` 包含期望的数据源顺序。
 - `llm.has_api_key` 是 `true`。
 - `llm.base_url` 是你的网关地址。
 - `scheduler.models` 包含你要比赛的模型账户。
@@ -126,7 +137,15 @@ python -m astock_agent_system.cli screen --max-count 3 --days 24
 python -m astock_agent_system.cli run-daily --max-count 3 --days 24
 ```
 
-如果 Tushare/AkShare 暂时失败，`DataAgent` 会尝试降级到可用数据源。
+如果 Tushare/Baostock/AkShare 暂时失败，`DataAgent` 会按 provider chain 尝试降级到可用数据源，最终回到离线样例。
+
+数据源诊断接口：
+
+```powershell
+Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
+```
+
+该接口只返回能力、缺失凭证和最近尝试结果，不返回真实 token、API key 或密码。更多说明见 [数据源 Provider 接入说明](technical/DATA_PROVIDERS.md)。
 
 ## 7. 在线自动投资 smoke
 

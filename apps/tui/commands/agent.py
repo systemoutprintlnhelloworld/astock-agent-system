@@ -6,7 +6,7 @@ from dataclasses import dataclass
 from typing import Callable
 
 from astock_agent_system.agent_descriptor import backup_agent_descriptor, list_agent_descriptors, load_agent_descriptor
-from astock_agent_system.agent_learning import get_learning_status, trigger_learning_if_ready
+from astock_agent_system.agent_learning import get_learning_status, load_learning_suggestions, trigger_learning_if_ready
 
 
 @dataclass(slots=True)
@@ -49,6 +49,8 @@ def handle_agent_command(command: str, *, opener: Callable[[str], None] | None =
         if action == "learning" and len(parts) >= 3:
             if parts[2] == "stats":
                 return _learning_stats()
+            if parts[2] == "suggestions":
+                return _learning_suggestions()
             if parts[2] == "trigger":
                 status = trigger_learning_if_ready(force=True)
                 return CommandResult(True, "学习分析已触发", _format_learning_status(status))
@@ -81,6 +83,29 @@ def _learning_stats() -> CommandResult:
     return CommandResult(True, "Agent 学习状态", _format_learning_status(get_learning_status()))
 
 
+def _learning_suggestions() -> CommandResult:
+    payload = load_learning_suggestions()
+    suggestions = payload.get("suggestions", [])
+    if not suggestions:
+        return CommandResult(True, "Agent 学习建议", "暂无可查看的学习建议。请先运行 /agent learning trigger。")
+    lines = [
+        f"分析时间: {payload.get('analyzed_at', '') or '未知'}",
+        f"分析样本数: {payload.get('analyzed_count', 0)}",
+        f"触发阈值: {payload.get('threshold', 0)}",
+        "",
+    ]
+    for index, suggestion in enumerate(suggestions, start=1):
+        lines.append(
+            f"{index}. {suggestion.get('agent_id', '')} / {suggestion.get('section', '')} / {suggestion.get('metric', '')}"
+        )
+        lines.append(f"   当前值: {suggestion.get('current_value', '未知')}")
+        lines.append(f"   建议值: {suggestion.get('suggested_value', '未知')}")
+        lines.append(f"   原因: {suggestion.get('reason', '')}")
+        lines.append(f"   置信度: {float(suggestion.get('confidence', 0.0) or 0.0):.0%}")
+        lines.append("")
+    return CommandResult(True, "Agent 学习建议", "\n".join(lines).strip())
+
+
 def _format_learning_status(status: dict[str, object]) -> str:
     threshold = int(status.get("threshold", 30) or 30)
     progress = int(status.get("progress", 0) or 0)
@@ -103,7 +128,7 @@ def _help_text() -> str:
             "/agent edit <agent> - 返回路径或交给外部编辑器",
             "/agent backup <agent> - 备份当前 Agent Markdown",
             "/agent learning stats - 查看学习进度",
+            "/agent learning suggestions - 查看最近学习建议",
             "/agent learning trigger - 强制生成学习建议",
         ]
     )
-

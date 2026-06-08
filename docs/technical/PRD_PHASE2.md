@@ -175,23 +175,25 @@ def retrieve_similar_cases(stock_code: str, current_signals: dict) -> list[Case]
 
 #### 2.3.1 工具分配表
 
-| Agent | 工具 (Tools) | 知识库 (Knowledge Base) | Skill化 |
+| Agent | 工具 (Tools) | 知识库 (Knowledge Base) | 当前状态 |
 |-------|-------------|------------------------|---------|
-| **DataAgent** | `fetch_history()`, `fetch_quote()`, `fetch_financial()` | Redis缓存 + Tushare/AkShare | ✅ `.cursor/skills/data-fetch/` |
-| **StockScreener** | `filter_by_liquidity()`, `rank_by_score()` | 股票元数据（名称、行业、市值） | ✅ `.cursor/skills/stock-screening/` |
-| **TechnicalAnalyst** | `calculate_rsi()`, `calculate_macd()`, `detect_pattern()` | 技术指标公式库（Markdown文档） | ✅ `.cursor/skills/technical-analysis/` |
-| **FundamentalAnalyst** | `fetch_financial_report()`, `calculate_ratios()` | 无（直接读取DataAgent数据） | ✅ `.cursor/skills/fundamental-analysis/` |
-| **SentimentAnalyst** | `fetch_news()`, `analyze_sentiment()` | 无（调用smart-search CLI） | ✅ `.cursor/skills/sentiment-analysis/` |
-| **RiskManager** | `calculate_var()`, `check_position_limit()` | 风控规则库（config.yaml） | ✅ `.cursor/skills/risk-management/` |
-| **PortfolioManager** | `optimize_portfolio()`, `calculate_position_size()` | 投资组合理论（Markdown文档） | ✅ `.cursor/skills/portfolio-optimization/` |
+| **DataAgent** | `fetch_history()`, `fetch_quote()`, `fetch_financial()` | Redis缓存 + Tushare/Baostock/AkShare/provider chain | 候选：未来可沉淀为数据获取项目 Skill；当前未创建 |
+| **StockScreener** | `filter_by_liquidity()`, `rank_by_score()` | 股票元数据（名称、行业、市值） | 候选：未来可沉淀为选股项目 Skill；当前未创建 |
+| **TechnicalAnalyst** | `calculate_rsi()`, `calculate_macd()`, `detect_pattern()` | `config/agents/technical_analyst.md` + 技术指标函数 | 当前通过 Agent Markdown 和 Python 代码管理，未创建独立 Skill |
+| **FundamentalAnalyst** | `fetch_financial_report()`, `calculate_ratios()` | 直接读取 DataAgent 数据 | 当前通过 Agent Markdown 和 Python 代码管理，未创建独立 Skill |
+| **SentimentAnalyst** | `fetch_news()`, `analyze_sentiment()` | Agent Markdown Prompt + 可选 smart-search 输入 | 当前通过 Agent Markdown 和 Python 代码管理，未创建独立 Skill |
+| **RiskManager** | `calculate_var()`, `check_position_limit()` | 风控规则库（config.yaml） | 当前通过 Agent Markdown 和 Python 代码管理，未创建独立 Skill |
+| **PortfolioManager** | `optimize_portfolio()`, `calculate_position_size()` | 投资组合规则和用户偏好 | 当前通过 Agent Markdown 和 Python 代码管理，未创建独立 Skill |
 | **DebateRoom** | 无 | Agent记忆库（检索历史辩论） | ❌ |
 | **MasterAgent** | `coordinate_agents()`, `aggregate_signals()` | 无 | ❌ |
 
-#### 2.3.2 Skill 固化示例
+#### 2.3.2 后续 Skill 固化示例
+
+当前项目实际只维护 Trellis handoff 与 delivery workflow 两个开发工作流 Skill；投资 Agent 的可变指令优先放在 `config/agents/*.md`。下例只是未来若要沉淀项目 Skill 时的候选格式，不表示仓库中已经存在对应目录。
 
 **示例 1：技术分析 Skill**
 
-文件位置：`.cursor/skills/technical-analysis/SKILL.md`
+候选文件：`technical-analysis/SKILL.md`
 
 ```markdown
 ---

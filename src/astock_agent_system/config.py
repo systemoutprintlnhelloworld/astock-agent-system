@@ -118,7 +118,11 @@ class DataSettings:
     mode: str = "offline"
     offline_data_path: str = "data/samples/stocks.json"
     dynamic_universe_limit: int = 20
+    provider_chain: list[str] = field(default_factory=lambda: ["tushare", "baostock", "akshare"])
     tushare_token: str = ""
+    alpha_vantage_api_key: str = ""
+    jqdata_username: str = ""
+    jqdata_password: str = ""
 
 
 @dataclass(slots=True)
@@ -223,7 +227,12 @@ def load_settings(config_path: str | None = None) -> Settings:
         mode=os.getenv("DATA_MODE", str(data_raw.get("mode", "offline"))),
         offline_data_path=os.getenv("OFFLINE_DATA_PATH", str(data_raw.get("offline_data_path", "data/samples/stocks.json"))),
         dynamic_universe_limit=_to_int(os.getenv("DYNAMIC_UNIVERSE_LIMIT"), int(data_raw.get("dynamic_universe_limit", 20))),
+        provider_chain=_split_csv(os.getenv("DATA_PROVIDER_CHAIN"))
+        or [str(item).strip() for item in data_raw.get("provider_chain", ["tushare", "baostock", "akshare"]) if str(item).strip()],
         tushare_token=os.getenv("TUSHARE_TOKEN", ""),
+        alpha_vantage_api_key=os.getenv("ALPHA_VANTAGE_API_KEY", ""),
+        jqdata_username=os.getenv("JQDATA_USERNAME", ""),
+        jqdata_password=os.getenv("JQDATA_PASSWORD", ""),
     )
     portfolio = PortfolioSettings(
         initial_capital=_to_float(os.getenv("INITIAL_CAPITAL"), float(portfolio_raw.get("initial_capital", 100000))),

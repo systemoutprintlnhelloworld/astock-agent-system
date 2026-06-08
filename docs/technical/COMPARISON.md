@@ -16,7 +16,7 @@
 | **AutoGPT-Finance** | LLM Agent | 可配置 | 单模型链式调用 | CLI | ✅ 开源 |
 | **LangChain Stock Trader** | LLM Agent | Alpha Vantage | LangChain工具链 | CLI / Streamlit | ✅ 开源 |
 | **Qlib** | 微软量化平台 | 自定义 | 传统量化因子 | CLI / Jupyter | ✅ 开源 |
-| **我们的项目** | 多Agent LLM | Tushare / AkShare | 8 Agent 协作 + 多模型 Benchmark | Next.js modern-ui | ✅ 开源 |
+| **我们的项目** | 多Agent LLM | Tushare / Baostock / AkShare / 离线样例 | 8 Agent 协作 + 多模型 Benchmark | Next.js modern-ui + TUI | ✅ 开源 |
 
 ---
 
@@ -49,7 +49,7 @@
 1. **多Agent协作**：技术、基本面、舆情、风控、组合分工明确
 2. **多模型 Benchmark**：每个模型驱动独立账户，生成排行榜
 3. **实时透明UI**：React Flow + WebSocket + 折叠日志
-4. **A股数据源**：Tushare + AkShare，专注A股市场
+4. **A股数据源**：Tushare + Baostock + AkShare + 离线样例，专注A股市场
 5. **模拟盘严格验证**：T+1、手续费、印花税、滑点、止损
 
 **FinRL的优势**（我们目前不具备）：
@@ -109,9 +109,9 @@ Risk Manager
 | 辩论机制 | ✅ Bull vs Bear | ✅ DebateRoom |
 | 多模型 Benchmark | ❌ 只用GPT-4 | ✅ 多模型独立账户比赛 |
 | 实时UI | ❌ 无 | ✅ React Flow + WebSocket |
-| 持续学习 | ❌ 无记忆 | ✅ 三层记忆系统（Phase 2） |
+| 持续学习 | ❌ 无记忆 | ✅ Agent Markdown 学习建议首版 + 只读案例记忆；深层 Self-Reflection 后续增强 |
 | 事件驱动 | ❌ 只定时 | ✅ 混合模式（Phase 2） |
-| A股支持 | ❌ 只美股 | ✅ Tushare + AkShare |
+| A股支持 | ❌ 只美股 | ✅ Tushare + Baostock + AkShare + 离线样例 |
 
 **我们的改进**：
 1. **可视化透明度**：实时流程图 + 折叠日志
@@ -187,8 +187,8 @@ def make_decision(stock, current_signals):
 
 | 维度 | TradingGroup | 我们的项目 |
 |------|-------------|-----------|
-| Self-Reflection | ✅ 三个Agent有反思 | 🔄 Phase 2 计划中 |
-| 记忆系统 | ✅ MongoDB存储案例 | 🔄 Phase 2 计划中 |
+| Self-Reflection | ✅ 三个Agent有反思 | ✅ Agent Markdown 学习建议首版；主动检索相似案例后续增强 |
+| 记忆系统 | ✅ MongoDB存储案例 | ✅ 最小只读记忆 + 本地经验 JSONL；三层长期记忆后续增强 |
 | Fine-tune Pipeline | ✅ 自动生成数据 | ❌ 未计划 |
 | 动态止损 | ✅ 根据波动率调整 | ✅ 固定比例止损 |
 | UI可视化 | ❌ 无 | ✅ modern-ui |
@@ -266,7 +266,7 @@ def make_decision(stock, current_signals):
 2. **多模型 Benchmark**：每个模型独立账户，生成排行榜
 3. **实时透明UI**：modern-ui，不是简单Streamlit
 4. **模拟盘严格验证**：T+1、手续费、印花税、滑点、止损
-5. **A股数据源**：Tushare + AkShare
+5. **A股数据源**：Tushare + Baostock + AkShare + 离线样例；AData/OpenBB/yfinance/Alpha Vantage/JQData 可作为手动参考源
 
 **LangChain的优势**（我们目前不具备）：
 - 工具链更灵活（可以调用任何API）
@@ -300,7 +300,7 @@ def make_decision(stock, current_signals):
 1. **LLM驱动**：Qlib是传统量化因子，我们是LLM决策
 2. **多Agent协作**：Qlib没有Agent概念，我们有8个专业Agent
 3. **实时透明UI**：Qlib是Jupyter，我们是modern-ui
-4. **开箱即用**：Qlib需要自己准备数据，我们支持Tushare/AkShare/离线样例
+4. **开箱即用**：Qlib需要自己准备数据，我们支持 provider chain（Tushare/Baostock/AkShare/可选参考源）和离线样例
 
 **Qlib的优势**（我们目前不具备）：
 - 工业级回测框架
@@ -334,7 +334,7 @@ mindmap
       强制止损
       幂等保护
     A股专注
-      Tushare + AkShare
+      Tushare + Baostock + AkShare + 离线样例
       离线样例保证可用
       数据源降级
 ```
@@ -428,7 +428,7 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 5. ...
 6. 日志页实时追加决策卡片
 7. 股票页实时更新持仓
-8. 性能页实时更新排行榜
+8. 表现页实时更新排行榜
 
 代码位置：
 - 前端：`apps/frontend/src/components/trading-dashboard.tsx`
@@ -462,9 +462,10 @@ def analyze_stock(self, stock_code: str) -> StockAnalysisReport:
 - Tushare 需要 token，用户可能没有
 
 **我们的解决方案**：
-- **Tushare + AkShare**：双数据源降级
+- **Tushare + Baostock + AkShare**：默认 provider chain 降级
 - **离线样例**：保证离线可用
-- **降级流程**：Tushare → AkShare → 离线样例
+- **可选参考源**：AData / OpenBB / yfinance / Alpha Vantage / JQData 可手动加入链路；AAStock / 同花顺 Skill 仅登记适配判断，不做未授权抓取
+- **降级流程**：Tushare → Baostock → AkShare → 离线样例
 
 代码位置：`src/astock_agent_system/data/data_agent.py`
 

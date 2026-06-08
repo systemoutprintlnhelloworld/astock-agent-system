@@ -87,7 +87,7 @@ class EventTimelineService:
                     category="data_source",
                     severity="warning",
                     title="当前为离线数据模式",
-                    summary="新闻、公告和实时行情轮询会使用空态/样例提示；切换 online 后可接入 Tushare/AkShare。",
+                    summary="新闻、公告和实时行情轮询会使用空态/样例提示；切换 online 后可按 provider chain 接入真实数据源。",
                     payload={"offline_data_path": self.settings.data.offline_data_path},
                 )
             )

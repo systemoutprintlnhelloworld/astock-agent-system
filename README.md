@@ -51,6 +51,7 @@ python -m pip install -e ".[all]"
 .\start.bat -Mode dashboard
 .\start.bat -Mode backend -Port 18080
 .\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
+.\start.bat -Mode tui -BackendPort 18080
 ```
 
 桌面交付验证入口：
@@ -72,6 +73,7 @@ apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-
 
 - `总览`：看连接状态、开箱检查清单和首次启动向导。
 - `流程`：看多 Agent 流程图和实时事件。
+- `表现`：看权益曲线、长期收益和模型排行榜。
 - `日志`：看可折叠决策卡与事件流。
 - `股票`：看持仓、候选池和交易记录。
 - `设置`：通过目录快速跳到数据源、LLM、风控和调度配置。
@@ -79,6 +81,31 @@ apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-
 如果 3000 / 18080 端口被占用，或者同一个 `apps/frontend` 目录下残留了旧的 Next.js dev 进程，一键脚本会先打印进程信息并要求确认后再释放冲突，再继续启动。后端默认使用 `18080..18100` 这一段 AStock 专用本地端口；前端仍会兼容探测旧的 `8000..8020`，方便连接历史启动的同项目后端，但新启动不再主动占用常见的 `8000`。
 
 现代控制台的开发预览默认使用 Next.js webpack dev server，而不是 Turbopack。Next 16 的 Turbopack 在 Windows 上可能因为本地持久化缓存损坏触发 `range start index ... out of range` panic；如需专门复现 Turbopack，可在 `apps/frontend` 里运行 `npm run dev:turbo`。
+
+如果 GUI 调试不方便，可以先使用终端客户端：
+
+```powershell
+.\start.bat -Mode tui -BackendPort 18080
+```
+
+TUI 会复用同一个 FastAPI 后端，不复制交易逻辑。首次进入会显示配置向导，保存到本地 `data/runtime/settings.override.json`（已被 Git 忽略），并提供类似编码 Agent 的 slash 命令：
+
+```text
+/help
+/status
+/models set rule-baseline,gpt-5.4-mini
+/workflow offline
+/start --offline --max-count 1 --days 12
+/providers
+/dashboard stocks
+/agent learning stats
+/agent learning suggestions
+/compact
+/attachments show
+/exit
+```
+
+默认 `/start` 会调用后端后台自动投资接口；即使 TUI 退出，后端进程中的模拟盘任务仍会继续运行，可通过 `/status`、`/dashboard rankings`、`/dashboard decisions` 和 GUI 查看结果。当前 TUI 先提供依赖轻量的文本分栏与状态栏；后续可在不改后端业务逻辑的前提下升级为 Textual 鼠标交互界面。
 
 如果不使用一键入口，也可以直接调用 CLI：
 

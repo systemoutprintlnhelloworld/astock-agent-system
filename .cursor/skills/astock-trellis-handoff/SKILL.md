@@ -27,7 +27,7 @@ Before editing code or plans, read these files in order:
 ## Handoff workflow
 
 1. Inspect state with `git status --short --branch` and `git diff -- .`.
-2. Use context-weaver/codebase retrieval before planning or editing involved code symbols.
+2. Use fast-context (`fast_context_search`) before planning or editing involved code symbols; use Read/Grep only for follow-up precision checks.
 3. Confirm the core product boundary:
    - Benchmark mode only; `N=1` is still Benchmark mode.
    - Each selected model drives an independent full 8-Agent system and independent `VirtualAccount`.
@@ -41,6 +41,8 @@ Before editing code or plans, read these files in order:
 ## External and local knowledge
 
 - Use smart-search for current web research only after `smart-search doctor --format json` is healthy. If it fails, record the failed command and do not claim fresh external evidence.
+- Use fast-context for local code, architecture, and cross-module searches. Do not use ContextWeaver, ACE, ace-tool, augment-context-engine, or codebase-retrieval as the primary retrieval route.
+- Use grill-me to interrogate requirements when ambiguity can alter product or architecture direction; persist the result in Trellis docs.
 - Use find-skills before installing third-party skills; prefer skills with reputable source and high install count. Be cautious with skills under 100 installs.
 - Use create-skill rules for project skills. Store repository skills under `.cursor/skills/<skill-name>/SKILL.md`; never create them under `~/.cursor/skills-cursor/`.
 - If a user-feedback or memory tool is available, use it only for explicit blockers or decisions; otherwise write the feedback need in `docs/trellis/HANDOFF.md`.

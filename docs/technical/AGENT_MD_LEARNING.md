@@ -89,6 +89,7 @@ TUI 和 GUI 共享后端接口：
 - `POST /api/agents/{agent_id}/descriptor/backup`
 - `POST /api/agents/{agent_id}/descriptor/rollback`
 - `GET /api/agents/learning/status`
+- `GET /api/agents/learning/suggestions`
 - `POST /api/agents/learning/trigger?force=true`
 
 ## 7. TUI 命令骨架
@@ -101,6 +102,7 @@ TUI 和 GUI 共享后端接口：
 /agent edit technical
 /agent backup technical
 /agent learning stats
+/agent learning suggestions
 /agent learning trigger
 ```
 

@@ -1,5 +1,5 @@
 param(
-    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "desktop-doctor", "desktop-bootstrap", "desktop-sidecar", "desktop-dev", "desktop-build", "desktop-release", "delivery-check", "scheduler", "docs")]
+    [ValidateSet("status", "storage", "offline", "online", "bench", "dashboard", "backend", "frontend", "modern-ui", "tui", "desktop-doctor", "desktop-bootstrap", "desktop-sidecar", "desktop-dev", "desktop-build", "desktop-release", "delivery-check", "scheduler", "docs")]
     [string]$Mode = "status",
     [string]$Models = "",
     [string]$BenchModel = "",
@@ -1107,6 +1107,32 @@ switch ($Mode) {
         if ($backendProcess) {
             Write-Host "Backend window PID:  $($backendProcess.Id)" -ForegroundColor DarkGreen
         }
+    }
+    "tui" {
+        $backendOccupant = Get-PortOccupant -Port $BackendPort
+        $reuseBackend = Test-IsProjectBackendProcess -ProcessInfo $backendOccupant
+        if (-not $reuseBackend) {
+            Ensure-PortAvailable -Port $BackendPort -Purpose "FastAPI backend adapter"
+        }
+
+        if ($reuseBackend) {
+            Write-Step "Reusing existing backend adapter on port $BackendPort"
+        }
+        else {
+            Write-Step "Starting backend adapter for terminal UI"
+            $backendProcess = Start-Process powershell -PassThru -ArgumentList @(
+                "-NoExit",
+                "-NoProfile",
+                "-ExecutionPolicy",
+                "Bypass",
+                "-Command",
+                "& '$PSScriptRoot/start.ps1' -Mode backend -Port $BackendPort"
+            )
+        }
+
+        Wait-ForHttpReady -Url "http://127.0.0.1:$BackendPort/api/health" -ServiceName "Backend API" -TimeoutSeconds 60
+        Write-Step "Launching terminal UI"
+        python -m apps.tui --backend-url "http://127.0.0.1:$BackendPort"
     }
     "desktop-doctor" {
         Write-Step "Checking desktop packaging prerequisites"

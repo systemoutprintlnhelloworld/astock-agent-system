@@ -65,6 +65,7 @@
 | Cursor 开发结束 Hook | 已完成 | 新增 `.cursor/hooks/enforce-session-end.ps1` 并在 `.cursor/hooks.json` 启用 `stop` hook，检查未提交变更、文档同步和未推送提交。 |
 | Tauri 桌面壳与 sidecar 打包入口 | 已完成可验证版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式；已验证 `.exe` 和 NSIS 安装包产物。 |
 | Agent Markdown 持续学习系统 | 已完成首版 | 新增 `config/agents/*.md`、`config/user_profile.yaml`、Agent descriptor/learning 核心模块、后端管理接口、TUI `/agent` 命令骨架和 `docs/technical/AGENT_MD_LEARNING.md`；学习系统只生成建议，不静默改策略或实盘交易。 |
+| 数据源 Provider chain 扩展 | 已完成首版 | `DataAgent` 支持 `DATA_PROVIDER_CHAIN` 可配置降级；默认 `Tushare -> Baostock -> AkShare -> offline samples`；新增 AData/OpenBB/yfinance/Alpha Vantage/JQData 可选适配器、AAStock/同花顺适配判断和 `/api/data/providers` 脱敏诊断接口。 |
 
 ## 4. 推荐一键运行路径
 
@@ -165,7 +166,8 @@ Push-Location apps/desktop; npm install; Pop-Location
 
 1. Tushare token。
 2. LLM gateway base URL 和 API key。
-3. 如需邮件/IM 推送，后续补充 SMTP 或 webhook 配置。
+3. 可选 Alpha Vantage key、JQData 账号密码；仅在用户主动加入 `DATA_PROVIDER_CHAIN` 时使用。
+4. 如需邮件/IM 推送，后续补充 SMTP 或 webhook 配置。
 
 以上信息不得写入 Git，也不得出现在文档示例中。
 

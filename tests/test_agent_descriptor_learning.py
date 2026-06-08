@@ -12,12 +12,16 @@ from astock_agent_system.agent_descriptor import (
 from astock_agent_system.agent_learning import (
     append_experience,
     get_learning_status,
+    load_learning_suggestions,
     trigger_learning_if_ready,
 )
 from astock_agent_system.agents import TechnicalAnalyst
 from astock_agent_system.models import StockBar
-from apps.tui.commands import handle_agent_command
-from apps.tui.widgets import render_agent_management_panel, render_learning_progress
+from apps.tui.backend_client import BackendClientError
+from apps.tui.commands import handle_agent_command, handle_slash_command
+from apps.tui.config_wizard import build_config_patch, redact_config_patch, render_wizard_summary
+from apps.tui.session import TuiSessionState, extract_file_paths
+from apps.tui.widgets import render_agent_management_panel, render_learning_progress, render_provider_diagnostics, render_status_bar
 
 
 def test_agent_descriptor_renders_prompt_with_user_profile() -> None:
@@ -103,6 +107,7 @@ def test_learning_status_and_trigger_use_temp_files(tmp_path: Path) -> None:
 
     assert triggered["suggestions"]
     assert json.loads(suggestions_path.read_text(encoding="utf-8"))["analyzed_count"] == 3
+    assert load_learning_suggestions(suggestions_path)["suggestions"]
     assert "学习分析" in evolution_path.read_text(encoding="utf-8")
 
 
@@ -118,3 +123,182 @@ def test_tui_agent_command_and_panel_render() -> None:
     assert "TechnicalAnalyst" in viewed.body
     assert "Agent 管理" in panel
     assert "学习进度" in progress
+
+
+class _FakeTuiBackend:
+    def __init__(self) -> None:
+        self.started: dict[str, object] = {}
+
+    def health(self) -> dict[str, object]:
+        return {"status": "ok", "app": "fake"}
+
+    def config(self) -> dict[str, object]:
+        return {"status": "ok", "config": {"data": {"mode": "offline"}}}
+
+    def save_config(self, config: dict[str, object]) -> dict[str, object]:
+        return {"status": "ok", "config": config}
+
+    def test_llm(self, config: dict[str, object] | None = None, *, run_bench: bool = False) -> dict[str, object]:
+        return {"configured": False, "run_bench": run_bench}
+
+    def list_models(self) -> dict[str, object]:
+        return {"status": "ok", "models": ["rule-baseline", "gpt-demo"]}
+
+    def start_auto_investment(
+        self,
+        *,
+        models: list[str] | None = None,
+        offline: bool = False,
+        max_count: int | None = None,
+        days: int | None = None,
+        background: bool = True,
+    ) -> dict[str, object]:
+        self.started = {
+            "models": models,
+            "offline": offline,
+            "max_count": max_count,
+            "days": days,
+            "background": background,
+        }
+        return {"status": "accepted", "run_id": "run-1"}
+
+    def run_status(self) -> dict[str, object]:
+        return {"status": "idle", "run": None}
+
+    def decisions(self) -> dict[str, object]:
+        return {"items": []}
+
+    def stock_board(self) -> dict[str, object]:
+        return {"holdings": [], "candidates": [], "trades": []}
+
+    def rankings(self) -> dict[str, object]:
+        return {"rankings": [{"rank": 1, "llm_model": "rule-baseline", "total_return": 0.01, "equity": 101000, "total_trades": 1}]}
+
+    def data_providers(self) -> dict[str, object]:
+        return {
+            "diagnostics": {
+                "mode": "offline",
+                "provider_chain": ["tushare", "baostock", "akshare"],
+                "catalog": [
+                    {
+                        "source": "akshare",
+                        "configured": True,
+                        "adapter_available": True,
+                        "has_credentials": True,
+                        "missing_credentials": [],
+                        "capabilities": ["history", "quote"],
+                        "suitability": "免费综合兜底源。",
+                    }
+                ],
+                "attempts": [],
+            }
+        }
+
+    def agent_flow(self) -> dict[str, object]:
+        return {"nodes": [], "edges": []}
+
+    def learning_status(self) -> dict[str, object]:
+        return {"learning": {"threshold": 30, "progress": 1, "total_experiences": 1}}
+
+
+def test_tui_slash_commands_update_state_and_call_backend() -> None:
+    state = TuiSessionState()
+    client = _FakeTuiBackend()
+
+    model_result = handle_slash_command("/models set rule-baseline,gpt-demo", state=state, client=client)
+    workflow_result = handle_slash_command("/workflow offline", state=state, client=client)
+    start_result = handle_slash_command("/start --max-count 2 --days 12", state=state, client=client)
+    providers_result = handle_slash_command("/providers", state=state, client=client)
+
+    assert model_result.ok is True
+    assert workflow_result.ok is True
+    assert start_result.ok is True
+    assert providers_result.ok is True
+    assert state.selected_models == ["rule-baseline", "gpt-demo"]
+    assert client.started == {
+        "models": ["rule-baseline", "gpt-demo"],
+        "offline": True,
+        "max_count": 2,
+        "days": 12,
+        "background": True,
+    }
+    assert state.last_run_id == "run-1"
+    assert "akshare" in providers_result.body
+
+
+class _FailingTuiBackend(_FakeTuiBackend):
+    def config(self) -> dict[str, object]:
+        raise BackendClientError("config unavailable")
+
+    def start_auto_investment(
+        self,
+        *,
+        models: list[str] | None = None,
+        offline: bool = False,
+        max_count: int | None = None,
+        days: int | None = None,
+        background: bool = True,
+    ) -> dict[str, object]:
+        raise BackendClientError("start unavailable")
+
+    def data_providers(self) -> dict[str, object]:
+        raise BackendClientError("providers unavailable")
+
+
+def test_tui_slash_commands_keep_todo_state_consistent_on_backend_failure() -> None:
+    state = TuiSessionState()
+    client = _FailingTuiBackend()
+
+    config_result = handle_slash_command("/config show", state=state, client=client)
+    providers_result = handle_slash_command("/providers", state=state, client=client)
+    start_result = handle_slash_command("/start --offline", state=state, client=client)
+
+    assert config_result.ok is False
+    assert providers_result.ok is False
+    assert start_result.ok is False
+    assert state.todo_status.get("配置") != "completed"
+    assert state.todo_status.get("数据源") != "completed"
+    assert state.todo_status["运行"] == "failed"
+
+
+def test_tui_config_wizard_redacts_secret_values() -> None:
+    patch = build_config_patch(
+        {
+            "data_mode": "online",
+            "provider_chain": "tushare,baostock,akshare,yfinance,alpha-vantage,jqdata",
+            "tushare_token": "local-secret-token",
+            "llm_api_key": "local-llm-key",
+            "scheduler_models": "rule-baseline,gpt-demo",
+        }
+    )
+    redacted = redact_config_patch(patch)
+    summary = render_wizard_summary(patch)
+
+    assert patch["data"]["provider_chain"][-1] == "jqdata"
+    assert redacted["data"]["tushare_token"] == "[已设置]"
+    assert redacted["llm"]["api_key"] == "[已设置]"
+    assert "local-secret-token" not in summary
+    assert "settings.override.json" in summary
+
+
+def test_tui_context_meter_and_file_path_extraction(tmp_path: Path) -> None:
+    attachment = tmp_path / "note.txt"
+    attachment.write_text("hello", encoding="utf-8")
+    state = TuiSessionState(context_limit_tokens=20, auto_compact_threshold=0.5)
+
+    paths = state.add_user_input(f"请读取 {attachment}")
+    for index in range(12):
+        state.add_message("assistant", f"message {index} " * 8)
+
+    assert str(attachment.resolve()) in paths
+    assert extract_file_paths(f'"{attachment}"') == [str(attachment.resolve())]
+    assert state.compacted_count > 0
+    assert "上下文" in render_status_bar(state, {"status": "idle"})
+
+
+def test_tui_provider_diagnostics_renderer() -> None:
+    text = render_provider_diagnostics(_FakeTuiBackend().data_providers())
+
+    assert "数据源诊断" in text
+    assert "tushare, baostock, akshare" in text
+    assert "akshare" in text

@@ -41,6 +41,15 @@
 - `.husky/post-commit`：强制自动推送当前分支到 `origin`，不再允许用环境变量跳过。
 - `.cursor/hooks/enforce-session-end.ps1`：Cursor stop hook，会在会话结束前检查未提交变更、代码变更无文档同步、分支 ahead 未推送。
 
+## 统一持续开发规范
+
+- 用户说“请继续”或要求持续推进时，按照 Trellis 指导开发：将当前计划、研究、决策、验证和交接写入 `docs/trellis/`、`docs/trellis-plan.md`、`docs/DELIVERY_SUMMARY.md` 或其他持久化文件。
+- 对项目中需要用户申请、授权或提供的信息（Tushare token、LLM key/base URL、SMTP/Webhook、部署权限、付费额度、破坏性操作许可等），通过 cunzhi/反馈工具说明阻塞范围；其余事项默认继续开发直到可交付。
+- 开发中使用 smart-search 获取外部/官方/实时知识，使用 fast-context / `fast_context_search` 搜索本地代码和架构；禁止再把 ContextWeaver、ACE、ace-tool、augment-context-engine 或 codebase-retrieval 作为首选检索入口。
+- 需求不清或会影响产品/架构方向时，用 grill-me 对需求进行拷问；需要新能力时先用 find-skills 寻找可用 skill，再用 create-skill/skill creator 固化高频工作流。
+- 通过 Git 做版本控制、状态检查、提交和推送，并严格遵守本项目交付闭环；禁止 `reset --hard`、强推、amend 等破坏性 Git 操作，除非用户明确要求。
+- 通过 hook 强制执行安全、文档同步、验证、密钥保护和交付收尾规范；行为、命令、配置或交付状态变化必须即时更新文档。
+
 ## 安全红线
 
 - 不要打印或提交真实 LLM API Key、Tushare token、Webhook、SMTP 密码或 `.env`。

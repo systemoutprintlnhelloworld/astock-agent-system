@@ -9,6 +9,13 @@ description: Guides delivery work for the A-share LLM multi-agent paper-trading 
 
 Use this workflow when developing or delivering this repository:
 
+0. Follow the persistent Trellis-style development contract.
+   - When the user says “请继续” or asks for continuous development, keep working until the project is deliverable unless credentials, paid quota, deployment access, destructive-operation approval, or product/architecture decisions are required.
+   - Persist plans, research, decisions, validation, and handoff state in `docs/trellis/`, `docs/trellis-plan.md`, `docs/DELIVERY_SUMMARY.md`, or another tracked project document.
+   - Use smart-search for external/official/current knowledge and fast-context (`fast_context_search`) for local code and architecture search. Do not use ContextWeaver, ACE, ace-tool, augment-context-engine, or codebase-retrieval as the primary retrieval route.
+   - Use grill-me for requirement interrogation when ambiguity can change direction. Use find-skills before adopting new skills and create-skill/skill creator to solidify repeatable workflows.
+   - Use cunzhi/feedback tooling for blockers and user decisions; keep hooks enforcing safety, documentation sync, validation, and secret hygiene.
+
 1. Protect secrets first.
    - Never print or commit real API keys, Tushare tokens, webhook URLs, or `.env`.
    - Use `.env.example` and docs placeholders only.

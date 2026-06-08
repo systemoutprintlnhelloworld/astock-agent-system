@@ -16,7 +16,7 @@ dependencies = [
 [project.optional-dependencies]
 ui = ["streamlit>=1.34"]
 storage = ["pymongo>=4.6", "redis>=5.0"]
-market = ["tushare>=1.4", "akshare>=1.15"]
+market = ["tushare>=1.4", "akshare>=1.15", "baostock", "yfinance"]
 backtest = ["backtrader>=1.9"]
 agent = ["langgraph>=0.2"]
 scheduler = ["APScheduler>=3.10"]
@@ -30,6 +30,8 @@ all = [
   "redis>=5.0",
   "tushare>=1.4",
   "akshare>=1.15",
+  "baostock",
+  "yfinance",
   "backtrader>=1.9",
   "langgraph>=0.2",
   "APScheduler>=3.10",

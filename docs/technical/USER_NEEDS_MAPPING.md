@@ -66,7 +66,7 @@
 | 组件 | 文件路径 | 关键函数/组件 |
 |------|---------|--------------|
 | 设置表单 | `apps/frontend/src/components/trading-dashboard.tsx` | `设置` tab → LLM部分 |
-| 保存接口 | `apps/backend/app.py` | `POST /api/config/save` |
+| 保存接口 | `apps/backend/app.py` | `POST /api/config` |
 | 配置加载 | `src/astock_agent_system/config.py` | `load_settings()` |
 
 **用户操作流程**：
@@ -97,7 +97,7 @@
 | 组件 | 文件路径 | 关键函数/组件 |
 |------|---------|--------------|
 | 启动按钮 | `apps/frontend/src/components/trading-dashboard.tsx` | `总览` tab |
-| 运行接口 | `apps/backend/app.py` | `POST /api/run` |
+| 运行接口 | `apps/backend/app.py` | `POST /api/auto-investment` |
 | 流程图 | `apps/frontend/src/components/trading-dashboard.tsx` | `流程` tab + React Flow |
 | 决策日志 | `apps/frontend/src/components/trading-dashboard.tsx` | `日志` tab + DecisionCard |
 | WebSocket | `apps/backend/app.py` | `WebSocket /ws/events` |
@@ -156,7 +156,7 @@ MultiAgentOrchestrator.run_competition()
 - 为什么这个模型收益更高
 
 **功能设计**：
-1. 性能页 → 排行榜 tab
+1. 表现页 → 排行榜 tab
 2. 按收益率排序，显示：排名、模型名、权益、收益率、最大回撤、胜率、交易次数
 3. 点击模型 → 显示详情（持仓、交易记录）
 
@@ -164,7 +164,7 @@ MultiAgentOrchestrator.run_competition()
 
 | 组件 | 文件路径 | 关键函数/组件 |
 |------|---------|--------------|
-| 排行榜 | `apps/frontend/src/components/trading-dashboard.tsx` | `性能` tab → 排行榜 |
+| 排行榜 | `apps/frontend/src/components/trading-dashboard.tsx` | `表现` tab → 排行榜 |
 | 数据接口 | `apps/backend/app.py` | `GET /api/metrics/rankings` |
 | 数据适配 | `apps/backend/adapters.py` | `rankings_from_result()` |
 
@@ -188,7 +188,7 @@ MultiAgentOrchestrator.run_competition()
 - 查看权益曲线、回撤、胜率
 
 **功能设计**：
-1. 性能页 → 权益曲线 tab
+1. 表现页 → 权益曲线 tab
 2. 多条曲线对比（每个模型一条）
 3. 显示最大回撤、夏普比率、卡尔玛比率
 
@@ -196,7 +196,7 @@ MultiAgentOrchestrator.run_competition()
 
 | 组件 | 文件路径 | 关键函数/组件 |
 |------|---------|--------------|
-| 权益曲线 | `apps/frontend/src/components/trading-dashboard.tsx` | `性能` tab → 权益曲线 + Recharts |
+| 权益曲线 | `apps/frontend/src/components/trading-dashboard.tsx` | `表现` tab → 权益曲线 + Recharts |
 | 数据接口 | `apps/backend/app.py` | `GET /api/metrics/equity` |
 | 数据适配 | `apps/backend/adapters.py` | `equity_metrics_from_result()` |
 | MongoDB查询 | `src/astock_agent_system/storage/mongo_client.py` | `get_equity_curve()` |
@@ -327,33 +327,23 @@ class WindProvider:
         # 调用 Wind API
         return [...]
 
-# 2. 在 DataAgent 中增加降级
+# 2. 在 DataAgent 的 PROVIDER_CATALOG 和 provider 工厂中注册
 # src/astock_agent_system/data/data_agent.py
 
-class DataAgent:
-    def __init__(self, settings: Settings):
-        self.wind = WindProvider(settings.data.wind_token) if settings.data.wind_token else None
-        self.tushare = TushareProvider(...)
-        self.akshare = AkShareProvider(...)
-    
-    def get_history(self, stock_code: str, days: int) -> list[Bar]:
-        if self.settings.data.mode == "offline":
-            return self._load_sample(stock_code)
-        
-        # 在线模式：Wind → Tushare → AkShare → 离线样例
-        if self.wind:
-            try:
-                return self.wind.get_history(stock_code, days)
-            except Exception:
-                pass
-        
-        if self.tushare:
-            try:
-                return self.tushare.get_history(stock_code, days)
-            except Exception:
-                pass
-        
-        # ... 降级到 AkShare 和离线样例
+PROVIDER_CATALOG["wind"] = {
+    "display_name": "Wind",
+    "class_name": "WindProvider",
+    "capabilities": ["universe", "history", "quote", "financial"],
+    "credential_fields": ["wind_token"],
+    "default_chain": False,
+    "suitability": "付费 A 股研究数据源，需用户本地授权。",
+    "limitations": ["不要提交或打印真实 token。"],
+}
+
+# 3. 用户通过 DATA_PROVIDER_CHAIN 控制降级顺序
+# DATA_PROVIDER_CHAIN=wind,tushare,baostock,akshare
+
+# DataAgent 会按 provider chain 尝试支持对应 capability 的 provider，失败后继续降级，最终回到离线样例。
 ```
 
 ---
@@ -383,8 +373,11 @@ class DataAgent:
 |---------|---------|------|
 | `GET /api/health` | `apps/backend/app.py` | 健康检查 |
 | `GET /api/config` | `apps/backend/app.py` | 读取脱敏配置 |
-| `POST /api/config/save` | `apps/backend/app.py` | 保存配置 |
-| `POST /api/run` | `apps/backend/app.py` | 启动自动投资 |
+| `POST /api/config` | `apps/backend/app.py` | 保存运行时配置 |
+| `POST /api/auto-investment` | `apps/backend/app.py` | 前台启动自动投资 |
+| `POST /api/auto-investment/background` | `apps/backend/app.py` | 后台提交自动投资 |
+| `GET /api/data/providers` | `apps/backend/app.py` | 查看 provider chain 诊断 |
+| `GET /api/agents/learning/suggestions` | `apps/backend/app.py` | 查看 Agent Markdown 学习建议 |
 | `GET /api/agents/flow` | `apps/backend/app.py` | 返回 React Flow 节点/边 |
 | `GET /api/decisions` | `apps/backend/app.py` | 返回决策日志 |
 | `GET /api/stocks/board` | `apps/backend/app.py` | 返回持仓/候选/交易 |
@@ -396,12 +389,12 @@ class DataAgent:
 
 | 用户操作 | 前端组件 | 后端接口 | 业务逻辑 |
 |---------|---------|---------|---------|
-| 启动运行 | `总览` tab → "启动离线轮次" | `POST /api/run` | `MultiAgentOrchestrator.run_competition()` |
+| 启动运行 | `总览` tab → "启动离线轮次" | `POST /api/auto-investment` | `MultiAgentOrchestrator.run_competition()` |
 | 查看流程图 | `流程` tab → React Flow | `GET /api/agents/flow` + WebSocket | Agent 执行 → 推送事件 |
 | 查看决策 | `日志` tab → DecisionCard | `GET /api/decisions` + WebSocket | `PortfolioManager.decide()` |
 | 查看持仓 | `股票` tab → 持仓 | `GET /api/stocks/board` | `VirtualAccount.positions_to_dict()` |
-| 查看排行榜 | `性能` tab → 排行榜 | `GET /api/metrics/rankings` | `MultiAgentOrchestrator` 排序 |
-| 保存配置 | `设置` tab → "保存配置" | `POST /api/config/save` | `save_runtime_overrides()` |
+| 查看排行榜 | `表现` tab → 排行榜 | `GET /api/metrics/rankings` | `MultiAgentOrchestrator` 排序 |
+| 保存配置 | `设置` tab → "保存配置" | `POST /api/config` | `save_runtime_overrides()` |
 
 ---
 

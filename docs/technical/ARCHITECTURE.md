@@ -18,7 +18,8 @@ graph TB
     
     subgraph presentationLayer [展示层]
         nextjs[Next.js 16 / React 19<br/>apps/frontend]
-        tauri[Tauri 2.0 桌面壳<br/>apps/desktop<br/>Phase 3]
+        tui[终端 TUI 客户端<br/>apps/tui]
+        tauri[Tauri 2.0 桌面壳<br/>apps/desktop<br/>已完成可验证版]
     end
     
     subgraph apiLayer [API适配层]
@@ -54,13 +55,17 @@ graph TB
     
     subgraph dataSourceLayer [数据源层]
         tushare[Tushare Pro]
+        baostock[Baostock]
         akshare[AkShare]
+        optionalSources[可选参考源<br/>AData / OpenBB / yfinance / Alpha Vantage / JQData]
         samples[离线样例数据<br/>data/samples]
     end
     
     user --> nextjs
+    user --> tui
     user --> tauri
     nextjs --> fastapi
+    tui --> fastapi
     tauri -.-> fastapi
     fastapi --> websocket
     fastapi --> masterAgent
@@ -91,7 +96,9 @@ graph TB
     
     dataAgent --> redis
     dataAgent --> tushare
+    dataAgent --> baostock
     dataAgent --> akshare
+    dataAgent -.手动配置.-> optionalSources
     dataAgent --> samples
 ```
 
@@ -99,14 +106,14 @@ graph TB
 
 | 层次 | 职责 | 技术选择 |
 |------|------|---------|
-| **用户层** | 桌面App或命令行启动 | Tauri .exe (Phase 3) / start.bat |
-| **展示层** | 现代化UI + 实时透明 | Next.js 16 + React 19 + Tailwind + Shadcn + React Flow + Recharts |
+| **用户层** | 桌面App或命令行启动 | Tauri .exe / NSIS 安装包 / start.bat |
+| **展示层** | 现代化UI + 终端调试客户端 + 实时透明 | Next.js 16 + React 19 + Tailwind + Shadcn + React Flow + Recharts；TUI 作为 FastAPI 客户端 |
 | **API适配层** | 后端适配 + WebSocket事件流 | FastAPI + WebSocket |
 | **业务核心层** | Benchmark多模型比赛 + 自动调度 | MultiAgentOrchestrator + TradingTaskScheduler |
 | **Agent层** | 8个专业Agent分工协作 | DataAgent, StockScreener, 5个分析Agent, DebateRoom, RiskManager, PortfolioManager |
 | **执行层** | 模拟盘严格验证 | VirtualAccount (T+1, 手续费, 滑点, 止损) |
 | **存储层** | 持久化 + 缓存 | MongoDB + Redis |
-| **数据源层** | 行情 + 财务 + 舆情 | Tushare / AkShare / 离线样例 |
+| **数据源层** | 行情 + 财务 + 舆情 | Provider chain：Tushare / Baostock / AkShare / 可选参考源 / 离线样例 |
 
 ---
 
@@ -392,7 +399,9 @@ def restore_account(agent_id: str) -> VirtualAccount:
 flowchart LR
     subgraph dataSources [数据源]
         tushare[Tushare Pro]
+        baostock[Baostock]
         akshare[AkShare]
+        optionalSources[可选参考源]
         samples[离线样例]
     end
     
@@ -430,7 +439,9 @@ flowchart LR
     end
     
     tushare --> dataAgent
+    baostock --> dataAgent
     akshare --> dataAgent
+    optionalSources -.手动配置.-> dataAgent
     samples --> dataAgent
     dataAgent <--> redis
     
@@ -463,7 +474,7 @@ flowchart LR
 
 ### 4.2 数据流关键路径
 
-1. **行情数据流**：Tushare/AkShare → Redis缓存 → DataAgent → 各Agent
+1. **行情数据流**：Provider chain（Tushare/Baostock/AkShare/可选参考源）→ Redis缓存 → DataAgent → 各Agent
 2. **决策数据流**：各Agent分析 → RiskManager风控 → PortfolioManager决策 → VirtualAccount执行
 3. **持久化流**：VirtualAccount交易 → MongoDB快照 → 下次运行恢复
 4. **实时事件流**：Agent执行 → WebSocket推送 → modern-ui实时显示

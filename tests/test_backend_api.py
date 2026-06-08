@@ -47,6 +47,9 @@ def test_tauri_origin_is_allowed_for_desktop_http_probe() -> None:
 
 def test_config_endpoint_redacts_local_secrets(monkeypatch) -> None:
     monkeypatch.setenv("TUSHARE_TOKEN", "x")
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "alpha-secret")
+    monkeypatch.setenv("JQDATA_USERNAME", "jq-user")
+    monkeypatch.setenv("JQDATA_PASSWORD", "jq-secret")
     monkeypatch.setenv("LLM_API_KEY", "x")
     monkeypatch.setenv("LLM_BASE_URL", "https://gateway.example/v1")
     monkeypatch.setenv("SMTP_USERNAME", "x")
@@ -63,7 +66,12 @@ def test_config_endpoint_redacts_local_secrets(monkeypatch) -> None:
     serialized = json.dumps(config, ensure_ascii=False)
     assert "user:pass" not in serialized
     assert "https://webhook.example/hook" not in serialized
+    assert "alpha-secret" not in serialized
+    assert "jq-secret" not in serialized
     assert config["data"]["has_tushare_token"] is True
+    assert config["data"]["has_alpha_vantage_api_key"] is True
+    assert config["data"]["has_jqdata_username"] is True
+    assert config["data"]["has_jqdata_password"] is True
     assert config["llm"]["has_api_key"] is True
     assert config["storage"]["mongo_uri"] == "mongodb://[REDACTED]@localhost:27017"
     assert config["storage"]["redis_url"] == "redis://[REDACTED]@localhost:6379/0"
@@ -72,12 +80,36 @@ def test_config_endpoint_redacts_local_secrets(monkeypatch) -> None:
 def test_public_settings_helper_never_returns_api_key(monkeypatch) -> None:
     monkeypatch.setenv("LLM_API_KEY", "x")
     monkeypatch.setenv("TUSHARE_TOKEN", "x")
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "alpha-secret")
+    monkeypatch.setenv("JQDATA_PASSWORD", "jq-secret")
 
     public_config = settings_to_public_dict(load_settings())
+    serialized = json.dumps(public_config, ensure_ascii=False)
 
     assert public_config["llm"]["has_api_key"] is True
     assert "api_key" not in public_config["llm"]
     assert "tushare_token" not in public_config["data"]
+    assert "alpha-secret" not in serialized
+    assert "jq-secret" not in serialized
+
+
+def test_data_provider_endpoint_exposes_diagnostics_without_secrets(monkeypatch) -> None:
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "tushare,baostock,akshare,alpha-vantage,同花顺")
+    monkeypatch.setenv("TUSHARE_TOKEN", "secret-tushare-token")
+    monkeypatch.setenv("ALPHA_VANTAGE_API_KEY", "secret-alpha-key")
+    client = TestClient(app)
+
+    response = client.get("/api/data/providers")
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert payload["status"] == "ok"
+    assert payload["diagnostics"]["provider_chain"][:3] == ["tushare", "baostock", "akshare"]
+    assert any(item["source"] == "alpha_vantage" for item in payload["diagnostics"]["catalog"])
+    assert any(item["source"] == "ths_skill" and item["adapter_available"] is False for item in payload["diagnostics"]["catalog"])
+    assert "secret-tushare-token" not in serialized
+    assert "secret-alpha-key" not in serialized
 
 
 def test_bench_endpoint_skips_without_llm_key(monkeypatch) -> None:
@@ -211,6 +243,63 @@ def test_auto_investment_endpoint_reuses_scheduler(monkeypatch) -> None:
     assert run["run"]["status"] == "ok"
 
 
+def test_background_auto_investment_endpoint_returns_before_result(monkeypatch) -> None:
+    class _FakeScheduler:
+        def __init__(self, settings) -> None:  # noqa: ANN001 - mirrors production constructor
+            self.settings = settings
+
+        def run_auto_investment(self, models):  # noqa: ANN001 - mirrors production method
+            return ScheduledTaskResult(
+                task_name="auto_investment",
+                status="ok",
+                started_at="2026-06-03T10:00:00",
+                finished_at="2026-06-03T10:00:01",
+                message="background auto investment ok",
+                payload={
+                    "competition": {
+                        "status": "ok",
+                        "run_date": "2026-06-03",
+                        "rankings": [
+                            {
+                                "rank": 1,
+                                "agent_id": "agent-rule",
+                                "llm_model": "rule-baseline",
+                                "total_return": 0.0,
+                                "max_drawdown": 0.0,
+                                "win_rate": 0.0,
+                                "total_trades": 0,
+                                "equity": 100000,
+                                "cash": 100000,
+                                "daily_pnl": 0,
+                            }
+                        ],
+                        "agents": [{"agent_id": "agent-rule", "llm_model": "rule-baseline", "decisions": [], "positions": [], "trades": []}],
+                    }
+                },
+            )
+
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setattr(backend_app_module, "TradingTaskScheduler", _FakeScheduler)
+    client = TestClient(app)
+
+    response = client.post(
+        "/api/auto-investment/background",
+        json={"models": ["rule-baseline"], "offline": True, "max_count": 1, "days": 12},
+    )
+
+    assert response.status_code == 200
+    payload = response.json()
+    assert payload["status"] == "accepted"
+    assert payload["run_id"]
+
+    with client.websocket_connect("/ws/events") as websocket:
+        connected = websocket.receive_json()
+        assert connected["type"] == "connection_established"
+
+    run = client.get("/api/runs/current").json()
+    assert run["status"] in {"idle", "running"}
+
+
 def test_agent_flow_endpoint_returns_animated_react_flow_edges() -> None:
     client = TestClient(app)
 
@@ -240,6 +329,11 @@ def test_agent_descriptor_and_learning_endpoints_are_available() -> None:
     learning = client.get("/api/agents/learning/status").json()
     assert learning["status"] == "ok"
     assert "progress" in learning["learning"]
+
+    suggestions = client.get("/api/agents/learning/suggestions").json()
+    assert suggestions["status"] == "ok"
+    assert "suggestions" in suggestions["suggestions"]
+    assert suggestions["next_steps"]
 
 
 def test_websocket_events_support_ping_pong() -> None:

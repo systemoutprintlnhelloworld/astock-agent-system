@@ -61,6 +61,7 @@ docs/
 - `GET /api/metrics/equity`：返回长期权益曲线。
 - `GET /api/metrics/rankings`：返回模型排行榜。
 - `GET /api/runs/current`：返回当前运行任务状态。
+- `GET /api/data/providers`：返回数据源 provider chain、能力矩阵、缺失凭证和最近尝试结果，不返回真实密钥。
 - `WebSocket /ws/events`：推送 Agent 事件、日志事件、配置更新事件和错误事件。
 
 所有 API 响应不得返回真实 API key、Tushare token 或 webhook。
@@ -71,6 +72,7 @@ docs/
 - `apps/frontend` 已提供 Next.js 现代控制台首版，包含 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 已补齐 Phase 2 透明化最小接口：事件时间线、Agent 记忆只读查询、LLM 配置检测、Agent 工具清单。
 - 已新增 Agent Markdown 持续学习接口：Agent 描述文件查询、备份、回滚、学习状态和手动触发建议生成；GUI 和 TUI 通过同一后端 API 使用这些能力。
+- 已新增数据源 provider chain 诊断接口：`DataAgent` 默认按 `Tushare -> Baostock -> AkShare -> offline samples` 降级，AData/OpenBB/yfinance/Alpha Vantage/JQData 可作为手动参考源接入。
 - modern-ui 已改为 tabs 布局，并新增“事件”“智能体”页签；设置页保留目录式快速跳转。
 - `start.bat -Mode backend -Port 18080` 可单独启动本地 API 预览。
 - `start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 可一键拉起首版现代 UI 预览。

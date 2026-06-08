@@ -55,9 +55,10 @@ from astock_agent_system.agent_descriptor import (
     load_user_profile,
     rollback_agent_descriptor,
 )
-from astock_agent_system.agent_learning import get_learning_status, trigger_learning_if_ready
+from astock_agent_system.agent_learning import get_learning_status, load_learning_suggestions, trigger_learning_if_ready
 from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import Settings, load_settings, save_runtime_overrides
+from astock_agent_system.data import DataAgent
 from astock_agent_system.event_timeline import EventTimelineService, filter_timeline_events
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.scheduler import TradingTaskScheduler
@@ -224,6 +225,18 @@ def create_app() -> FastAPI:
     def get_config() -> dict[str, Any]:
         return {"status": "ok", "config": settings_to_public_dict(load_settings())}
 
+    @api.get("/api/data/providers")
+    def get_data_providers() -> dict[str, Any]:
+        diagnostics = DataAgent(settings=load_settings()).provider_diagnostics()
+        return {
+            "status": "ok",
+            "diagnostics": diagnostics,
+            "next_steps": [
+                "DATA_PROVIDER_CHAIN controls online fallback order; offline samples remain the final fallback.",
+                "AStock 当前只做模拟盘，数据源接入不会触发真实下单。",
+            ],
+        }
+
     @api.post("/api/config")
     async def update_config(request: ConfigUpdateRequest) -> dict[str, Any]:
         overrides = _sanitize_runtime_config(request.config)
@@ -253,6 +266,24 @@ def create_app() -> FastAPI:
             )
         return payload
 
+    @api.post("/api/auto-investment/background")
+    async def run_auto_investment_background(request: AutoInvestmentRequest) -> dict[str, Any]:
+        if run_store.current_run is not None:
+            return {"status": "busy", "run_id": run_store.current_run.get("run_id", ""), "run": run_store.current_run}
+        run_id = str(uuid.uuid4())
+        request_payload = request.model_dump()
+        run_store.start(run_id, request_payload)
+        await event_hub.broadcast(make_event("run_started", run_id=run_id, payload=request_payload))
+        asyncio.create_task(_run_auto_investment_background(run_id, request))
+        return {
+            "status": "accepted",
+            "run_id": run_id,
+            "next_steps": [
+                "Poll /api/runs/current for task status.",
+                "Use /api/decisions, /api/stocks/board and /api/metrics/rankings after completion.",
+            ],
+        }
+
     @api.post("/api/auto-investment")
     async def run_auto_investment(request: AutoInvestmentRequest) -> dict[str, Any]:
         run_id = str(uuid.uuid4())
@@ -264,18 +295,7 @@ def create_app() -> FastAPI:
         await flow_task
         result_payload = result.to_dict()
         run_store.complete(run_id, result_payload)
-        event_type = "run_completed" if result.status == "ok" else "run_failed"
-        for decision in run_store.decisions:
-            await event_hub.broadcast(make_event("decision_made", run_id=run_id, agent_id=decision.agent_id, payload=decision.model_dump(mode="json")))
-        for trade in run_store.trades:
-            await event_hub.broadcast(make_event("trade_executed", run_id=run_id, agent_id=trade.agent_id, payload=trade.model_dump(mode="json")))
-        await event_hub.broadcast(
-            make_event(
-                event_type,
-                run_id=run_id,
-                payload={"task_name": result.task_name, "status": result.status, "message": result.message},
-            )
-        )
+        await _broadcast_run_completion(run_id, result.status, result.task_name, result.message)
         return {"status": result.status, "run_id": run_id, "result": result_payload}
 
     @api.get("/api/agents/flow")
@@ -365,6 +385,14 @@ def create_app() -> FastAPI:
     def get_agent_learning_status() -> dict[str, Any]:
         return {"status": "ok", "learning": get_learning_status()}
 
+    @api.get("/api/agents/learning/suggestions")
+    def get_agent_learning_suggestions() -> dict[str, Any]:
+        return {
+            "status": "ok",
+            "suggestions": load_learning_suggestions(),
+            "next_steps": ["Review suggestions manually before changing any Agent Markdown descriptor."],
+        }
+
     @api.post("/api/agents/learning/trigger")
     def trigger_agent_learning(force: bool = False) -> dict[str, Any]:
         return {"status": "ok", "learning": trigger_learning_if_ready(force=force)}
@@ -443,7 +471,11 @@ def settings_to_public_dict(settings: Settings) -> dict[str, Any]:
             "mode": settings.data.mode,
             "offline_data_path": settings.data.offline_data_path,
             "dynamic_universe_limit": settings.data.dynamic_universe_limit,
+            "provider_chain": settings.data.provider_chain,
             "has_tushare_token": bool(settings.data.tushare_token),
+            "has_alpha_vantage_api_key": bool(settings.data.alpha_vantage_api_key),
+            "has_jqdata_username": bool(settings.data.jqdata_username),
+            "has_jqdata_password": bool(settings.data.jqdata_password),
         },
         "portfolio": {
             "initial_capital": settings.portfolio.initial_capital,
@@ -510,6 +542,44 @@ def _run_auto_investment_sync(request: AutoInvestmentRequest):
     return TradingTaskScheduler(settings=settings).run_auto_investment(models=request.models)
 
 
+async def _run_auto_investment_background(run_id: str, request: AutoInvestmentRequest) -> None:
+    flow_task = asyncio.create_task(_broadcast_agent_flow(run_id))
+    try:
+        result = await asyncio.to_thread(_run_auto_investment_sync, request)
+        await flow_task
+        result_payload = result.to_dict()
+        run_store.complete(run_id, result_payload)
+        await _broadcast_run_completion(run_id, result.status, result.task_name, result.message)
+    except Exception as exc:  # pragma: no cover - runtime safety net
+        if not flow_task.done():
+            await flow_task
+        result_payload = {
+            "task_name": "auto_investment",
+            "status": "error",
+            "started_at": "",
+            "finished_at": _now_iso(),
+            "message": str(exc),
+            "payload": {},
+        }
+        run_store.complete(run_id, result_payload)
+        await event_hub.broadcast(make_event("run_failed", run_id=run_id, payload={"status": "error", "message": str(exc)}))
+
+
+async def _broadcast_run_completion(run_id: str, status: str, task_name: str, message: str) -> None:
+    event_type = "run_completed" if status == "ok" else "run_failed"
+    for decision in run_store.decisions:
+        await event_hub.broadcast(make_event("decision_made", run_id=run_id, agent_id=decision.agent_id, payload=decision.model_dump(mode="json")))
+    for trade in run_store.trades:
+        await event_hub.broadcast(make_event("trade_executed", run_id=run_id, agent_id=trade.agent_id, payload=trade.model_dump(mode="json")))
+    await event_hub.broadcast(
+        make_event(
+            event_type,
+            run_id=run_id,
+            payload={"task_name": task_name, "status": status, "message": message},
+        )
+    )
+
+
 async def _broadcast_agent_flow(run_id: str) -> None:
     phases = [
         ("data_agent", "正在读取行情、财务与仓位快照"),
@@ -560,7 +630,11 @@ def _sanitize_runtime_config(payload: dict[str, Any]) -> dict[str, Any]:
             "mode": "str",
             "offline_data_path": "str",
             "dynamic_universe_limit": "int",
+            "provider_chain": "list[str]",
             "tushare_token": "str",
+            "alpha_vantage_api_key": "str",
+            "jqdata_username": "str",
+            "jqdata_password": "str",
         },
         "portfolio": {
             "initial_capital": "float",
@@ -653,7 +727,11 @@ def _apply_runtime_overrides_to_environ(payload: dict[str, Any]) -> None:
         ("data", "mode"): "DATA_MODE",
         ("data", "offline_data_path"): "OFFLINE_DATA_PATH",
         ("data", "dynamic_universe_limit"): "DYNAMIC_UNIVERSE_LIMIT",
+        ("data", "provider_chain"): "DATA_PROVIDER_CHAIN",
         ("data", "tushare_token"): "TUSHARE_TOKEN",
+        ("data", "alpha_vantage_api_key"): "ALPHA_VANTAGE_API_KEY",
+        ("data", "jqdata_username"): "JQDATA_USERNAME",
+        ("data", "jqdata_password"): "JQDATA_PASSWORD",
         ("portfolio", "initial_capital"): "INITIAL_CAPITAL",
         ("risk", "max_position_per_stock"): "MAX_POSITION_PER_STOCK",
         ("risk", "max_total_position"): "MAX_TOTAL_POSITION",
@@ -740,7 +818,7 @@ def _event_timeline_next_steps(events: list[dict[str, Any]]) -> list[str]:
     categories = {str(event.get("category", "")) for event in events}
     next_steps = ["重大事件会进入 Agent 输入流；普通新闻和公告按批次汇总。"]
     if "data_source" in categories:
-        next_steps.append("切换 online 并配置 Tushare/AkShare 后，可接入真实公告和新闻事件。")
+        next_steps.append("切换 online 并配置 provider chain 后，可接入真实公告、新闻和行情事件。")
     return next_steps
 
 

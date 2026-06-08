@@ -12,6 +12,7 @@
 | 第一次安装和运行 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 15 分钟 |
 | 接入真实 LLM 和 Tushare | [docs/ONLINE_RUNBOOK.md](docs/ONLINE_RUNBOOK.md) | 20 分钟 |
 | 理解系统架构和模块 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | 30 分钟 |
+| 配置和诊断多数据源降级 | [docs/technical/DATA_PROVIDERS.md](docs/technical/DATA_PROVIDERS.md) | 10 分钟 |
 | 维护 Agent 指令与持续学习 | [docs/technical/AGENT_MD_LEARNING.md](docs/technical/AGENT_MD_LEARNING.md) | 15 分钟 |
 | 了解当前开发进度 | [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) | 10 分钟 |
 | 让下一位 AI 接手继续开发 | [docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md) | 10 分钟 |
@@ -70,12 +71,14 @@ python -m mkdocs build --strict             # 构建文档站
 4. [docs/technical/COMPARISON.md](docs/technical/COMPARISON.md) - 同类项目对比：FinRL、AutoGPT、LangChain、Qlib
 5. [docs/technical/USER_NEEDS_MAPPING.md](docs/technical/USER_NEEDS_MAPPING.md) - 需求映射：用户场景 → 功能设计 → 代码位置
 6. [docs/technical/AGENT_MD_LEARNING.md](docs/technical/AGENT_MD_LEARNING.md) - Agent Markdown 指令、学习经验、用户偏好和 TUI/后端管理接口
+7. [docs/technical/DATA_PROVIDERS.md](docs/technical/DATA_PROVIDERS.md) - 数据源 provider chain、可选来源适配、脱敏诊断和降级规则
 
 **这些文档回答**：
 - 为什么这么设计（UI框架、Agent架构、Benchmark 模式）
 - 怎么实现的（系统架构图、时序图、数据流）
 - 和同类项目比有什么优劣（FinRL、AutoGPT等）
 - 用户操作如何映射到代码（快速定位代码位置）
+- 真实 API 契约以 `apps/backend/app.py`、`apps/backend/schemas.py` 和 `apps/frontend/src/lib/dashboard-api.ts` 为准；技术文档用于理解设计背景。
 
 ### 我是新接手的 AI / 交接开发者
 

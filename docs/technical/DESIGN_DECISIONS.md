@@ -152,7 +152,7 @@ sequenceDiagram
 | **分析** | 每个 Agent 开始/完成 | `agent_started` / `agent_completed` |
 | **决策** | `PortfolioManager.decide()` 完成 | `decision_made` |
 | **交易** | `VirtualAccount.buy()` / `sell()` 完成 | `trade_executed` |
-| **止损** | 触发止损 | `stop_loss_triggered` |
+| **止损** | 触发止损 | 当前通过 `risk_checked`、`trade_executed` 和运行结果体现；独立 `stop_loss_triggered` 属于后续增强 |
 | **完成** | 排行榜生成完成 | `run_completed` |
 
 代码位置：
@@ -250,7 +250,7 @@ function toggleDecision(id: string) {
 
 ```mermaid
 flowchart TD
-    start[用户点击 保存配置] --> uiSend[前端发送 POST /api/config/save]
+    start[用户点击 保存配置] --> uiSend[前端发送 POST /api/config]
     uiSend --> backendReceive[FastAPI 接收配置]
     
     backendReceive --> validate[验证配置格式]
@@ -273,7 +273,7 @@ flowchart TD
 ```python
 # apps/backend/app.py
 
-@app.post("/api/config/save")
+@app.post("/api/config")
 async def save_config(request: ConfigUpdateRequest):
     # 1. 保存到 runtime_overrides.json
     save_runtime_overrides(request.config)
@@ -305,7 +305,7 @@ async def save_config(request: ConfigUpdateRequest):
 async function handleSaveConfig() {
   setSavingConfig(true);
   
-  const response = await fetch("/api/config/save", {
+  const response = await fetch("/api/config", {
     method: "POST",
     body: JSON.stringify({ config: configDraft })
   });
@@ -451,7 +451,10 @@ flowchart TD
     checkMode -->|online| tryTushare[尝试 Tushare]
     tryTushare --> tushareSuccess{成功?}
     tushareSuccess -->|是| returnTushare[返回 Tushare 数据]
-    tushareSuccess -->|否| tryAkShare[尝试 AkShare]
+    tushareSuccess -->|否| tryBaostock[尝试 Baostock]
+    tryBaostock --> baostockSuccess{成功?}
+    baostockSuccess -->|是| returnBaostock[返回 Baostock 数据]
+    baostockSuccess -->|否| tryAkShare[尝试 AkShare]
     
     tryAkShare --> akshareSuccess{成功?}
     akshareSuccess -->|是| returnAkShare[返回 AkShare 数据]

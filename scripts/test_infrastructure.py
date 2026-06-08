@@ -11,15 +11,21 @@ from astock_agent_system.data.data_agent import DataAgent
 
 
 def test_data_providers():
-    """Test Tushare/AkShare providers with fallback to offline."""
+    """Test configured market providers with fallback to offline."""
     print("=" * 60)
-    print("Testing Data Providers (Tushare -> AkShare -> Offline)")
+    print("Testing Data Providers (provider chain -> Offline)")
     print("=" * 60)
     
     settings = load_settings()
     print(f"Data mode: {settings.data.mode}")
+    print(f"Provider chain: {', '.join(settings.data.provider_chain)}")
     
     data_agent = DataAgent(settings=settings)
+    diagnostics = data_agent.provider_diagnostics()
+    print("Configured providers:")
+    for item in diagnostics.get("catalog", []):
+        if item.get("configured"):
+            print(f"  - {item.get('source')}: capabilities={','.join(item.get('capabilities', []))}")
     
     # Test 1: Get universe
     print("\n1. Testing get_universe()...")

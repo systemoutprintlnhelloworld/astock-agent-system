@@ -1,0 +1,18 @@
+---
+description: Project-wide Trellis and retrieval guidance
+alwaysApply: true
+---
+
+# Trellis Development Guidance
+
+- Use Trellis for planning, research, validation, and handoff state.
+- When the user says "请继续" or asks for continuous development, keep working until the project is deliverable unless blocked by required credentials, approvals, paid quota, deployment access, destructive-operation approval, or a product/architecture decision.
+- Persist plans, research, decisions, validation, and handoff state in tracked docs or Trellis files.
+- Use fast-context / `fast_context_search` for local code, architecture, and cross-module search.
+- Use smart-search for external, official, or current knowledge.
+- Use grill-me when ambiguity can change direction.
+- Use find-skills before adopting new skills and create-skill / skill creator to solidify repeatable workflows.
+- Use cunzhi / feedback tooling for blockers and decisions.
+- Do not use ContextWeaver, ACE, ace-tool, augment-context-engine, or codebase-retrieval as the primary retrieval route.
+- Use Git for status checks and version control, following repository commit/push rules.
+- Keep docs synchronized with any behavior, command, credential, or delivery change.
