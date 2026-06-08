@@ -9,16 +9,21 @@ commands.
 from __future__ import annotations
 
 import argparse
-import getpass
 import shutil
 import textwrap
+from pathlib import Path
 from typing import Iterable
+
+from rich.console import Console
 
 from apps.tui.backend_client import AStockBackendClient, BackendClientError
 from apps.tui.commands import handle_slash_command
-from apps.tui.config_wizard import CONFIG_WIZARD_QUESTIONS, build_config_patch, render_wizard_summary
+from apps.tui.config_wizard import build_config_patch, render_wizard_summary, run_interactive_wizard
+from apps.tui.prompt import create_prompt_session
 from apps.tui.session import TuiSessionState
 from apps.tui.widgets import render_provider_diagnostics, render_rankings, render_status_bar, render_todo_strip
+
+console = Console()
 
 
 def run_tui(argv: list[str] | None = None) -> int:
@@ -35,24 +40,43 @@ def run_tui(argv: list[str] | None = None) -> int:
         _run_config_wizard(client, state)
 
     _render_home(client, state)
+    
+    # Try to create prompt_toolkit session, fallback to plain input if not TTY
+    try:
+        history_file = Path("data/runtime/tui_history.txt")
+        session = create_prompt_session(history_file)
+        console.print(f"\n[dim]💡 使用 Tab 键补全命令，↑↓ 浏览历史，Ctrl+R 搜索历史[/dim]")
+        use_prompt_toolkit = True
+    except Exception:
+        console.print(f"\n[dim]💡 运行在非 TTY 环境，使用简化输入模式[/dim]")
+        session = None
+        use_prompt_toolkit = False
+    
     while True:
         try:
-            raw = input("\nastock> ").strip()
+            if use_prompt_toolkit and session is not None:
+                raw = session.prompt("\nastock> ").strip()
+            else:
+                raw = input("\nastock> ").strip()
         except (EOFError, KeyboardInterrupt):
-            print("\n输入 /exit 可结束 TUI；本次收到终端中断，TUI 已退出。")
+            console.print("\n[yellow]输入 /exit 可结束 TUI；本次收到终端中断，TUI 已退出。[/yellow]")
             return 0
+        
         if not raw:
             continue
+        
         attachments = state.add_user_input(raw)
         if attachments:
-            print(f"已识别附件路径: {', '.join(attachments)}")
+            console.print(f"[cyan]已识别附件路径: {', '.join(attachments)}[/cyan]")
+        
         if raw.startswith("/"):
             result = handle_slash_command(raw, state=state, client=client)
             if result.title == "EXIT":
-                print(result.body)
+                console.print(f"[green]{result.body}[/green]")
                 return 0
             _print_result(result.title, result.body, ok=result.ok)
             continue
+        
         response = _handle_plain_language(raw)
         state.add_message("assistant", response)
         _print_result("自然语言已记录", response, ok=True)
@@ -78,25 +102,21 @@ def _check_backend(client: AStockBackendClient) -> bool:
 
 
 def _run_config_wizard(client: AStockBackendClient, state: TuiSessionState) -> None:
-    print("\n初始化配置向导。直接回车使用默认值；密钥输入不会回显。输入 skip 可跳过本轮向导。")
-    answers: dict[str, str] = {}
-    for question in CONFIG_WIZARD_QUESTIONS:
-        if question.help_text:
-            print(f"  提示: {question.help_text}")
-        default_text = f" [{question.default}]" if question.default else ""
-        prompt = f"{question.label}{default_text}: "
-        if question.secret:
-            value = getpass.getpass(prompt)
-        else:
-            value = input(prompt).strip()
-        if value.lower() == "skip":
-            print("已跳过配置向导。可稍后用 /config show 和 GUI/TUI 设置更新。")
-            return
-        answers[question.key] = value or question.default
+    answers = run_interactive_wizard()
+    if not answers:
+        console.print("[yellow]配置向导已跳过。可稍后用 /config 命令更新配置。[/yellow]")
+        return
+    
     patch = build_config_patch(answers)
-    print(render_wizard_summary(patch))
-    confirm = input("保存上述配置？[Y/n]: ").strip().lower()
-    if confirm in {"", "y", "yes"}:
+    render_wizard_summary(patch)
+    
+    from InquirerPy import inquirer
+    confirm = inquirer.confirm(
+        message="保存上述配置？",
+        default=True,
+    ).execute()
+    
+    if confirm:
         client.save_config(patch)
         state.todo_status["配置"] = "completed"
         data_patch = patch.get("data", {}) if isinstance(patch.get("data"), dict) else {}
@@ -106,9 +126,9 @@ def _run_config_wizard(client: AStockBackendClient, state: TuiSessionState) -> N
         models = scheduler_patch.get("models")
         if isinstance(models, list):
             state.set_models([str(item) for item in models])
-        print("配置已保存。")
+        console.print("[green]✓ 配置已保存。[/green]")
     else:
-        print("配置未保存。")
+        console.print("[yellow]配置未保存。[/yellow]")
 
 
 def _render_home(client: AStockBackendClient, state: TuiSessionState) -> None:

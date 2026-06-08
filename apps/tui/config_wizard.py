@@ -1,10 +1,17 @@
-"""Framework-neutral configuration wizard helpers for the TUI."""
+"""Interactive configuration wizard for the TUI using InquirerPy."""
 
 from __future__ import annotations
 
 from dataclasses import dataclass
 from typing import Any
 
+from InquirerPy import inquirer
+from InquirerPy.base.control import Choice
+from rich.console import Console
+from rich.panel import Panel
+from rich.table import Table
+
+console = Console()
 
 SECRET_FIELDS = {
     ("data", "tushare_token"),
@@ -34,7 +41,7 @@ class WizardQuestion:
 CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
     WizardQuestion(
         key="data_mode",
-        label="数据模式 offline/online",
+        label="数据模式",
         section="data",
         field_name="mode",
         default="offline",
@@ -43,7 +50,7 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
     ),
     WizardQuestion(
         key="provider_chain",
-        label="数据源链路",
+        label="数据源链路（逗号分隔）",
         section="data",
         field_name="provider_chain",
         value_type="list[str]",
@@ -139,14 +146,14 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
     ),
     WizardQuestion(
         key="request_profile",
-        label="LLM 请求档位 openai/codex/anthropic/claude_code/auto",
+        label="LLM 请求档位",
         section="llm",
         field_name="request_profile",
         default="auto",
     ),
     WizardQuestion(
         key="scheduler_models",
-        label="比赛模型列表",
+        label="比赛模型列表（逗号分隔）",
         section="scheduler",
         field_name="models",
         value_type="list[str]",
@@ -170,6 +177,83 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
         default="12",
     ),
 )
+
+
+def run_interactive_wizard() -> dict[str, str]:
+    """Run the interactive configuration wizard using InquirerPy."""
+    console.print(Panel.fit(
+        "[bold cyan]AStock 配置向导[/bold cyan]\n\n"
+        "交互式配置所有必要参数。使用 ↑↓ 导航，Tab 切换选项，Enter 确认。\n"
+        "密钥输入不会回显。可随时按 Ctrl+C 跳过。",
+        border_style="cyan"
+    ))
+    
+    answers: dict[str, str] = {}
+    
+    sections = {
+        "data": [],
+        "portfolio": [],
+        "risk": [],
+        "llm": [],
+        "scheduler": [],
+    }
+    
+    for question in CONFIG_WIZARD_QUESTIONS:
+        sections.setdefault(question.section, []).append(question)
+    
+    for section_name, questions in sections.items():
+        if not questions:
+            continue
+        
+        console.print(f"\n[bold yellow]━━━ {section_name.upper()} 配置 ━━━[/bold yellow]")
+        
+        for question in questions:
+            if question.help_text:
+                console.print(f"[dim]💡 {question.help_text}[/dim]")
+            
+            try:
+                if question.value_type == "list[str]":
+                    value = inquirer.text(
+                        message=question.label,
+                        default=question.default,
+                        validate=lambda x: len(x) > 0 if question.required else True,
+                        invalid_message="此项必填" if question.required else "",
+                    ).execute()
+                elif question.secret:
+                    value = inquirer.secret(
+                        message=question.label,
+                        default=question.default,
+                    ).execute()
+                elif question.section == "data" and question.field_name == "mode":
+                    value = inquirer.select(
+                        message=question.label,
+                        choices=[
+                            Choice(value="offline", name="offline - 离线模式（推荐先用此模式测试）"),
+                            Choice(value="online", name="online - 在线模式（需配置数据源凭证）"),
+                        ],
+                        default="offline",
+                    ).execute()
+                elif question.section == "llm" and question.field_name == "request_profile":
+                    value = inquirer.select(
+                        message=question.label,
+                        choices=["auto", "openai", "codex", "anthropic", "claude_code"],
+                        default="auto",
+                    ).execute()
+                else:
+                    value = inquirer.text(
+                        message=question.label,
+                        default=question.default,
+                        validate=lambda x: len(x) > 0 if question.required else True,
+                        invalid_message="此项必填" if question.required else "",
+                    ).execute()
+                
+                answers[question.key] = value or question.default
+            
+            except KeyboardInterrupt:
+                console.print("\n[yellow]配置向导已中断。可稍后用 /config 命令更新配置。[/yellow]")
+                return {}
+    
+    return answers
 
 
 def build_config_patch(answers: dict[str, str], questions: tuple[WizardQuestion, ...] = CONFIG_WIZARD_QUESTIONS) -> dict[str, Any]:
@@ -202,17 +286,20 @@ def redact_config_patch(patch: dict[str, Any]) -> dict[str, Any]:
     return redacted
 
 
-def render_wizard_summary(patch: dict[str, Any]) -> str:
-    """Render a compact, secret-safe wizard completion summary."""
+def render_wizard_summary(patch: dict[str, Any]) -> None:
+    """Render a Rich-styled, secret-safe wizard completion summary."""
     safe_patch = redact_config_patch(patch)
-    lines = ["配置向导摘要", "=" * 40]
+    table = Table(title="配置向导摘要", show_header=True, header_style="bold magenta")
+    table.add_column("配置项", style="cyan", no_wrap=True)
+    table.add_column("值", style="green")
+    
     for section, values in safe_patch.items():
-        lines.append(f"[{section}]")
         if isinstance(values, dict):
             for field_name, value in values.items():
-                lines.append(f"  {field_name}: {value}")
-    lines.append("配置会保存到 data/runtime/settings.override.json；该目录已被 Git 忽略。")
-    return "\n".join(lines)
+                table.add_row(f"[{section}] {field_name}", str(value))
+    
+    console.print(table)
+    console.print("[dim]配置会保存到 data/runtime/settings.override.json；该目录已被 Git 忽略。[/dim]")
 
 
 def _coerce(value: str, value_type: str) -> Any:
