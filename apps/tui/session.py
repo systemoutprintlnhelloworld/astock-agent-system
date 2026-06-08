@@ -36,7 +36,8 @@ class TuiSessionState:
     backend_url: str = "http://127.0.0.1:18080"
     selected_models: list[str] = field(default_factory=lambda: ["rule-baseline"])
     workflow_types: list[str] = field(default_factory=lambda: ["auto"])
-    active_tab: str = "overview"
+    active_tab: str = "trading"
+    available_models: list[str] = field(default_factory=list)
     theme: str = "dark"
     language: str = "zh-CN"
     permission_mode: str = "ask"
@@ -104,6 +105,11 @@ class TuiSessionState:
         cleaned = [item.strip() for item in models if item.strip()]
         self.selected_models = cleaned or ["rule-baseline"]
         self.todo_status["模型"] = "completed"
+
+    def set_available_models(self, models: list[str]) -> None:
+        """Cache backend model list for command completion and run selection."""
+        cleaned = [item.strip() for item in models if item.strip()]
+        self.available_models[:] = list(dict.fromkeys(["rule-baseline", *cleaned]))
 
     def set_workflow_types(self, workflow_types: list[str]) -> tuple[bool, str]:
         normalized = [_normalize_workflow_type(item) for item in workflow_types if item.strip()]

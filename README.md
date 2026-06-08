@@ -93,11 +93,16 @@ TUI 会复用同一个 FastAPI 后端，不复制交易逻辑。首次进入会�
 ```text
 /help
 /status
+/models list
+/models select
 /models set rule-baseline,gpt-5.4-mini
 /workflow offline
 /start --offline --max-count 1 --days 12
+/run
 /providers
-/dashboard stocks
+/dashboard
+/dashboard run
+/dashboard status
 /agent learning stats
 /agent learning suggestions
 /compact
@@ -105,7 +110,9 @@ TUI 会复用同一个 FastAPI 后端，不复制交易逻辑。首次进入会�
 /exit
 ```
 
-默认 `/start` 会调用后端后台自动投资接口；即使 TUI 退出，后端进程中的模拟盘任务仍会继续运行，可通过 `/status`、`/dashboard rankings`、`/dashboard decisions` 和 GUI 查看结果。当前 TUI 先提供依赖轻量的文本分栏与状态栏；后续可在不改后端业务逻辑的前提下升级为 Textual 鼠标交互界面。
+当前 TUI 的初始化向导使用单选/多选表单：provider chain 用空格选择/取消、Enter 确认，默认 LLM 模型来自后端模型列表并支持 fuzzy 过滤；比赛模型不在初始化阶段填写，改为运行前用 `/models select`、`/models set` 或 `/start --models` 选择。输入 `/` 会直接显示命令候选和说明，继续输入可过滤候选。
+
+默认 `/dashboard` 是交易看板，展示候选、持仓、交易和盈亏相关信息；`/dashboard status` 才是连接和上下文状态。默认 `/start` 会调用后端后台自动投资接口，并立即切到运行观测视图，聚合 run_id、运行状态、模型排行榜、股票/持仓/交易看板和决策日志。即使 TUI 退出，后端进程中的模拟盘任务仍会继续运行，可通过 `/run`、`/dashboard run`、GUI 或后端 API 查看结果。
 
 如果不使用一键入口，也可以直接调用 CLI：
 

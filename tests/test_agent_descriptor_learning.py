@@ -20,8 +20,10 @@ from astock_agent_system.models import StockBar
 from apps.tui.backend_client import BackendClientError
 from apps.tui.commands import handle_agent_command, handle_slash_command
 from apps.tui.config_wizard import build_config_patch, redact_config_patch, render_wizard_summary
+from apps.tui.prompt import SlashCommandCompleter
 from apps.tui.session import TuiSessionState, extract_file_paths
 from apps.tui.widgets import render_agent_management_panel, render_learning_progress, render_provider_diagnostics, render_status_bar
+from prompt_toolkit.document import Document
 
 
 def test_agent_descriptor_renders_prompt_with_user_profile() -> None:
@@ -209,11 +211,15 @@ def test_tui_slash_commands_update_state_and_call_backend() -> None:
     workflow_result = handle_slash_command("/workflow offline", state=state, client=client)
     start_result = handle_slash_command("/start --max-count 2 --days 12", state=state, client=client)
     providers_result = handle_slash_command("/providers", state=state, client=client)
+    run_result = handle_slash_command("/run", state=state, client=client)
+    dashboard_result = handle_slash_command("/dashboard", state=state, client=client)
 
     assert model_result.ok is True
     assert workflow_result.ok is True
     assert start_result.ok is True
     assert providers_result.ok is True
+    assert run_result.ok is True
+    assert dashboard_result.ok is True
     assert state.selected_models == ["rule-baseline", "gpt-demo"]
     assert client.started == {
         "models": ["rule-baseline", "gpt-demo"],
@@ -223,7 +229,33 @@ def test_tui_slash_commands_update_state_and_call_backend() -> None:
         "background": True,
     }
     assert state.last_run_id == "run-1"
+    assert state.active_tab == "trading"
+    assert "运行观测" in start_result.body
+    assert "run_id: run-1" in start_result.body
+    assert "运行观测" in run_result.body
+    assert dashboard_result.title == "交易看板"
     assert "akshare" in providers_result.body
+
+
+def test_tui_models_list_updates_available_models_for_completion() -> None:
+    state = TuiSessionState()
+    client = _FakeTuiBackend()
+
+    result = handle_slash_command("/models list", state=state, client=client)
+    completions = list(SlashCommandCompleter(state.available_models).get_completions(Document("/models set g"), None))
+
+    assert result.ok is True
+    assert state.available_models == ["rule-baseline", "gpt-demo"]
+    assert "当前比赛模型" in result.body
+    assert any(completion.text == "gpt-demo" and "后端模型列表" in str(completion.display_meta) for completion in completions)
+
+
+def test_tui_slash_command_palette_shows_descriptions() -> None:
+    completions = list(SlashCommandCompleter(["gpt-demo"]).get_completions(Document("/"), None))
+    subcommands = list(SlashCommandCompleter(["gpt-demo"]).get_completions(Document("/dashboard "), None))
+
+    assert any(completion.text == "/dashboard" and "交易看板" in str(completion.display_meta) for completion in completions)
+    assert any(completion.text == "trading" and "默认" in str(completion.display_meta) for completion in subcommands)
 
 
 class _FailingTuiBackend(_FakeTuiBackend):
@@ -272,13 +304,11 @@ def test_tui_config_wizard_redacts_secret_values() -> None:
         }
     )
     redacted = redact_config_patch(patch)
-    # render_wizard_summary now uses Rich.print and returns None
     render_wizard_summary(patch)
 
     assert patch["data"]["provider_chain"][-1] == "jqdata"
     assert redacted["data"]["tushare_token"] == "[已设置]"
     assert redacted["llm"]["api_key"] == "[已设置]"
-    # Verify secrets are redacted in the redacted dict
     assert "local-secret-token" not in str(redacted)
     assert "local-llm-key" not in str(redacted)
 

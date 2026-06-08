@@ -153,12 +153,12 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
     ),
     WizardQuestion(
         key="scheduler_models",
-        label="比赛模型列表（逗号分隔）",
+        label="比赛模型列表（运行前选择，初始化不再填写）",
         section="scheduler",
         field_name="models",
         value_type="list[str]",
-        default="rule-baseline",
-        required=True,
+        default="",
+        required=False,
     ),
     WizardQuestion(
         key="scheduler_max_count",
@@ -179,11 +179,11 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
 )
 
 
-def run_interactive_wizard() -> dict[str, str]:
+def run_interactive_wizard(available_models: list[str] | None = None) -> dict[str, str]:
     """Run the interactive configuration wizard using InquirerPy."""
     console.print(Panel.fit(
         "[bold cyan]AStock 配置向导[/bold cyan]\n\n"
-        "交互式配置所有必要参数。使用 ↑↓ 导航，Tab 切换选项，Enter 确认。\n"
+        "交互式配置所有必要参数。使用 ↑↓ 导航，空格选择/取消，Enter 确认。\n"
         "密钥输入不会回显。可随时按 Ctrl+C 跳过。",
         border_style="cyan"
     ))
@@ -208,17 +208,30 @@ def run_interactive_wizard() -> dict[str, str]:
         console.print(f"\n[bold yellow]━━━ {section_name.upper()} 配置 ━━━[/bold yellow]")
         
         for question in questions:
+            if question.section == "scheduler" and question.field_name == "models":
+                continue
             if question.help_text:
                 console.print(f"[dim]💡 {question.help_text}[/dim]")
             
             try:
-                if question.value_type == "list[str]":
-                    value = inquirer.text(
+                if question.section == "data" and question.field_name == "provider_chain":
+                    default_sources = [item.strip() for item in question.default.split(",") if item.strip()]
+                    selected = inquirer.checkbox(
                         message=question.label,
-                        default=question.default,
-                        validate=lambda x: len(x) > 0 if question.required else True,
-                        invalid_message="此项必填" if question.required else "",
+                        choices=[
+                            Choice(value="tushare", name="Tushare - A股主数据源（需 token）"),
+                            Choice(value="baostock", name="Baostock - 免费A股历史行情补充源"),
+                            Choice(value="akshare", name="AkShare - 免费A股综合兜底源"),
+                            Choice(value="adata", name="AData - 轻量历史行情补充"),
+                            Choice(value="openbb", name="OpenBB - 全球/宏观参考"),
+                            Choice(value="yfinance", name="yfinance - 海外/港股参考"),
+                            Choice(value="alpha-vantage", name="Alpha Vantage - 海外/宏观参考（需 key）"),
+                            Choice(value="jqdata", name="JQData - 聚宽研究数据（需账号）"),
+                        ],
+                        default=default_sources,
+                        instruction="空格选择/取消，Enter 确认",
                     ).execute()
+                    value = ",".join(str(item) for item in selected)
                 elif question.secret:
                     value = inquirer.secret(
                         message=question.label,
@@ -238,6 +251,13 @@ def run_interactive_wizard() -> dict[str, str]:
                         message=question.label,
                         choices=["auto", "openai", "codex", "anthropic", "claude_code"],
                         default="auto",
+                    ).execute()
+                elif question.section == "llm" and question.field_name == "default_model" and available_models:
+                    value = inquirer.fuzzy(
+                        message=question.label,
+                        choices=[Choice(value=model, name=model) for model in available_models],
+                        default=available_models[0],
+                        instruction="输入关键字过滤，Tab/Enter 选择",
                     ).execute()
                 else:
                     value = inquirer.text(
@@ -263,10 +283,13 @@ def build_config_patch(answers: dict[str, str], questions: tuple[WizardQuestion,
         raw_value = answers.get(question.key, question.default)
         if raw_value is None:
             raw_value = ""
-        raw_value = str(raw_value).strip()
-        if not raw_value and not question.required:
+        if isinstance(raw_value, list):
+            raw_text = ",".join(str(item).strip() for item in raw_value if str(item).strip())
+        else:
+            raw_text = str(raw_value).strip()
+        if not raw_text and not question.required:
             continue
-        value = _coerce(raw_value or question.default, question.value_type)
+        value = _coerce(raw_text or question.default, question.value_type)
         patch.setdefault(question.section, {})[question.field_name] = value
     return patch
 

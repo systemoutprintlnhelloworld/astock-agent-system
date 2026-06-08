@@ -113,6 +113,37 @@ def render_stock_board(payload: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def render_run_observability(
+    *,
+    run_status: dict[str, Any] | None = None,
+    rankings: dict[str, Any] | None = None,
+    stock_board: dict[str, Any] | None = None,
+    decisions: dict[str, Any] | None = None,
+    run_id: str = "",
+) -> str:
+    """Render a terminal-first view for long-running auto-investment tasks."""
+    status_payload = run_status or {}
+    run_payload = status_payload.get("run") if isinstance(status_payload, dict) else None
+    run_payload = run_payload if isinstance(run_payload, dict) else {}
+    effective_run_id = run_id or str(run_payload.get("run_id", ""))
+    lines = ["运行观测", "=" * 40]
+    lines.append(f"run_id: {effective_run_id or '暂无'}")
+    lines.append(f"状态: {status_payload.get('status', 'unknown') if isinstance(status_payload, dict) else 'unknown'}")
+    if run_payload:
+        lines.append(f"启动: {run_payload.get('started_at', '')} 结束: {run_payload.get('finished_at', '')}")
+        if run_payload.get("message"):
+            lines.append(f"摘要: {run_payload.get('message')}")
+    lines.append("")
+    lines.append(render_rankings(rankings or {}))
+    lines.append("")
+    lines.append(render_stock_board(stock_board or {}))
+    lines.append("")
+    lines.append(render_decision_logs(decisions or {}))
+    lines.append("")
+    lines.append("后续命令: /run 刷新 | /dashboard trading 看交易 | /dashboard decisions 看决策 | /models selected 看模型")
+    return "\n".join(lines)
+
+
 def render_decision_logs(payload: dict[str, Any]) -> str:
     """Render collapsible-like decision logs as nested text blocks."""
     items = payload.get("items", []) if isinstance(payload, dict) else []

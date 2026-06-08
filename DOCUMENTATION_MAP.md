@@ -1,6 +1,6 @@
 # 文档导航地图
 
-更新时间：2026-06-07
+更新时间：2026-06-09
 
 本文档是整个项目的文档导航中心，帮助你快速找到需要的信息。
 
@@ -12,6 +12,7 @@
 | 第一次安装和运行 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 15 分钟 |
 | 接入真实 LLM 和 Tushare | [docs/ONLINE_RUNBOOK.md](docs/ONLINE_RUNBOOK.md) | 20 分钟 |
 | 理解系统架构和模块 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | 30 分钟 |
+| 使用/验证 TUI 终端长程运行入口 | [docs/tui/MANUAL_TEST.md](docs/tui/MANUAL_TEST.md) + [docs/tui/TUI_UX_REDESIGN_PLAN.md](docs/tui/TUI_UX_REDESIGN_PLAN.md) | 15 分钟 |
 | 配置和诊断多数据源降级 | [docs/technical/DATA_PROVIDERS.md](docs/technical/DATA_PROVIDERS.md) | 10 分钟 |
 | 维护 Agent 指令与持续学习 | [docs/technical/AGENT_MD_LEARNING.md](docs/technical/AGENT_MD_LEARNING.md) | 15 分钟 |
 | 了解当前开发进度 | [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) | 10 分钟 |
@@ -38,6 +39,7 @@
 .\start.bat -Mode status                    # 检查环境
 .\start.bat -Mode offline -MaxCount 1       # 离线体验
 .\start.bat -Mode modern-ui -Port 3000      # 启动现代控制台
+.\start.bat -Mode tui -BackendPort 18080    # 启动 TUI 交易看板/运行观测
 .\start.bat -Mode desktop-release -AutoInstallRust  # 构建桌面 exe / 安装包
 ```
 
@@ -51,6 +53,7 @@
 4. [docs/modernization-plan.md](docs/modernization-plan.md) - 现代化重构架构（Tauri/Next.js/FastAPI）
 5. [docs/trellis-plan.md](docs/trellis-plan.md) - 持久化开发计划和后续方向
 6. [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) - 当前交付状态和验证结果
+7. [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) - TUI 交互、命令面板和运行观测实现状态
 
 **关键命令**：
 ```powershell
@@ -208,11 +211,12 @@ graph TD
 - `docs/DEVELOPER_GUIDE.md` - 开发者手册
 - `docs/ONLINE_RUNBOOK.md` - 在线运行手册
 
-### 2026-06-07（当前）
+### 2026-06-09（当前）
 - **最新文档**：`docs/` 目录下的所有文档、`AGENTS.md`、`apps/desktop/README.md`
 - **最新进度**：[docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) 和 [FINAL_DELIVERY.md](FINAL_DELIVERY.md)
 - **最新架构**：[docs/modernization-plan.md](docs/modernization-plan.md)
 - **最新 Trellis 交接**：[docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md)、[docs/trellis/PHASE0_GRILLME.md](docs/trellis/PHASE0_GRILLME.md)、[docs/trellis/PRD.md](docs/trellis/PRD.md)、[docs/trellis/DESIGN.md](docs/trellis/DESIGN.md)、[docs/trellis/IMPLEMENT.md](docs/trellis/IMPLEMENT.md)
+- **最新 TUI 入口**：[docs/tui/TUI_UX_REDESIGN_PLAN.md](docs/tui/TUI_UX_REDESIGN_PLAN.md)、[docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md)、[docs/tui/MANUAL_TEST.md](docs/tui/MANUAL_TEST.md)；TUI 默认交易看板，`/start` 后自动进入运行观测。
 - **最新桌面交付**：`desktop-release -AutoInstallRust` 可构建 `astock-agent-desktop.exe` 和 NSIS 安装包；前端/后端默认探测 `18080..18100`，并兼容旧的 `8000..8020` 健康 AStock 后端。
 - **最新收尾规范**：`.husky/pre-commit` 强制文档同步，`.husky/post-commit` 强制推送，`.cursor/hooks/enforce-session-end.ps1` 在开发会话结束前检查未提交和未推送状态。
 

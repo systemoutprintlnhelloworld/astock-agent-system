@@ -16,10 +16,12 @@ from apps.tui.widgets import (
     render_learning_progress,
     render_provider_diagnostics,
     render_rankings,
+    render_run_observability,
     render_status_bar,
     render_stock_board,
     render_todo_strip,
 )
+from apps.tui.prompt import command_help_lines
 
 
 class TuiBackend(Protocol):
@@ -77,6 +79,9 @@ def handle_slash_command(command: str, *, state: TuiSessionState, client: TuiBac
             return handle_agent_command(command)
         if root == "/status":
             return _status(state, client)
+        if root == "/run":
+            state.active_tab = "run"
+            return _run_view(state, client)
         if root == "/models":
             return _models(parts, state, client)
         if root == "/workflow":
@@ -131,14 +136,38 @@ def _status(state: TuiSessionState, client: TuiBackend) -> CommandResult:
 
 
 def _models(parts: list[str], state: TuiSessionState, client: TuiBackend) -> CommandResult:
+    if len(parts) >= 2 and parts[1].lower() == "selected":
+        return CommandResult(True, "当前比赛模型", ", ".join(state.selected_models))
+    if len(parts) >= 2 and parts[1].lower() == "select":
+        models = _refresh_models_for_selection(state, client)
+        if not models:
+            return CommandResult(False, "模型选择失败", "后端没有返回可选模型；请先检查 /config test-llm。")
+        try:
+            from InquirerPy import inquirer
+            from InquirerPy.base.control import Choice
+
+            selected = inquirer.checkbox(
+                message="选择本轮比赛模型（空格选择/取消，Enter 确认）",
+                choices=[Choice(value=model, name=model) for model in models],
+                default=[model for model in state.selected_models if model in models],
+                instruction="比赛模型会并行启动独立 Agent 和独立虚拟账户",
+            ).execute()
+        except Exception as exc:
+            return CommandResult(False, "模型选择失败", f"无法打开交互式选择器：{exc}")
+        state.set_models([str(model) for model in selected])
+        return CommandResult(True, "模型已选择", ", ".join(state.selected_models))
     if len(parts) >= 3 and parts[1].lower() == "set":
         models = _csv_args(parts[2:])
         state.set_models(models)
         return CommandResult(True, "模型已选择", ", ".join(state.selected_models))
+    models = _refresh_models_for_selection(state, client)
+    if models:
+        lines = ["后端模型列表（运行前用 /models set 选择比赛模型）:"]
+        lines.extend(f"- {model}" for model in state.available_models)
+        lines.append("")
+        lines.append(f"当前比赛模型: {', '.join(state.selected_models)}")
+        return CommandResult(True, "模型列表", "\n".join(lines))
     payload = client.list_models()
-    models = payload.get("models", []) if isinstance(payload, dict) else []
-    if isinstance(models, list) and models:
-        return CommandResult(True, "模型列表", "\n".join(f"- {model}" for model in models))
     return CommandResult(True, "模型列表", json.dumps(payload, ensure_ascii=False, indent=2, default=str))
 
 
@@ -160,15 +189,16 @@ def _start(parts: list[str], state: TuiSessionState, client: TuiBackend) -> Comm
     run_id = str(payload.get("run_id", ""))
     state.last_run_id = run_id
     state.todo_status["运行"] = "completed" if str(payload.get("status", "")).lower() in {"accepted", "ok"} else "failed"
+    state.active_tab = "run"
     return CommandResult(
         True,
         "自动投资已提交" if options.get("background", True) else "自动投资已完成",
-        json.dumps({"run_id": run_id, "status": payload.get("status"), "background": options.get("background", True)}, ensure_ascii=False, indent=2),
+        _render_run_view_safe(state, client, run_id=run_id),
     )
 
 
 def _dashboard(parts: list[str], state: TuiSessionState, client: TuiBackend) -> CommandResult:
-    tab = parts[1].lower() if len(parts) > 1 else state.active_tab
+    tab = parts[1].lower() if len(parts) > 1 else "trading"
     state.active_tab = tab
     if tab in {"overview", "status"}:
         return _status(state, client)
@@ -178,6 +208,8 @@ def _dashboard(parts: list[str], state: TuiSessionState, client: TuiBackend) -> 
         return CommandResult(True, "模型排行榜", render_rankings(client.rankings()))
     if tab in {"stocks", "board", "trading"}:
         return CommandResult(True, "交易看板", render_stock_board(client.stock_board()))
+    if tab in {"run", "runs", "current"}:
+        return _run_view(state, client)
     if tab in {"decisions", "logs"}:
         return CommandResult(True, "决策日志", render_decision_logs(client.decisions()))
     if tab in {"flow", "agents"}:
@@ -188,6 +220,20 @@ def _dashboard(parts: list[str], state: TuiSessionState, client: TuiBackend) -> 
         learning = client.learning_status().get("learning", {})
         return CommandResult(True, "学习进度", render_learning_progress(learning if isinstance(learning, dict) else {}))
     return CommandResult(False, "未知面板", "可用面板: overview/providers/rankings/stocks/decisions/flow/agent/learning")
+
+
+def _run_view(state: TuiSessionState, client: TuiBackend) -> CommandResult:
+    return CommandResult(True, "运行观测", _render_run_view_safe(state, client, run_id=state.last_run_id))
+
+
+def _render_run_view_safe(state: TuiSessionState, client: TuiBackend, *, run_id: str = "") -> str:
+    return render_run_observability(
+        run_status=_safe_run_status(client),
+        rankings=_safe_payload(client.rankings),
+        stock_board=_safe_payload(client.stock_board),
+        decisions=_safe_payload(client.decisions),
+        run_id=run_id,
+    )
 
 
 def _config(parts: list[str], state: TuiSessionState, client: TuiBackend) -> CommandResult:
@@ -247,6 +293,14 @@ def _csv_args(values: list[str]) -> list[str]:
     return list(dict.fromkeys(items))
 
 
+def _refresh_models_for_selection(state: TuiSessionState, client: TuiBackend) -> list[str]:
+    payload = client.list_models()
+    models = payload.get("models", []) if isinstance(payload, dict) else []
+    if isinstance(models, list):
+        state.set_available_models([str(model) for model in models])
+    return state.available_models
+
+
 def _safe_run_status(client: TuiBackend) -> dict[str, object]:
     try:
         return client.run_status()
@@ -254,20 +308,13 @@ def _safe_run_status(client: TuiBackend) -> dict[str, object]:
         return {"status": "unknown"}
 
 
+def _safe_payload(loader) -> dict[str, object]:
+    try:
+        payload = loader()
+    except Exception:
+        return {}
+    return payload if isinstance(payload, dict) else {}
+
+
 def _help_text() -> str:
-    return "\n".join(
-        [
-            "/help - 查看命令",
-            "/status - 后端、任务和上下文状态",
-            "/config show | /config test-llm [--bench] - 查看或检测配置",
-            "/models - 刷新模型列表；/models set rule-baseline,gpt-5.4-mini - 选择模型",
-            "/workflow auto|daily|offline|review - 选择工作流；auto/daily 不能与其他类型多选",
-            "/start [--offline] [--models a,b] [--max-count N] [--days N] [--foreground] - 启动模拟盘轮次",
-            "/providers - 查看数据源 provider chain 诊断",
-            "/dashboard overview|providers|rankings|stocks|decisions|flow|agent|learning - 切换右侧看板",
-            "/agent list/view/edit/backup/learning stats|suggestions|trigger - 管理 Agent Markdown",
-            "/compact - 手动压缩本地 TUI 对话上下文",
-            "/permission ask|auto|deny /sandbox read-only|workspace-write - 设置终端交互约束",
-            "/theme dark|light /lang zh-CN|en-US /attachments [show] /history /exit",
-        ]
-    )
+    return "\n".join(command_help_lines())

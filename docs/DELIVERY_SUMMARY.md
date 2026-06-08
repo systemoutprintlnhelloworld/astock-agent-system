@@ -1,6 +1,6 @@
 # 交付总结
 
-生成时间：2026-06-07
+生成时间：2026-06-09
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
@@ -28,6 +28,7 @@
 - FastAPI 后端适配层预览：已新增 `apps/backend`，支持 `health`、脱敏配置、bench、自动投资触发、运行时配置保存、流程图/决策/股票/指标接口和 WebSocket 事件流。
 - Next.js 现代控制台首版：已新增 `apps/frontend`，支持 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
+- TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
 
 ## 2. 最短运行路径
 
@@ -71,7 +72,28 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 .\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
 .\start.bat -Mode backend -Port 18080
 .\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
+.\start.bat -Mode tui -BackendPort 18080
 ```
+
+### TUI 长程运行观测
+
+```powershell
+.\start.bat -Mode backend -Port 18080
+python -m apps.tui --skip-wizard
+```
+
+进入 TUI 后可优先执行：
+
+```text
+/models list
+/models select
+/dashboard
+/start --offline --max-count 2 --days 12
+/run
+/dashboard run
+```
+
+说明：初始化向导只保存基础配置和默认模型；比赛模型属于每轮并行 Agent/虚拟账户选择，可在运行前通过 `/models select`、`/models set` 或 `/start --models` 指定。
 
 ## 3. 当前验证状态
 
@@ -98,6 +120,8 @@ SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 - 桌面 sidecar：`start.bat -Mode desktop-sidecar` 可生成 `apps/desktop/src-tauri/binaries/astock-backend-x86_64-pc-windows-msvc.exe`。
 - 桌面 release：`start.bat -Mode desktop-release -AutoInstallRust` 可生成 `apps/desktop/src-tauri/target/release/astock-agent-desktop.exe` 和 `apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe`。
 - 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端默认使用 `127.0.0.1:18080..18100`，并兼容探测旧的 `8000..8020` 健康 AStock 后端。
+- TUI UX 回归：`python -m pytest tests/test_agent_descriptor_learning.py -q` 通过，覆盖 `/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
+- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `62 passed`，并完成前端 lint、MkDocs strict build、后端 app import 和 sidecar entrypoint 检查。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态
