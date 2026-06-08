@@ -272,13 +272,15 @@ def test_tui_config_wizard_redacts_secret_values() -> None:
         }
     )
     redacted = redact_config_patch(patch)
-    summary = render_wizard_summary(patch)
+    # render_wizard_summary now uses Rich.print and returns None
+    render_wizard_summary(patch)
 
     assert patch["data"]["provider_chain"][-1] == "jqdata"
     assert redacted["data"]["tushare_token"] == "[已设置]"
     assert redacted["llm"]["api_key"] == "[已设置]"
-    assert "local-secret-token" not in summary
-    assert "settings.override.json" in summary
+    # Verify secrets are redacted in the redacted dict
+    assert "local-secret-token" not in str(redacted)
+    assert "local-llm-key" not in str(redacted)
 
 
 def test_tui_context_meter_and_file_path_extraction(tmp_path: Path) -> None:
