@@ -64,7 +64,19 @@ DataAgent -> StockScreener -> MasterAgent -> MultiAgentOrchestrator
 - `VirtualAccount` 实现手续费、滑点、T+1 和持仓恢复。
 - GUI 和 TUI 都通过 `apps/backend` 调用同一套业务核心；TUI 的 `/start` 默认走 `/api/auto-investment/background`，后端立即返回 `run_id`，任务继续在后端进程执行。
 
-## 4. TUI 客户端约定
+## 4. GUI 后端发现与连接诊断约定
+
+现代控制台的后端发现逻辑集中在 `apps/frontend/src/lib/dashboard-api.ts`：
+
+- 默认配置来自 `NEXT_PUBLIC_BACKEND_URL`，否则使用 `http://127.0.0.1:18080`。
+- 自动探测 `18080..18100`，并兼容旧的 `8000..8020` 健康 AStock 后端。
+- 健康探测必须校验 `/api/health` 的 `status === "ok"`、`app` 包含 `astock`、并且 `event_types` 是数组，避免把其他本地项目误判成后端。
+- `getBackendDiscoveryDiagnostics()` 对 GUI 暴露当前候选 URL、HTTP 状态、错误类型、最近成功候选、探测次数和下一步建议。
+- `apps/frontend/src/components/trading-dashboard.tsx` 的“总览”页负责展示 HTTP health、WebSocket URL、WebSocket 状态、候选端口和最近错误；不要把诊断逻辑散落到各个 tab。
+
+后续调整连接逻辑时，应保持 API 契约向后兼容，并至少运行 `npm --prefix apps/frontend run lint`。如果修改了后端接口，还应同步 `tests/test_backend_api.py` 和本手册的接口说明。
+
+## 5. TUI 客户端约定
 
 `apps/tui` 当前是依赖轻量的终端客户端骨架，后续可替换为 Textual 交互壳，但模块边界保持不变：
 
@@ -76,7 +88,7 @@ DataAgent -> StockScreener -> MasterAgent -> MultiAgentOrchestrator
 
 设计约束：TUI 不复制 `DataAgent`、`MasterAgent`、`TradingTaskScheduler` 或模拟盘逻辑；可观察性来自后端状态、排行榜、决策日志、股票看板、数据源诊断和本地上下文状态栏。
 
-## 5. LLM 扩展约定
+## 6. LLM 扩展约定
 
 `LLMClient` 支持：
 
@@ -93,7 +105,7 @@ DataAgent -> StockScreener -> MasterAgent -> MultiAgentOrchestrator
 3. 增加单元测试，验证 header、URL、payload shape。
 4. 用 `python -m astock_agent_system.cli bench --models <model-id> --limit 1` 做 smoke。
 
-## 6. 数据源扩展约定
+## 7. 数据源扩展约定
 
 当前 `DataAgent` 使用可配置 provider chain，默认顺序为：
 
@@ -111,7 +123,7 @@ tushare -> baostock -> akshare -> offline samples
 4. 通过 `DATA_PROVIDER_CHAIN` 或 `config/config.yaml` 控制降级顺序。
 5. 保持离线样例兜底，不要让无密钥环境崩溃。
 
-## 7. 存储约定
+## 8. 存储约定
 
 MongoDB 主要集合职责：
 
@@ -122,7 +134,7 @@ MongoDB 主要集合职责：
 
 Redis 用于缓存行情和 LLM 响应，不能作为唯一事实来源。
 
-## 8. 测试和 smoke
+## 9. 测试和 smoke
 
 常用测试：
 
@@ -142,7 +154,7 @@ python -m mkdocs build --strict
 
 如果在线 bench 失败，不要把完整错误日志和密钥公开上传。优先查看 JSON 输出中的 `next_steps`。
 
-## 9. 代码风格
+## 10. 代码风格
 
 - Python 命名使用 snake_case。
 - 数据对象优先使用 dataclass 和 `to_dict()`。
@@ -150,7 +162,7 @@ python -m mkdocs build --strict
 - 对外部服务调用必须有异常保护和脱敏。
 - 不要在代码或文档中写真实 token。
 
-## 10. Cursor Skill、Hooks 与强制收尾
+## 11. Cursor Skill、Hooks 与强制收尾
 
 项目包含：
 
@@ -177,7 +189,7 @@ git push origin <branch>
 
 新开对话或新 Agent 接手时，先读 `docs/trellis/HANDOFF.md`，再按该文档进入 `PHASE0_GRILLME.md`、`PRD.md`、`DESIGN.md` 和 `IMPLEMENT.md`。不要把未来设想写成已完成状态；如果 smart-search 不健康，只记录失败命令，不要声称完成了新的外部调研。
 
-## 11. 后续开发建议
+## 12. 后续开发建议
 
 - 优先推进 `apps/backend` 的稳定 API 契约和 WebSocket 事件协议。
 - 增加长期回放、模型账户长期指标、自动投资日志和止损时间线。

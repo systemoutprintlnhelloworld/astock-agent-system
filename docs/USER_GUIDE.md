@@ -167,6 +167,7 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 如果你是第一次上手，建议先看 `总览` 页里的：
 
 - `开箱检查清单`：确认后端、WebSocket、Tushare Token、API Key 和比赛模型是否已经准备好。
+- `连接诊断` / `连接判定`：查看当前配置后端 URL、已解析后端 URL、WebSocket URL、HTTP health 状态、WS 状态、最近错误、候选端口探测结果和下一步排障建议。
 - `首次启动向导`：按“数据源 -> LLM -> 保存配置 -> 启动离线轮次”的顺序一步步完成首轮验证。
 
 如果前端或后端端口已经被其他程序占用，或者同一个 `apps/frontend` 目录下已经有旧的 Next.js dev 进程在运行，`start.bat -Mode modern-ui` 现在会：
@@ -178,6 +179,13 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 现代控制台默认使用 Next.js 的 webpack dev server，以避开 Next 16 Turbopack 在 Windows 本地缓存损坏时可能出现的 `range start index ... out of range` panic。如果你看到错误日志路径来自其他项目，例如 `项目1-审稿agent系统\frontend\.next-gui`，说明当前浏览器访问的不是本项目的 modern UI，而是另一个项目占用了前端端口；请在启动脚本提示时确认终止该进程，或换一个 `-Port`。
 
 此外，一键启动会先等待后端健康检查通过，再启动前端，避免出现“前端先打开但后端还没接上”的情况。
+
+如果页面仍显示 WebSocket 未连接或无法获取后端数据，请先打开 `总览 -> 连接诊断`：
+
+- `HTTP 健康检查` 为 `ok` 但 `WebSocket 状态` 未连接：优先检查安全软件、代理或浏览器是否拦截 `ws://127.0.0.1:<port>/ws/events`。
+- `候选后端探测` 显示 `非 AStock 后端`：说明该端口有其他服务响应，但 `/api/health` 不是本项目后端；请停止旧项目或用 `NEXT_PUBLIC_BACKEND_URL` 指向正确端口后重启前端。
+- `候选后端探测` 显示网络错误或超时：请确认 `.\start.bat -Mode backend -Port 18080` 或 `.\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080` 仍在运行。
+- `最近错误` 会显示 HTTP 状态、错误类型和最近候选 URL，方便区分“后端没启动”“端口被旧项目占用”“WebSocket 被拦截”。
 
 如果只想单独检查后端接口，也可以单独启动：
 

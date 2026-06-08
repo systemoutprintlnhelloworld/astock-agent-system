@@ -33,6 +33,7 @@ import { CartesianGrid, Line, LineChart, ResponsiveContainer, Tooltip, XAxis, YA
 import {
   BACKEND_BASE_URL,
   type AgentStatus,
+  type BackendDiscoveryDiagnostics,
   type BackendEvent,
   type ConfigDraft,
   configDraftToPayload,
@@ -40,6 +41,7 @@ import {
   getAgentMemory,
   getAgentTools,
   getBackendBaseUrl,
+  getBackendDiscoveryDiagnostics,
   getConfig,
   getDecisions,
   getEquity,
@@ -179,6 +181,8 @@ const nodeTypes = {
 export function TradingDashboard() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [backendBaseUrl, setBackendBaseUrl] = useState(BACKEND_BASE_URL);
+  const [websocketUrl, setWebsocketUrl] = useState("");
+  const [backendDiagnostics, setBackendDiagnostics] = useState<BackendDiscoveryDiagnostics>(() => getBackendDiscoveryDiagnostics());
   const [configDraft, setConfigDraft] = useState<ConfigDraft | null>(null);
   const [flowNodes, setFlowNodes] = useState(FALLBACK_FLOW_NODES);
   const [flowEdges, setFlowEdges] = useState(FALLBACK_FLOW_EDGES);
@@ -245,10 +249,13 @@ export function TradingDashboard() {
       setTimelineEvents(timelineData.items);
       setAgentTools(toolsData.items);
       setBackendBaseUrl(backendUrl);
+      setWebsocketUrl(await getWebSocketUrl());
+      setBackendDiagnostics(getBackendDiscoveryDiagnostics());
       setErrorMessage(null);
       setConfigDraft((current) => (current && configDirtyRef.current ? current : createConfigDraft(configData.config)));
     } catch (error) {
       setErrorMessage(error instanceof Error ? error.message : "无法连接后端服务");
+      setBackendDiagnostics(getBackendDiscoveryDiagnostics());
     } finally {
       setRefreshing(false);
       setLoading(false);
@@ -345,14 +352,17 @@ export function TradingDashboard() {
     const connect = () => {
       void (async () => {
         let websocketUrl: string;
-        try {
-          const backendUrl = await getBackendBaseUrl();
-          websocketUrl = await getWebSocketUrl();
-          setBackendBaseUrl(backendUrl);
-        } catch {
-          setConnectionState("disconnected");
-          if (!disposed) {
-            reconnectTimer = window.setTimeout(() => {
+      try {
+        const backendUrl = await getBackendBaseUrl();
+        websocketUrl = await getWebSocketUrl();
+        setBackendBaseUrl(backendUrl);
+        setWebsocketUrl(websocketUrl);
+        setBackendDiagnostics(getBackendDiscoveryDiagnostics());
+      } catch {
+        setConnectionState("disconnected");
+        setBackendDiagnostics(getBackendDiscoveryDiagnostics());
+        if (!disposed) {
+          reconnectTimer = window.setTimeout(() => {
               connect();
             }, 3000);
           }
@@ -365,10 +375,11 @@ export function TradingDashboard() {
 
         socket = new WebSocket(websocketUrl);
 
-        socket.onopen = () => {
-          setConnectionState("connected");
-          void refreshDashboard();
-          heartbeat = window.setInterval(() => {
+      socket.onopen = () => {
+        setConnectionState("connected");
+        setBackendDiagnostics(getBackendDiscoveryDiagnostics());
+        void refreshDashboard();
+        heartbeat = window.setInterval(() => {
             if (socket?.readyState === WebSocket.OPEN) {
               socket.send(JSON.stringify({ type: "ping", payload: { source: "frontend" } }));
             }
@@ -385,13 +396,15 @@ export function TradingDashboard() {
           }
         };
 
-        socket.onerror = () => {
-          setConnectionState("disconnected");
-        };
+      socket.onerror = () => {
+        setConnectionState("disconnected");
+        setBackendDiagnostics(getBackendDiscoveryDiagnostics());
+      };
 
-        socket.onclose = () => {
-          setConnectionState("disconnected");
-          if (heartbeat) {
+      socket.onclose = () => {
+        setConnectionState("disconnected");
+        setBackendDiagnostics(getBackendDiscoveryDiagnostics());
+        if (heartbeat) {
             window.clearInterval(heartbeat);
             heartbeat = undefined;
           }
@@ -721,6 +734,66 @@ export function TradingDashboard() {
                       <ChecklistItem key={item.label} label={item.label} detail={item.detail} done={item.done} />
                     ))}
                   </div>
+                </div>
+              </Panel>
+            </section>
+
+            <section className="grid gap-6 xl:grid-cols-[1.15fr_0.85fr]">
+              <Panel title="连接诊断" description="把 GUI 当前连接到哪个后端、WebSocket 是否连通、最近候选 URL 为什么失败直接展示出来。" icon={Wifi}>
+                <div className="grid gap-4 md:grid-cols-2">
+                  <SummaryRow label="配置后端 URL" value={backendDiagnostics.configuredBaseUrl} mono />
+                  <SummaryRow label="当前后端 URL" value={backendDiagnostics.resolvedBaseUrl || backendBaseUrl || "-"} mono />
+                  <SummaryRow label="WebSocket URL" value={websocketUrl || "等待解析"} mono />
+                  <SummaryRow label="HTTP 健康检查" value={health?.status === "ok" ? `ok / ${health.app}` : "未确认"} />
+                  <SummaryRow label="WebSocket 状态" value={connectionState === "connected" ? "已连接" : connectionState === "connecting" ? "连接中" : "未连接"} />
+                  <SummaryRow label="探测次数" value={formatNumber(backendDiagnostics.attempts)} />
+                  <SummaryRow label="最近候选 URL" value={backendDiagnostics.currentCandidate || "-"} mono />
+                  <SummaryRow label="最近更新时间" value={formatDateTime(backendDiagnostics.updatedAt)} />
+                </div>
+
+                {backendDiagnostics.lastError ? (
+                  <div className="mt-5 rounded-2xl border border-amber-400/20 bg-amber-500/10 p-4 text-xs leading-6 text-amber-100">
+                    <div className="font-medium text-amber-50">最近连接错误</div>
+                    <div className="mt-2 grid gap-2 md:grid-cols-2">
+                      <span>候选：<span className="font-mono">{backendDiagnostics.lastError.url}</span></span>
+                      <span>类型：{formatBackendProbeStatus(backendDiagnostics.lastError.status)}</span>
+                      <span>HTTP：{backendDiagnostics.lastError.httpStatus ? `${backendDiagnostics.lastError.httpStatus} ${backendDiagnostics.lastError.statusText || ""}` : "-"}</span>
+                      <span>错误：{backendDiagnostics.lastError.errorType || backendDiagnostics.lastError.errorMessage || "-"}</span>
+                    </div>
+                  </div>
+                ) : null}
+
+                <div className="mt-5 grid gap-4 lg:grid-cols-2">
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                    <div className="text-sm font-medium text-white">候选后端探测</div>
+                    <div className="mt-3 space-y-2 text-xs text-slate-300">
+                      {backendDiagnostics.candidates.length ? backendDiagnostics.candidates.slice(0, 6).map((candidate) => (
+                        <div key={`${candidate.url}-${candidate.checkedAt}`} className="flex flex-col gap-1 rounded-xl border border-white/10 bg-white/5 px-3 py-2 sm:flex-row sm:items-center sm:justify-between">
+                          <span className="font-mono text-slate-200">{candidate.url}</span>
+                          <span className={cn("rounded-full px-2.5 py-1 text-[11px] font-medium", backendProbeTone(candidate.status))}>
+                            {formatBackendProbeStatus(candidate.status)}{candidate.httpStatus ? ` · ${candidate.httpStatus}` : ""}
+                          </span>
+                        </div>
+                      )) : <p className="leading-5 text-slate-400">尚未开始候选 URL 探测。刷新仪表盘后会依次检查 18080-18100 和旧版兼容端口。</p>}
+                    </div>
+                  </div>
+                  <div className="rounded-2xl border border-white/10 bg-slate-950/55 p-4">
+                    <div className="text-sm font-medium text-white">下一步建议</div>
+                    <ol className="mt-3 list-decimal space-y-2 pl-5 text-xs leading-5 text-slate-300">
+                      {backendDiagnostics.nextSteps.map((item) => <li key={item}>{item}</li>)}
+                      <li>如果浏览器打开的是旧项目页面，请停止旧前端服务，并在本仓库根目录使用 <span className="font-mono">.\start.bat -Mode dev</span> 重新启动 GUI。</li>
+                      <li>当前 GUI 来源为 <span className="font-mono">apps/frontend</span>，后端健康包来自 <span className="font-mono">/api/health</span>，WebSocket 来自 <span className="font-mono">/ws/events</span>。</li>
+                    </ol>
+                  </div>
+                </div>
+              </Panel>
+
+              <Panel title="连接判定" description="把最容易混淆的“后端没起、端口占用、WebSocket 断开”拆成独立状态。" icon={ShieldCheck}>
+                <div className="space-y-3">
+                  <ChecklistItem label="HTTP 后端" detail={`健康检查状态：${health?.status || "未知"}；后端地址：${backendDiagnostics.resolvedBaseUrl || backendBaseUrl}`} done={health?.status === "ok"} />
+                  <ChecklistItem label="WebSocket 实时事件" detail={`当前状态：${connectionState}；地址：${websocketUrl || "等待后端发现"}`} done={connectionState === "connected"} />
+                  <ChecklistItem label="候选端口未被旧服务误判" detail={backendDiagnostics.lastError?.status === "invalid_response" ? "最近候选有响应但不是 AStock 后端，请检查端口占用。" : "健康包会校验 app/status/event_types，避免把旧项目当作后端。"} done={backendDiagnostics.lastError?.status !== "invalid_response"} />
+                  <ChecklistItem label="启动命令明确" detail="推荐从仓库根目录运行 .\start.bat -Mode dev；仅排查前端时可使用 npm --prefix apps/frontend run dev。" done />
                 </div>
               </Panel>
             </section>
@@ -1469,6 +1542,38 @@ function TagList({ title, items }: { title: string; items: string[] }) {
       </div>
     </div>
   );
+}
+
+function formatBackendProbeStatus(status: string): string {
+  if (status === "ok") {
+    return "可用";
+  }
+  if (status === "http_error") {
+    return "HTTP 错误";
+  }
+  if (status === "invalid_response") {
+    return "非 AStock 后端";
+  }
+  if (status === "timeout") {
+    return "超时";
+  }
+  if (status === "network_error") {
+    return "网络错误";
+  }
+  return "待检测";
+}
+
+function backendProbeTone(status: string): string {
+  if (status === "ok") {
+    return "bg-emerald-500/15 text-emerald-100";
+  }
+  if (status === "http_error" || status === "invalid_response") {
+    return "bg-amber-500/15 text-amber-100";
+  }
+  if (status === "timeout" || status === "network_error") {
+    return "bg-rose-500/15 text-rose-100";
+  }
+  return "bg-slate-500/15 text-slate-100";
 }
 
 function severityTone(severity: string): string {

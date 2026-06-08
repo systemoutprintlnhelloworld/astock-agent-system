@@ -12,6 +12,44 @@ export const BACKEND_BASE_URL = DEFAULT_BACKEND_BASE_URL;
 let resolvedBackendBaseUrl: string | null = null;
 let backendDiscoveryPromise: Promise<string> | null = null;
 
+export type BackendProbeStatus = "pending" | "ok" | "http_error" | "invalid_response" | "network_error" | "timeout";
+
+export interface BackendDiscoveryCandidateResult {
+  url: string;
+  status: BackendProbeStatus;
+  checkedAt: string;
+  httpStatus?: number;
+  statusText?: string;
+  app?: string;
+  responseStatus?: string;
+  errorType?: string;
+  errorMessage?: string;
+}
+
+export interface BackendDiscoveryDiagnostics {
+  configuredBaseUrl: string;
+  resolvedBaseUrl: string | null;
+  currentCandidate: string | null;
+  lastSuccessfulCandidate: string | null;
+  lastError: BackendDiscoveryCandidateResult | null;
+  candidates: BackendDiscoveryCandidateResult[];
+  nextSteps: string[];
+  attempts: number;
+  updatedAt: string;
+}
+
+let backendDiscoveryDiagnostics: BackendDiscoveryDiagnostics = {
+  configuredBaseUrl: DEFAULT_BACKEND_BASE_URL,
+  resolvedBaseUrl: null,
+  currentCandidate: null,
+  lastSuccessfulCandidate: null,
+  lastError: null,
+  candidates: [],
+  nextSteps: ["确认后端已经通过 start.bat / start.ps1 启动，默认监听 18080-18100。"],
+  attempts: 0,
+  updatedAt: new Date().toISOString(),
+};
+
 export type AgentStatus = "idle" | "running" | "completed" | "failed" | "warning" | "skipped";
 
 export interface HealthResponse {
@@ -384,9 +422,95 @@ function buildBackendCandidates(): string[] {
   return Array.from(candidates);
 }
 
+function backendDiscoveryNextSteps(lastError: BackendDiscoveryCandidateResult | null, resolvedBaseUrl: string | null): string[] {
+  if (resolvedBaseUrl) {
+    return ["后端 HTTP 健康检查已通过；如果 WebSocket 未连接，请确认 /ws/events 未被代理或安全软件拦截。"];
+  }
+
+  if (!lastError) {
+    return ["确认后端已经通过 start.bat / start.ps1 启动，默认监听 18080-18100。"];
+  }
+
+  if (lastError.status === "http_error") {
+    return [
+      `候选后端 ${lastError.url} 返回 HTTP ${lastError.httpStatus ?? "未知"}，请确认该端口运行的是本项目 FastAPI 后端。`,
+      "如果前端端口被旧项目占用，请停止旧前端或使用 start.bat 重新启动本项目。",
+    ];
+  }
+
+  if (lastError.status === "invalid_response") {
+    return [
+      `候选后端 ${lastError.url} 有响应但不是 AStock 后端健康包，请检查是否被其他本地服务占用。`,
+      "建议关闭占用端口的旧项目，或通过 NEXT_PUBLIC_BACKEND_URL 指向正确后端。",
+    ];
+  }
+
+  if (lastError.status === "timeout") {
+    return ["后端健康检查超时，请确认 sidecar/FastAPI 已完成启动，并检查本机防火墙或安全软件。"];
+  }
+
+  return [
+    "未能连接任何候选后端，请先运行 start.bat 或 start.ps1。",
+    "如果后端使用自定义端口，请设置 NEXT_PUBLIC_BACKEND_URL 后重启前端。",
+  ];
+}
+
+function updateBackendDiscoveryDiagnostics(update: Partial<BackendDiscoveryDiagnostics>): void {
+  const nextDiagnostics = {
+    ...backendDiscoveryDiagnostics,
+    ...update,
+    updatedAt: new Date().toISOString(),
+  };
+  nextDiagnostics.nextSteps = backendDiscoveryNextSteps(nextDiagnostics.lastError, nextDiagnostics.resolvedBaseUrl);
+  backendDiscoveryDiagnostics = nextDiagnostics;
+}
+
+function rememberBackendProbeResult(result: BackendDiscoveryCandidateResult): void {
+  const previous = backendDiscoveryDiagnostics.candidates.filter((item) => item.url !== result.url);
+  const candidates = [result, ...previous].slice(0, 12);
+  updateBackendDiscoveryDiagnostics({
+    candidates,
+    currentCandidate: result.url,
+    lastError: result.status === "ok" ? backendDiscoveryDiagnostics.lastError : result,
+    lastSuccessfulCandidate: result.status === "ok" ? result.url : backendDiscoveryDiagnostics.lastSuccessfulCandidate,
+    resolvedBaseUrl: result.status === "ok" ? result.url : backendDiscoveryDiagnostics.resolvedBaseUrl,
+  });
+}
+
+function describeFetchError(error: unknown): Pick<BackendDiscoveryCandidateResult, "status" | "errorType" | "errorMessage"> {
+  if (error instanceof DOMException && error.name === "AbortError") {
+    return { status: "timeout", errorType: "AbortError", errorMessage: "健康检查超时" };
+  }
+  if (error instanceof Error) {
+    return { status: "network_error", errorType: error.name, errorMessage: error.message };
+  }
+  return { status: "network_error", errorType: "UnknownError", errorMessage: "未知网络错误" };
+}
+
+function recordBackendFetchFailure(baseUrl: string, error: unknown): void {
+  const errorInfo = describeFetchError(error);
+  resolvedBackendBaseUrl = null;
+  rememberBackendProbeResult({
+    url: baseUrl,
+    checkedAt: new Date().toISOString(),
+    ...errorInfo,
+  });
+  updateBackendDiscoveryDiagnostics({ resolvedBaseUrl: null });
+}
+
+export function getBackendDiscoveryDiagnostics(): BackendDiscoveryDiagnostics {
+  return {
+    ...backendDiscoveryDiagnostics,
+    candidates: backendDiscoveryDiagnostics.candidates.map((item) => ({ ...item })),
+    nextSteps: [...backendDiscoveryDiagnostics.nextSteps],
+    lastError: backendDiscoveryDiagnostics.lastError ? { ...backendDiscoveryDiagnostics.lastError } : null,
+  };
+}
+
 async function probeBackendBaseUrl(baseUrl: string): Promise<boolean> {
   const controller = new AbortController();
   const timeout = window.setTimeout(() => controller.abort(), BACKEND_PROBE_TIMEOUT_MS);
+  updateBackendDiscoveryDiagnostics({ currentCandidate: baseUrl, attempts: backendDiscoveryDiagnostics.attempts + 1 });
   try {
     const response = await fetch(`${baseUrl}/api/health`, {
       cache: "no-store",
@@ -394,13 +518,37 @@ async function probeBackendBaseUrl(baseUrl: string): Promise<boolean> {
       signal: controller.signal,
     });
     if (!response.ok) {
+      rememberBackendProbeResult({
+        url: baseUrl,
+        status: "http_error",
+        checkedAt: new Date().toISOString(),
+        httpStatus: response.status,
+        statusText: response.statusText,
+      });
       return false;
     }
 
     const payload = (await response.json()) as Partial<HealthResponse>;
     const appName = typeof payload.app === "string" ? payload.app.toLowerCase() : "";
-    return payload.status === "ok" && appName.includes("astock") && Array.isArray(payload.event_types);
-  } catch {
+    const healthy = payload.status === "ok" && appName.includes("astock") && Array.isArray(payload.event_types);
+    rememberBackendProbeResult({
+      url: baseUrl,
+      status: healthy ? "ok" : "invalid_response",
+      checkedAt: new Date().toISOString(),
+      httpStatus: response.status,
+      statusText: response.statusText,
+      app: typeof payload.app === "string" ? payload.app : undefined,
+      responseStatus: typeof payload.status === "string" ? payload.status : undefined,
+      errorType: healthy ? undefined : "UnexpectedHealthPayload",
+      errorMessage: healthy ? undefined : "健康检查响应不是 AStock 后端格式",
+    });
+    return healthy;
+  } catch (error) {
+    rememberBackendProbeResult({
+      url: baseUrl,
+      checkedAt: new Date().toISOString(),
+      ...describeFetchError(error),
+    });
     return false;
   } finally {
     window.clearTimeout(timeout);
@@ -418,6 +566,10 @@ async function discoverBackendBaseUrl(): Promise<string | null> {
 
 export async function getBackendBaseUrl(): Promise<string> {
   if (resolvedBackendBaseUrl) {
+    updateBackendDiscoveryDiagnostics({
+      resolvedBaseUrl: resolvedBackendBaseUrl,
+      lastSuccessfulCandidate: resolvedBackendBaseUrl,
+    });
     return resolvedBackendBaseUrl;
   }
 
@@ -430,11 +582,20 @@ export async function getBackendBaseUrl(): Promise<string> {
       const discovered = await discoverBackendBaseUrl();
       if (discovered) {
         resolvedBackendBaseUrl = discovered;
+        updateBackendDiscoveryDiagnostics({
+          resolvedBaseUrl: discovered,
+          lastSuccessfulCandidate: discovered,
+          currentCandidate: discovered,
+        });
         return discovered;
       }
       await sleep(BACKEND_DISCOVERY_DELAY_MS);
     }
 
+    updateBackendDiscoveryDiagnostics({
+      resolvedBaseUrl: null,
+      currentCandidate: DEFAULT_BACKEND_BASE_URL,
+    });
     return DEFAULT_BACKEND_BASE_URL;
   })().finally(() => {
     backendDiscoveryPromise = null;
@@ -456,14 +617,30 @@ async function fetchJson<T>(path: string, init?: RequestInit): Promise<T> {
       cache: "no-store",
     });
   } catch (error) {
-    resolvedBackendBaseUrl = null;
+    recordBackendFetchFailure(backendBaseUrl, error);
     throw error;
   }
 
   if (!response.ok) {
     resolvedBackendBaseUrl = null;
+    rememberBackendProbeResult({
+      url: backendBaseUrl,
+      status: "http_error",
+      checkedAt: new Date().toISOString(),
+      httpStatus: response.status,
+      statusText: response.statusText,
+      errorType: "HttpError",
+      errorMessage: `${response.status} ${response.statusText}`,
+    });
+    updateBackendDiscoveryDiagnostics({ resolvedBaseUrl: null });
     throw new Error(`${response.status} ${response.statusText}`);
   }
+  resolvedBackendBaseUrl = backendBaseUrl;
+  updateBackendDiscoveryDiagnostics({
+    resolvedBaseUrl: backendBaseUrl,
+    lastSuccessfulCandidate: backendBaseUrl,
+    currentCandidate: backendBaseUrl,
+  });
   return (await response.json()) as T;
 }
 

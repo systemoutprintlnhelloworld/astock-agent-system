@@ -4,6 +4,12 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
+## 最新交付记录：GUI 连接可诊断性
+
+- `apps/frontend/src/lib/dashboard-api.ts` 现在会保留后端发现诊断快照：配置 URL、已解析 URL、当前候选 URL、最近成功候选、最近错误、候选探测结果、探测次数和下一步建议。
+- `apps/frontend/src/components/trading-dashboard.tsx` 的“总览”页新增“连接诊断 / 连接判定”卡片，直接展示后端 URL、WebSocket URL、HTTP health 状态、WS 连接状态、最近错误类型、候选端口探测结果，以及旧项目/端口占用时的处理建议。
+- 前端健康探测继续校验 `/api/health` 的 `status/app/event_types`，避免把旧项目或其他本地服务误判为 AStock 后端；WebSocket 仍使用 `/ws/events`。
+
 ## 1. 当前分支和最新提交
 
 - 当前分支：`tauri-rewrite`
@@ -66,9 +72,11 @@
 
 ## 4. 下一轮首选任务
 
-### Task A：GUI 连接可诊断性
+### Task A：GUI 连接可诊断性（已完成）
 
 目标：用户不再只看到“连接中”。
+
+完成状态：前端 API 层已导出 `getBackendDiscoveryDiagnostics()`，总览页已显示后端发现、HTTP health、WebSocket URL、WS 状态、最近错误、候选端口和下一步排障建议。下一轮应优先进入 Task B。
 
 建议实现：
 
