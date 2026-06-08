@@ -22,6 +22,35 @@ SECRET_FIELDS = {
     ("notification", "webhook_url"),
 }
 
+SECRET_STATUS_FIELDS = {
+    ("data", "tushare_token"): "has_tushare_token",
+    ("data", "alpha_vantage_api_key"): "has_alpha_vantage_api_key",
+    ("data", "jqdata_password"): "has_jqdata_password",
+    ("llm", "api_key"): "has_api_key",
+    ("notification", "smtp_password"): "has_smtp_password",
+    ("notification", "webhook_url"): "has_webhook_url",
+}
+
+PROVIDER_CREDENTIAL_QUESTIONS = {
+    "tushare_token": "tushare",
+    "alpha_vantage_api_key": "alpha_vantage",
+    "jqdata_username": "jqdata",
+    "jqdata_password": "jqdata",
+}
+
+PROVIDER_CHOICES = [
+    Choice(value="tushare", name="Tushare - A股主数据源（需 token）"),
+    Choice(value="baostock", name="Baostock - 免费A股历史行情补充源"),
+    Choice(value="akshare", name="AkShare - 免费A股综合兜底源"),
+    Choice(value="adata", name="AData - 轻量历史行情补充"),
+    Choice(value="openbb", name="OpenBB - 全球/宏观参考"),
+    Choice(value="yfinance", name="yfinance - 海外/港股参考"),
+    Choice(value="alpha_vantage", name="Alpha Vantage - 海外/宏观参考（需 key）"),
+    Choice(value="jqdata", name="JQData - 聚宽研究数据（需账号）"),
+    Choice(value="aastock", name="AAStock - 港股新闻/市场参考（诊断登记）"),
+    Choice(value="ths_skill", name="同花顺 Skill - 研究流程登记，不做未授权抓取"),
+]
+
 
 @dataclass(frozen=True, slots=True)
 class WizardQuestion:
@@ -50,12 +79,12 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
     ),
     WizardQuestion(
         key="provider_chain",
-        label="数据源链路（逗号分隔）",
+        label="数据源链路",
         section="data",
         field_name="provider_chain",
         value_type="list[str]",
         default="tushare,baostock,akshare",
-        help_text="可手动加入 adata/openbb/yfinance/alpha-vantage/jqdata；AAStock/同花顺仅登记诊断，不做未授权抓取。",
+        help_text="空格选择/取消，Enter 确认；AAStock/同花顺仅登记诊断，不做未授权抓取。",
     ),
     WizardQuestion(
         key="dynamic_universe_limit",
@@ -179,7 +208,10 @@ CONFIG_WIZARD_QUESTIONS: tuple[WizardQuestion, ...] = (
 )
 
 
-def run_interactive_wizard(available_models: list[str] | None = None) -> dict[str, str]:
+def run_interactive_wizard(
+    available_models: list[str] | None = None,
+    current_config: dict[str, Any] | None = None,
+) -> dict[str, Any]:
     """Run the interactive configuration wizard using InquirerPy."""
     console.print(Panel.fit(
         "[bold cyan]AStock 配置向导[/bold cyan]\n\n"
@@ -188,7 +220,10 @@ def run_interactive_wizard(available_models: list[str] | None = None) -> dict[st
         border_style="cyan"
     ))
     
-    answers: dict[str, str] = {}
+    current_config = current_config or {}
+    render_current_config_status(current_config)
+    answers: dict[str, Any] = {}
+    selected_providers = _list_default(current_config, "data", "provider_chain", ["tushare", "baostock", "akshare"])
     
     sections = {
         "data": [],
@@ -210,64 +245,66 @@ def run_interactive_wizard(available_models: list[str] | None = None) -> dict[st
         for question in questions:
             if question.section == "scheduler" and question.field_name == "models":
                 continue
+            provider = PROVIDER_CREDENTIAL_QUESTIONS.get(question.field_name)
+            if provider and provider not in selected_providers:
+                continue
             if question.help_text:
                 console.print(f"[dim]💡 {question.help_text}[/dim]")
+            default_value = _question_default(question, current_config)
+            message = _question_message(question, current_config)
             
             try:
                 if question.section == "data" and question.field_name == "provider_chain":
-                    default_sources = [item.strip() for item in question.default.split(",") if item.strip()]
                     selected = inquirer.checkbox(
-                        message=question.label,
-                        choices=[
-                            Choice(value="tushare", name="Tushare - A股主数据源（需 token）"),
-                            Choice(value="baostock", name="Baostock - 免费A股历史行情补充源"),
-                            Choice(value="akshare", name="AkShare - 免费A股综合兜底源"),
-                            Choice(value="adata", name="AData - 轻量历史行情补充"),
-                            Choice(value="openbb", name="OpenBB - 全球/宏观参考"),
-                            Choice(value="yfinance", name="yfinance - 海外/港股参考"),
-                            Choice(value="alpha-vantage", name="Alpha Vantage - 海外/宏观参考（需 key）"),
-                            Choice(value="jqdata", name="JQData - 聚宽研究数据（需账号）"),
-                        ],
-                        default=default_sources,
+                        message=message,
+                        choices=PROVIDER_CHOICES,
+                        default=selected_providers,
                         instruction="空格选择/取消，Enter 确认",
                     ).execute()
-                    value = ",".join(str(item) for item in selected)
+                    selected_providers = [str(item) for item in selected]
+                    value = list(selected_providers)
                 elif question.secret:
+                    secret_default = "" if _secret_has_value(question, current_config) else str(default_value)
                     value = inquirer.secret(
-                        message=question.label,
-                        default=question.default,
+                        message=message,
+                        default=secret_default,
                     ).execute()
                 elif question.section == "data" and question.field_name == "mode":
                     value = inquirer.select(
-                        message=question.label,
+                        message=message,
                         choices=[
                             Choice(value="offline", name="offline - 离线模式（推荐先用此模式测试）"),
                             Choice(value="online", name="online - 在线模式（需配置数据源凭证）"),
                         ],
-                        default="offline",
+                        default=str(default_value or "offline"),
                     ).execute()
                 elif question.section == "llm" and question.field_name == "request_profile":
                     value = inquirer.select(
-                        message=question.label,
+                        message=message,
                         choices=["auto", "openai", "codex", "anthropic", "claude_code"],
-                        default="auto",
+                        default=str(default_value or "auto"),
                     ).execute()
                 elif question.section == "llm" and question.field_name == "default_model" and available_models:
+                    model_default = str(default_value or available_models[0])
+                    if model_default not in available_models:
+                        available_models = [model_default, *available_models]
                     value = inquirer.fuzzy(
-                        message=question.label,
+                        message=message,
                         choices=[Choice(value=model, name=model) for model in available_models],
-                        default=available_models[0],
+                        default=model_default,
                         instruction="输入关键字过滤，Tab/Enter 选择",
                     ).execute()
                 else:
                     value = inquirer.text(
-                        message=question.label,
-                        default=question.default,
+                        message=message,
+                        default=str(default_value),
                         validate=lambda x: len(x) > 0 if question.required else True,
                         invalid_message="此项必填" if question.required else "",
                     ).execute()
                 
-                answers[question.key] = value or question.default
+                if question.secret and not str(value or "").strip() and _secret_has_value(question, current_config):
+                    continue
+                answers[question.key] = value if _has_answer_value(value) else default_value
             
             except KeyboardInterrupt:
                 console.print("\n[yellow]配置向导已中断。可稍后用 /config 命令更新配置。[/yellow]")
@@ -276,10 +313,90 @@ def run_interactive_wizard(available_models: list[str] | None = None) -> dict[st
     return answers
 
 
-def build_config_patch(answers: dict[str, str], questions: tuple[WizardQuestion, ...] = CONFIG_WIZARD_QUESTIONS) -> dict[str, Any]:
+def render_current_config_status(config: dict[str, Any]) -> None:
+    """Show the currently effective public config before prompting."""
+    if not config:
+        return
+    table = Table(title="当前已生效配置（密钥只显示状态）", show_header=True, header_style="bold cyan")
+    table.add_column("配置项", style="cyan", no_wrap=True)
+    table.add_column("当前值", style="green")
+    for section, values in config.items():
+        if not isinstance(values, dict):
+            continue
+        for field_name, value in values.items():
+            if field_name.startswith("has_"):
+                continue
+            table.add_row(f"[{section}] {field_name}", _display_current_value(value))
+        for (secret_section, _), status_name in SECRET_STATUS_FIELDS.items():
+            if secret_section == section and status_name in values:
+                table.add_row(f"[{section}] {status_name}", "[已配置]" if values.get(status_name) else "[未配置]")
+    console.print(table)
+
+
+def _question_default(question: WizardQuestion, config: dict[str, Any]) -> Any:
+    section = config.get(question.section, {}) if isinstance(config, dict) else {}
+    if isinstance(section, dict) and question.field_name in section:
+        value = section.get(question.field_name)
+        if question.value_type == "list[str]" and isinstance(value, list):
+            return value
+        if value is not None:
+            return value
+    if question.value_type == "list[str]":
+        return [item.strip() for item in question.default.split(",") if item.strip()]
+    return question.default
+
+
+def _question_message(question: WizardQuestion, config: dict[str, Any]) -> str:
+    if _secret_has_value(question, config):
+        return f"{question.label}（已配置，留空保持不变）"
+    value = _question_default(question, config)
+    if isinstance(value, list):
+        value_text = ",".join(str(item) for item in value)
+    else:
+        value_text = str(value)
+    if value_text:
+        return f"{question.label}（当前: {value_text}）"
+    return question.label
+
+
+def _secret_has_value(question: WizardQuestion, config: dict[str, Any]) -> bool:
+    status_name = SECRET_STATUS_FIELDS.get((question.section, question.field_name))
+    section = config.get(question.section, {}) if isinstance(config, dict) else {}
+    return bool(status_name and isinstance(section, dict) and section.get(status_name))
+
+
+def _list_default(config: dict[str, Any], section_name: str, field_name: str, fallback: list[str]) -> list[str]:
+    section = config.get(section_name, {}) if isinstance(config, dict) else {}
+    value = section.get(field_name) if isinstance(section, dict) else None
+    if isinstance(value, list):
+        return [str(item).strip() for item in value if str(item).strip()]
+    if isinstance(value, str):
+        return [item.strip() for item in value.split(",") if item.strip()]
+    return list(fallback)
+
+
+def _display_current_value(value: Any) -> str:
+    if isinstance(value, list):
+        return ", ".join(str(item) for item in value)
+    return str(value)
+
+
+def _has_answer_value(value: Any) -> bool:
+    if value is None:
+        return False
+    if isinstance(value, str):
+        return bool(value.strip())
+    if isinstance(value, list):
+        return bool(value)
+    return True
+
+
+def build_config_patch(answers: dict[str, Any], questions: tuple[WizardQuestion, ...] = CONFIG_WIZARD_QUESTIONS) -> dict[str, Any]:
     """Build the nested runtime config payload sent to ``/api/config``."""
     patch: dict[str, Any] = {}
     for question in questions:
+        if question.section == "scheduler" and question.field_name == "models":
+            continue
         raw_value = answers.get(question.key, question.default)
         if raw_value is None:
             raw_value = ""

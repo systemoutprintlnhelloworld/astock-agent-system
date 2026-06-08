@@ -113,7 +113,8 @@ def _check_backend(client: AStockBackendClient) -> bool:
 
 
 def _run_config_wizard(client: AStockBackendClient, state: TuiSessionState) -> None:
-    answers = run_interactive_wizard(available_models=state.available_models)
+    current_config = _safe_call(client.config).get("config", {})
+    answers = run_interactive_wizard(available_models=state.available_models, current_config=current_config if isinstance(current_config, dict) else {})
     if not answers:
         console.print("[yellow]配置向导已跳过。可稍后用 /config 命令更新配置。[/yellow]")
         return

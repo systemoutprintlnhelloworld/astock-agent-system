@@ -7,9 +7,13 @@
 ## 最新交付记录：TUI UX / 运行可观察性
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
+- 配置向导现在会先读取 `/api/config` 的脱敏当前配置并动态展示：非密钥字段回填已保存值，密钥字段只显示“已配置/未配置”；已配置密钥留空会保留旧值，且只对 provider chain 中被选中的数据源继续询问对应凭证。
+- `src/astock_agent_system/config.py` 修复运行态配置优先级：真实进程环境变量仍最高，但 `data/runtime/settings.override.json` 会优先于本地 `.env` 中的旧同名字段，避免向导保存后的 `provider_chain`、默认模型、候选数量和历史窗口看起来未生效。
 - `apps/tui/prompt.py` 的 slash command palette 在输入 `/` 时直接展示候选命令和说明，并支持 `/dashboard`、`/models`、`/start` 等二级命令/参数以及后端模型名补全。
+- `/agent` 命令补全与实际处理器对齐，支持 `list/view/edit/backup/learning stats|suggestions|trigger` 以及 `stats/suggestions/trigger` 短别名。
 - `apps/tui/app.py`、`apps/tui/commands/slash.py` 和 `apps/tui/widgets/dashboard.py` 已把 `/dashboard` 默认改为交易看板；新增 `/run` 与 `/dashboard run`；`/start` 提交后台任务后立即显示 run_id、运行状态、排行榜、持仓/交易和决策日志聚合视图。
 - TUI 每次关键命令后清屏重绘 20/80 主布局，并在输入区附近显示状态栏，减少旧配置摘要和旧命令输出堆叠。TUI 仍只调用 `apps/backend` FastAPI 契约，不复制交易业务逻辑。
+- 本轮脱敏真实链路验证已覆盖 `/help`、`/status`、`/models list/set/selected`、`/workflow offline`、`/providers`、`/config show`、`/config test-llm`、`/dashboard` 系列、`/start --offline --max-count 1 --days 12`、`/run`、`/agent list/stats`、`/compact`、`/permission`、`/sandbox`、`/theme`、`/lang`、`/attachments`、`/history` 和 `/memory`。
 - 本轮参考 `earendil-works/pi` 和 `claude-code-best/claude-code` 的命令发现、长期会话和 TUI 运行体验，落地文档见 `docs/tui/TUI_UX_REDESIGN_PLAN.md`。
 
 上一条交付记录：GUI 连接可诊断性
@@ -46,11 +50,12 @@
 | --- | --- |
 | `apps/tui/app.py` / `apps/tui/__main__.py` | `python -m apps.tui` 终端入口，提供配置向导、对话流输入、清屏重绘和 20/80 交易看板/运行观测主界面。 |
 | `apps/tui/backend_client.py` | TUI 到 FastAPI 的轻量 HTTP client，保持 GUI/TUI 同后端契约。 |
-| `apps/tui/config_wizard.py` | 初始化配置向导，保存到 `data/runtime/settings.override.json`；数据模式单选、provider chain 多选、默认 LLM 模型 fuzzy 选择，摘要不回显密钥。 |
-| `apps/tui/prompt.py` | 输入 `/` 即显示带说明的命令候选，支持二级命令/参数和后端模型名补全。 |
+| `apps/tui/config_wizard.py` | 初始化配置向导，保存到 `data/runtime/settings.override.json`；数据模式单选、provider chain 多选、默认 LLM 模型 fuzzy 选择；启动时展示脱敏当前配置、回填已保存非密钥值、密钥留空保留旧值，并跳过未选数据源凭证。 |
+| `apps/tui/prompt.py` | 输入 `/` 即显示带说明的命令候选，支持二级命令/参数、`/agent` 管理命令和后端模型名补全。 |
 | `apps/tui/session.py` | TUI 本地状态、工作流/比赛模型选择、后端模型缓存、上下文估算、自动/手动压缩、附件路径识别和敏感文件预览保护。 |
 | `apps/tui/commands/slash.py` | `/status`、`/models list/select/set/selected`、`/workflow`、`/start`、`/run`、`/providers`、`/dashboard trading/run/status`、`/compact`、`/permission`、`/sandbox` 等命令分发。 |
 | `apps/tui/widgets/dashboard.py` | 排行榜、股票看板、决策日志、运行观测、Agent 编排、数据源诊断、todo/status 栏的文本渲染。 |
+| `src/astock_agent_system/config.py` | 统一配置加载入口；真实环境变量优先，本地运行态配置优先于 `.env` 同名旧值，保证向导保存后立即生效且不回显密钥。 |
 | `apps/backend/app.py` | 新增 `/api/auto-investment/background` 与后台任务广播复用 helper。 |
 | `start.ps1` / `start.bat` | 新增 `-Mode tui`，自动复用或启动后端后进入终端客户端。 |
 

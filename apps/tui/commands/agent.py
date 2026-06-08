@@ -46,6 +46,13 @@ def handle_agent_command(command: str, *, opener: Callable[[str], None] | None =
         if action == "backup" and len(parts) >= 3:
             path = backup_agent_descriptor(parts[2])
             return CommandResult(True, "Agent MD 已备份", str(path))
+        if action == "stats":
+            return _learning_stats()
+        if action == "suggestions":
+            return _learning_suggestions()
+        if action == "trigger":
+            status = trigger_learning_if_ready(force=True)
+            return CommandResult(True, "学习分析已触发", _format_learning_status(status))
         if action == "learning" and len(parts) >= 3:
             if parts[2] == "stats":
                 return _learning_stats()
@@ -130,5 +137,8 @@ def _help_text() -> str:
             "/agent learning stats - 查看学习进度",
             "/agent learning suggestions - 查看最近学习建议",
             "/agent learning trigger - 强制生成学习建议",
+            "/agent stats - 等价于 /agent learning stats",
+            "/agent suggestions - 等价于 /agent learning suggestions",
+            "/agent trigger - 等价于 /agent learning trigger",
         ]
     )

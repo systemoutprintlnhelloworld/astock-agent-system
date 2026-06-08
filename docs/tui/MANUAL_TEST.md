@@ -21,6 +21,9 @@ python -m apps.tui
 - ↑↓ 键导航，空格选择/取消，Enter 确认
 - 数据模式支持单选（offline/online）
 - 数据源 provider chain 支持多选，不再手打逗号列表
+- 向导启动时会先展示当前已生效配置；非密钥字段显示当前值，密钥字段只显示“已配置/未配置”
+- 已保存过的字段会作为默认值回填；已配置密钥留空会保持不变
+- 只有 provider chain 中选中的数据源才会继续询问对应凭证；未选 Alpha Vantage/JQData 时跳过对应 key/账号密码
 - 默认 LLM 模型从后端模型列表模糊选择
 - 比赛模型不在初始化向导中填写，改为运行前用 `/models select` 或 `/models set` 选择
 - LLM 请求档位支持下拉选择
@@ -32,6 +35,10 @@ python -m apps.tui
 - [ ] 配置向导启动成功
 - [ ] 下拉菜单交互正常
 - [ ] provider chain 可用空格多选并用 Enter 确认
+- [ ] 当前配置表只显示密钥状态，不回显真实 token/API key
+- [ ] 已保存的 Base URL、默认模型、provider chain 等非密钥值会自动回填
+- [ ] 已配置密钥留空后保存不会清空本地旧密钥
+- [ ] 未选中的数据源不会继续询问对应凭证
 - [ ] 默认模型可从后端模型列表模糊过滤选择
 - [ ] 初始化流程不会要求填写比赛模型列表
 - [ ] 密钥输入不回显
@@ -52,6 +59,7 @@ python -m apps.tui --skip-wizard
 - [ ] 输入 `/start ` → 显示 `--offline`, `--models` 等参数和说明
 - [ ] 输入 `/config ` → 显示 `show`, `test-llm`
 - [ ] 输入 `/dashboard ` → 显示 `trading`, `run`, `rankings`, `decisions`, `status` 等面板名称
+- [ ] 输入 `/agent ` → 显示 `list`, `view`, `edit`, `backup`, `learning`, `stats`, `suggestions`, `trigger` 等子命令
 - [ ] 输入 `/models set g` → 显示后端模型列表中的匹配模型
 - [ ] 按 ↑ → 显示上一条命令
 - [ ] 按 ↓ → 显示下一条命令

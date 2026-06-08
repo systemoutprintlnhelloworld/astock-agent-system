@@ -162,7 +162,7 @@ def _models(parts: list[str], state: TuiSessionState, client: TuiBackend) -> Com
         return CommandResult(True, "模型已选择", ", ".join(state.selected_models))
     models = _refresh_models_for_selection(state, client)
     if models:
-        lines = ["后端模型列表（运行前用 /models set 选择比赛模型）:"]
+        lines = ["后端模型列表（运行前用 /models select 多选，或用 /models set 手动选择比赛模型）:"]
         lines.extend(f"- {model}" for model in state.available_models)
         lines.append("")
         lines.append(f"当前比赛模型: {', '.join(state.selected_models)}")
@@ -219,7 +219,7 @@ def _dashboard(parts: list[str], state: TuiSessionState, client: TuiBackend) -> 
     if tab in {"learning", "memory"}:
         learning = client.learning_status().get("learning", {})
         return CommandResult(True, "学习进度", render_learning_progress(learning if isinstance(learning, dict) else {}))
-    return CommandResult(False, "未知面板", "可用面板: overview/providers/rankings/stocks/decisions/flow/agent/learning")
+    return CommandResult(False, "未知面板", "可用面板: trading/run/status/providers/rankings/decisions/flow/agent/learning")
 
 
 def _run_view(state: TuiSessionState, client: TuiBackend) -> CommandResult:

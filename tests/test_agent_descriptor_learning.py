@@ -313,6 +313,29 @@ def test_tui_config_wizard_redacts_secret_values() -> None:
     assert "local-llm-key" not in str(redacted)
 
 
+def test_tui_config_wizard_accepts_selected_provider_list_without_scheduler_models() -> None:
+    patch = build_config_patch(
+        {
+            "data_mode": "online",
+            "provider_chain": ["tushare", "baostock", "akshare", "adata"],
+            "llm_default_model": "gpt-5.5",
+            "scheduler_models": ["rule-baseline", "gpt-5.5"],
+        }
+    )
+
+    assert patch["data"]["provider_chain"] == ["tushare", "baostock", "akshare", "adata"]
+    assert patch["llm"]["default_model"] == "gpt-5.5"
+    assert "models" not in patch.get("scheduler", {})
+
+
+def test_agent_learning_short_alias_matches_command_palette() -> None:
+    result = handle_agent_command("/agent stats")
+
+    assert result.ok is True
+    assert result.title == "Agent 学习状态"
+    assert "学习进度" in result.body
+
+
 def test_tui_context_meter_and_file_path_extraction(tmp_path: Path) -> None:
     attachment = tmp_path / "note.txt"
     attachment.write_text("hello", encoding="utf-8")

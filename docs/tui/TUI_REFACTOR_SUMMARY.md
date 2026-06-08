@@ -18,6 +18,8 @@
 - 使用 **Rich Table** 渲染配置摘要（密钥显示为 `[已设置]`）
 - 确认保存使用 `inquirer.confirm()`
 - 支持 Ctrl+C 中断向导
+- 向导会先展示当前已生效配置；非密钥字段回填上次保存值，密钥字段只显示状态
+- 只有 provider chain 中被选中的数据源才会继续询问对应凭证，未选源直接跳过
 
 **测试**：
 - `test_wizard_interactive.py`：验证数据结构和 Rich 渲染 ✓

@@ -42,7 +42,7 @@ apps/tui/          # 终端客户端；只调用 FastAPI，不承载交易业务
 
 设计原则：
 
-- 配置从 `config.py` 进入，真实密钥只来自环境变量或本地 `.env`。
+- 配置从 `config.py` 进入；优先级为真实进程环境变量 > `data/runtime/settings.override.json`（TUI/GUI 本地向导保存，Git 忽略）> 本地 `.env` > YAML 默认。密钥只允许保存在本机运行态、`.env` 或真实环境变量中，不得写入仓库。
 - CLI 输出 JSON，便于 smoke、脚本和后续 API 集成。
 - `apps/backend` 只做产品层 API/WebSocket 适配，不重写交易业务核心。
 - 外部服务依赖懒加载，离线模式必须能运行。

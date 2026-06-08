@@ -28,7 +28,7 @@
 - FastAPI 后端适配层预览：已新增 `apps/backend`，支持 `health`、脱敏配置、bench、自动投资触发、运行时配置保存、流程图/决策/股票/指标接口和 WebSocket 事件流。
 - Next.js 现代控制台首版：已新增 `apps/frontend`，支持 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
-- TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
+- TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、已保存配置动态回填、密钥状态脱敏展示、按已选数据源跳过无关凭证、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
 
 ## 2. 最短运行路径
 
@@ -93,7 +93,7 @@ python -m apps.tui --skip-wizard
 /dashboard run
 ```
 
-说明：初始化向导只保存基础配置和默认模型；比赛模型属于每轮并行 Agent/虚拟账户选择，可在运行前通过 `/models select`、`/models set` 或 `/start --models` 指定。
+说明：初始化向导只保存基础配置和默认模型；比赛模型属于每轮并行 Agent/虚拟账户选择，可在运行前通过 `/models select`、`/models set` 或 `/start --models` 指定。向导保存到 `data/runtime/settings.override.json`，该运行态配置优先于本地 `.env` 的同名旧值，真实进程环境变量仍保持最高优先级。
 
 ## 3. 当前验证状态
 
@@ -120,8 +120,9 @@ python -m apps.tui --skip-wizard
 - 桌面 sidecar：`start.bat -Mode desktop-sidecar` 可生成 `apps/desktop/src-tauri/binaries/astock-backend-x86_64-pc-windows-msvc.exe`。
 - 桌面 release：`start.bat -Mode desktop-release -AutoInstallRust` 可生成 `apps/desktop/src-tauri/target/release/astock-agent-desktop.exe` 和 `apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe`。
 - 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端默认使用 `127.0.0.1:18080..18100`，并兼容探测旧的 `8000..8020` 健康 AStock 后端。
-- TUI UX 回归：`python -m pytest tests/test_agent_descriptor_learning.py -q` 通过，覆盖 `/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
-- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `62 passed`，并完成前端 lint、MkDocs strict build、后端 app import 和 sidecar entrypoint 检查。
+- TUI/配置回归：`python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q` 通过（21 passed），覆盖运行态配置优先级、向导列表型 provider chain、初始化不写比赛模型、`/agent stats` 别名、`/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
+- TUI 真实后端命令链路：已脱敏验证 `/help`、`/status`、`/models list/set/selected`、`/workflow offline`、`/providers`、`/config show`、`/config test-llm`、`/dashboard` 系列、`/start --offline --max-count 1 --days 12`、`/run`、`/agent list/stats`、`/compact`、`/permission`、`/sandbox`、`/theme`、`/lang`、`/attachments`、`/history` 和 `/memory` 均可执行。
+- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `65 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态
