@@ -6,6 +6,15 @@
 
 ## 最新交付记录：TUI UX / 运行可观察性
 
+### CLI streaming + 持续学习可观察性增强
+
+- `src/astock_agent_system/events/emitter.py` 新增学习、记忆和数据源事件类型：`learning_experience_recorded`、`learning_analysis_triggered`、`learning_suggestion_generated`、`memory_case_retrieved`、`data_source_switched`。
+- 新增 `src/astock_agent_system/cli_enhanced.py`，提供 Rich 优先、纯文本 fallback 的流式运行渲染、学习状态/建议、记忆案例和数据源诊断展示。
+- `src/astock_agent_system/cli.py` 新增 `agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status` 命令。
+- `src/astock_agent_system/orchestrator/multi_agent_orchestrator.py` 在竞赛运行中发射 run/agent/learning 事件，并把学习经验记录/建议生成反馈给 CLI。
+- `apps/backend/schemas.py` 扩展 WebSocket 事件枚举，`apps/backend/app.py` 新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，便于后续 GUI/TUI 复用 CLI 先验证出的可观察内容。
+- 下一步应先验证增强 CLI 命令链路，再继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件。
+
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
 - 配置向导现在会先读取 `/api/config` 的脱敏当前配置并动态展示：非密钥字段回填已保存值，密钥字段只显示“已配置/未配置”；已配置密钥留空会保留旧值，且只对 provider chain 中被选中的数据源继续询问对应凭证。
 - `src/astock_agent_system/config.py` 修复运行态配置优先级：真实进程环境变量仍最高，但 `data/runtime/settings.override.json` 会优先于本地 `.env` 中的旧同名字段，避免向导保存后的 `provider_chain`、默认模型、候选数量和历史窗口看起来未生效。

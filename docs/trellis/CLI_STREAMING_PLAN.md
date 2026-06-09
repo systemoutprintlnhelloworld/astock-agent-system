@@ -35,17 +35,40 @@ python -m astock_agent_system.cli agent benchmark [--models MODEL1,MODEL2] [--of
 
 ## 实施进度
 
-### Phase 1: 事件系统基础 ✅ (部分完成)
+### 当前增强批次：整合持续学习 / 记忆 / 数据源可观察性
+
+本批次在原 CLI streaming 计划上补齐了 `docs/trellis-plan.md` 中已经落地但此前遗漏的持续学习系统：
+
+- CLI 事件类型新增 `learning_experience_recorded`、`learning_analysis_triggered`、`learning_suggestion_generated`、`memory_case_retrieved`、`data_source_switched`。
+- 新增 `src/astock_agent_system/cli_enhanced.py`，提供 Rich 优先、纯文本 fallback 的流式渲染器。
+- `python -m astock_agent_system.cli agent start` 支持前台流式运行、数据源快照、学习经验记录摘要和记忆案例检索摘要。
+- 新增 `agent status/history/stop/benchmark/learning status|suggestions|trigger/memory` 命令。
+- 新增 `datasource status` 命令，展示 provider chain 诊断。
+- 后端事件协议新增学习/记忆/数据源事件类型；新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`。
+
+推荐验证命令：
+
+```powershell
+python -m astock_agent_system.cli agent learning status --format json
+python -m astock_agent_system.cli agent learning suggestions
+python -m astock_agent_system.cli agent memory --agent-id agent-rule-baseline --format json
+python -m astock_agent_system.cli datasource status --format json
+python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist
+```
+
+### Phase 1: 事件系统基础 ✅ (增强完成)
 
 **已完成**：
 - ✅ 创建事件定义 (`AgentEvent`, `EventType`)
 - ✅ 创建事件发射器 (`AgentEventEmitter`)
 - ✅ 创建控制台订阅器 (`ConsoleSubscriber`)
 - ✅ 在`MultiAgentOrchestrator`中集成`event_emitter`参数
+- ✅ 新增学习、记忆和数据源事件类型
+- ✅ 在竞赛运行中发射 run/agent/learning 事件
 
 **待完成**：
-- ⏳ 在关键执行点发射事件（筛选、分析、决策、交易）
-- ⏳ 创建简单验证脚本
+- ⏳ 更细粒度的各 Agent 内部步骤事件（筛选、技术分析、基本面、舆情、风控）
+- ⏳ 数据源真实降级过程的持久化事件历史
 
 ### Phase 2-8: 后续阶段
 

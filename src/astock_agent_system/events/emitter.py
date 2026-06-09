@@ -22,7 +22,12 @@ EventType = Literal[
     "llm_request",
     "llm_response",
     "data_fetched",
+    "data_source_switched",
     "progress_update",
+    "learning_experience_recorded",
+    "learning_analysis_triggered",
+    "learning_suggestion_generated",
+    "memory_case_retrieved",
 ]
 
 

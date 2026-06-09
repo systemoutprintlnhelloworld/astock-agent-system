@@ -237,6 +237,31 @@ def create_app() -> FastAPI:
             ],
         }
 
+    @api.get("/api/datasource/status")
+    def get_datasource_status() -> dict[str, Any]:
+        """Return provider-chain diagnostics for CLI/TUI/GUI clients."""
+        diagnostics = DataAgent(settings=load_settings()).provider_diagnostics()
+        return {
+            "status": "ok",
+            "datasource": diagnostics,
+            "next_steps": [
+                "If the primary provider is unavailable, inspect missing credentials and provider-chain order.",
+                "CLI: python -m astock_agent_system.cli datasource status",
+            ],
+        }
+
+    @api.get("/api/datasource/history")
+    def get_datasource_history() -> dict[str, Any]:
+        """Return datasource switch history placeholder until persistent tracing is enabled."""
+        return {
+            "status": "ok",
+            "items": [],
+            "next_steps": [
+                "Datasource switch events are emitted during foreground CLI runs.",
+                "Persistent provider-switch history will be backed by the event log in a later phase.",
+            ],
+        }
+
     @api.post("/api/config")
     async def update_config(request: ConfigUpdateRequest) -> dict[str, Any]:
         overrides = _sanitize_runtime_config(request.config)
@@ -396,6 +421,24 @@ def create_app() -> FastAPI:
     @api.post("/api/agents/learning/trigger")
     def trigger_agent_learning(force: bool = False) -> dict[str, Any]:
         return {"status": "ok", "learning": trigger_learning_if_ready(force=force)}
+
+    @api.get("/api/agents/{agent_id}/memory/similar")
+    def get_agent_similar_memory(agent_id: str, stock_code: str = "", outcome: str = "", limit: int = 20) -> dict[str, Any]:
+        """Return readonly memory cases filtered by stock/outcome for CLI and future UI use."""
+        cases = AgentMemoryStore(load_settings()).list_cases(
+            agent_id=agent_id,
+            stock_code=stock_code,
+            outcome=outcome,
+            limit=max(1, min(limit, 100)),
+        )
+        return AgentMemoryResponse(
+            agent_id=agent_id,
+            items=cases,
+            next_steps=[
+                "Memory cases are readonly and isolated by model-driven agent account.",
+                "CLI: python -m astock_agent_system.cli agent memory --agent-id <agent-id>",
+            ],
+        ).model_dump(mode="json")
 
     @api.post("/api/config/test-llm")
     async def test_llm_config(request: LlmConfigCheckRequest | None = None) -> dict[str, Any]:

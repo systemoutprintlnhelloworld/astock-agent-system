@@ -9,6 +9,7 @@ from __future__ import annotations
 import copy
 import json
 import logging
+import uuid
 from dataclasses import asdict, dataclass, field
 from datetime import datetime
 from typing import Any
@@ -89,6 +90,17 @@ class MultiAgentOrchestrator:
         """
         selected_models = _normalize_models(models, self.settings.llm.default_model)
         run_date = trade_date or datetime.now().strftime("%Y-%m-%d")
+        run_id = str(uuid.uuid4())[:8]
+        self.event_emitter.emit(
+            "run_start",
+            run_id=run_id,
+            stage="competition",
+            message=f"开始运行 {len(selected_models)} 个模型的自动投资轮次",
+            models=selected_models,
+            max_count=max_count,
+            history_days=history_days,
+            trade_date=run_date,
+        )
         snapshot_by_agent = self._load_account_snapshots(selected_models) if continue_from_storage else {}
         results: list[AgentCompetitionResult] = []
 
@@ -143,7 +155,39 @@ class MultiAgentOrchestrator:
             payload["persisted"] = self._persist_competition(payload)
         should_collect_learning = persist if collect_learning is None else collect_learning
         if should_collect_learning:
+            self.event_emitter.emit(
+                "learning_analysis_triggered",
+                run_id=run_id,
+                stage="learning",
+                message="记录本轮决策经验并按阈值检查学习建议",
+            )
             payload["learning"] = self._record_learning_safely(payload)
+            learning_payload = payload["learning"] if isinstance(payload.get("learning"), dict) else {}
+            record_result = learning_payload.get("record_result", {}) if isinstance(learning_payload.get("record_result"), dict) else {}
+            status = learning_payload.get("status", learning_payload) if isinstance(learning_payload, dict) else {}
+            suggestions = status.get("suggestions", []) if isinstance(status, dict) else []
+            self.event_emitter.emit(
+                "learning_experience_recorded",
+                run_id=run_id,
+                stage="learning",
+                message=f"本轮记录经验 {record_result.get('recorded', 0)} 条",
+                learning=learning_payload,
+            )
+            if suggestions:
+                self.event_emitter.emit(
+                    "learning_suggestion_generated",
+                    run_id=run_id,
+                    stage="learning",
+                    message=f"生成 {len(suggestions)} 条学习建议，等待人工审查",
+                    suggestions=suggestions,
+                )
+        self.event_emitter.emit(
+            "run_complete",
+            run_id=run_id,
+            stage="competition",
+            message=f"运行完成，共 {len(results)} 个模型",
+            rankings=[{"rank": rank + 1, "model": item.llm_model, "return": item.total_return} for rank, item in enumerate(rankings)],
+        )
         return payload
 
     def _run_one_agent(
@@ -187,12 +231,48 @@ class MultiAgentOrchestrator:
                 continue
             override = self._llm_review_decision(stock_report, llm_model, settings)
             effective = _effective_decision(stock_report, override, settings)
-            decisions.append(_decision_row(stock_report, agent_id, llm_model, effective, override))
+            decision_row = _decision_row(stock_report, agent_id, llm_model, effective, override)
+            decisions.append(decision_row)
+            self.event_emitter.emit(
+                "decision_made",
+                run_id=run_id,
+                agent_id=agent_id,
+                model=llm_model,
+                stage="decision",
+                message=f"{llm_model} 对 {quote.stock_code} 给出 {effective['action']} 决策",
+                **decision_row,
+            )
             if effective["action"] == "BUY" and effective["position_size"] > 0:
                 target_value = account.equity(latest_prices) * effective["position_size"]
                 account.buy(quote.stock_code, quote.price, target_value, trade_date, reason="agent_buy")
+                self.event_emitter.emit(
+                    "trade_executed",
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    model=llm_model,
+                    stage="trade",
+                    message=f"模拟买入 {quote.stock_code}",
+                    stock_code=quote.stock_code,
+                    stock_name=quote.stock_name,
+                    side="BUY",
+                    price=quote.price,
+                    position_size=effective["position_size"],
+                )
             elif effective["action"] == "SELL":
                 account.sell(quote.stock_code, quote.price, None, trade_date, reason="agent_sell")
+                self.event_emitter.emit(
+                    "trade_executed",
+                    run_id=run_id,
+                    agent_id=agent_id,
+                    model=llm_model,
+                    stage="trade",
+                    message=f"模拟卖出 {quote.stock_code}",
+                    stock_code=quote.stock_code,
+                    stock_name=quote.stock_name,
+                    side="SELL",
+                    price=quote.price,
+                    position_size=effective["position_size"],
+                )
 
         self._apply_forced_stop_loss(account, latest_prices, trade_date)
         account.mark_to_market(trade_date, latest_prices)

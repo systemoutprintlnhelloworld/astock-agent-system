@@ -16,6 +16,18 @@ from astock_agent_system.agents import (
     TechnicalAnalyst,
 )
 from astock_agent_system.backtest import BacktestEngine
+from astock_agent_system.cli_enhanced import (
+    cmd_agent_benchmark,
+    cmd_agent_history,
+    cmd_agent_learning_status,
+    cmd_agent_learning_suggestions,
+    cmd_agent_learning_trigger,
+    cmd_agent_memory,
+    cmd_agent_start,
+    cmd_agent_status,
+    cmd_agent_stop,
+    cmd_datasource_status,
+)
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.llm import LLMClient, ModelBench
@@ -418,6 +430,80 @@ def build_parser() -> argparse.ArgumentParser:
     compete_parser.add_argument("--fresh-start", action="store_true", help="Ignore stored snapshots and start each account from initial capital")
     compete_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
     compete_parser.set_defaults(func=_cmd_compete)
+
+    agent_parser = subparsers.add_parser("agent", help="Run and inspect streaming model-driven agents")
+    agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
+
+    agent_start_parser = agent_subparsers.add_parser("start", help="Start a streaming agent run")
+    agent_start_parser.add_argument("--model", default="", help="Single model id to run")
+    agent_start_parser.add_argument("--models", default="", help="Comma-separated model ids; overrides --model")
+    agent_start_parser.add_argument("--offline", action="store_true", help="Force offline sample data mode")
+    agent_start_parser.add_argument("--max-count", type=int, default=3, help="Maximum candidates to analyze per model")
+    agent_start_parser.add_argument("--days", type=int, default=24, help="History days used for analysis")
+    agent_start_parser.add_argument("--initial-capital", type=float, default=None, help="Initial capital for each model account")
+    agent_start_parser.add_argument("--fresh-start", action="store_true", help="Ignore stored snapshots and start from initial capital")
+    agent_start_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
+    agent_start_parser.add_argument("--no-learning", action="store_true", help="Do not record learning experiences for this run")
+    agent_start_parser.add_argument("--verbose", action="store_true", help="Print verbose stream events")
+    agent_start_parser.add_argument("--debug", action="store_true", help="Print raw JSON events")
+    agent_start_parser.set_defaults(func=cmd_agent_start)
+
+    agent_benchmark_parser = agent_subparsers.add_parser("benchmark", help="Run streaming multi-model benchmark")
+    agent_benchmark_parser.add_argument("--models", default="", help="Comma-separated model ids")
+    agent_benchmark_parser.add_argument("--offline", action="store_true", help="Force offline sample data mode")
+    agent_benchmark_parser.add_argument("--max-count", type=int, default=3, help="Maximum candidates to analyze per model")
+    agent_benchmark_parser.add_argument("--days", type=int, default=24, help="History days used for analysis")
+    agent_benchmark_parser.add_argument("--initial-capital", type=float, default=None, help="Initial capital for each model account")
+    agent_benchmark_parser.add_argument("--fresh-start", action="store_true", help="Ignore stored snapshots and start from initial capital")
+    agent_benchmark_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
+    agent_benchmark_parser.add_argument("--no-learning", action="store_true", help="Do not record learning experiences for this run")
+    agent_benchmark_parser.add_argument("--verbose", action="store_true", help="Print verbose stream events")
+    agent_benchmark_parser.add_argument("--debug", action="store_true", help="Print raw JSON events")
+    agent_benchmark_parser.set_defaults(func=cmd_agent_benchmark)
+
+    agent_status_parser = agent_subparsers.add_parser("status", help="Show account, learning, memory, and datasource status")
+    agent_status_parser.add_argument("--model", default="", help="Model id to show")
+    agent_status_parser.add_argument("--agent-id", default="", help="Memory scope to inspect")
+    agent_status_parser.add_argument("--limit", type=int, default=20, help="Maximum memory cases to count")
+    agent_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    agent_status_parser.set_defaults(func=cmd_agent_status)
+
+    agent_history_parser = agent_subparsers.add_parser("history", help="Show local learning experience history")
+    agent_history_parser.add_argument("--model", default="", help="Filter by model id")
+    agent_history_parser.add_argument("--limit", type=int, default=20, help="Maximum experience rows")
+    agent_history_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    agent_history_parser.set_defaults(func=cmd_agent_history)
+
+    agent_stop_parser = agent_subparsers.add_parser("stop", help="Print safe stop instructions for foreground runs")
+    agent_stop_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    agent_stop_parser.set_defaults(func=cmd_agent_stop)
+
+    learning_parser = agent_subparsers.add_parser("learning", help="Inspect and trigger learning suggestions")
+    learning_subparsers = learning_parser.add_subparsers(dest="learning_command")
+    learning_status_parser = learning_subparsers.add_parser("status", help="Show learning progress")
+    learning_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    learning_status_parser.set_defaults(func=cmd_agent_learning_status)
+    learning_suggestions_parser = learning_subparsers.add_parser("suggestions", help="Show latest learning suggestions")
+    learning_suggestions_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    learning_suggestions_parser.set_defaults(func=cmd_agent_learning_suggestions)
+    learning_trigger_parser = learning_subparsers.add_parser("trigger", help="Trigger learning analysis when ready")
+    learning_trigger_parser.add_argument("--force", action="store_true", help="Analyze even if threshold is not reached")
+    learning_trigger_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    learning_trigger_parser.set_defaults(func=cmd_agent_learning_trigger)
+
+    agent_memory_parser = agent_subparsers.add_parser("memory", help="Show readonly Agent memory cases")
+    agent_memory_parser.add_argument("--agent-id", default="agent-rule-baseline", help="Agent account id to inspect")
+    agent_memory_parser.add_argument("--similar-to", default="", help="Filter by stock code")
+    agent_memory_parser.add_argument("--outcome", default="", help="Filter by outcome")
+    agent_memory_parser.add_argument("--limit", type=int, default=20, help="Maximum cases")
+    agent_memory_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    agent_memory_parser.set_defaults(func=cmd_agent_memory)
+
+    datasource_parser = subparsers.add_parser("datasource", help="Inspect market data provider-chain diagnostics")
+    datasource_subparsers = datasource_parser.add_subparsers(dest="datasource_command")
+    datasource_status_parser = datasource_subparsers.add_parser("status", help="Show datasource mode and provider-chain status")
+    datasource_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_status_parser.set_defaults(func=cmd_datasource_status)
     return parser
 
 

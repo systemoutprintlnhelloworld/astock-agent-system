@@ -53,22 +53,26 @@
 
 ### 当前进展（2026-06-09）
 
-已完成CLI流式运行器的Phase 1基础：
-- ✅ 创建事件系统 (`src/astock_agent_system/events/`)
-- ✅ `AgentEventEmitter` 和 `ConsoleSubscriber`
-- ✅ 在`MultiAgentOrchestrator`中集成事件发射
+已完成CLI流式运行器的增强基础：
+- ✅ 创建事件系统 (`src/astock_agent_system/events/`)，并补齐学习、记忆、数据源事件类型。
+- ✅ `AgentEventEmitter`、`ConsoleSubscriber` 和 Rich 优先的 `cli_enhanced.RichEventRenderer`。
+- ✅ 在`MultiAgentOrchestrator`中集成 run/agent/learning 事件发射。
+- ✅ 新增 CLI 命令：`agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status`。
+- ✅ 后端新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，并扩展 WebSocket 事件枚举。
 
 ### 下一步优先级
 
-**选项A（推荐）：MVP快速验证**
-1. 创建最小CLI命令验证事件流
-2. 运行看到实时输出后再决定是否继续完整实现
+**选项A（推荐）：验证增强 CLI 链路**
+1. 运行 `python -m astock_agent_system.cli agent learning status --format json`。
+2. 运行 `python -m astock_agent_system.cli datasource status --format json`。
+3. 运行 `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist`。
+4. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
 
 **选项B：继续完整实现**
-1. Phase 2: 扩展`cli.py`，添加`agent start/stop/status/history`命令
-2. Phase 3: 用Rich美化输出（颜色、动画、进度条）
-3. Phase 4-5: 状态查询和多模型benchmark
-4. Phase 6-8: 配置共享、API化、合并到main
+1. 让 `MasterAgent`、各分析 Agent 和 `DataAgent` 发射更细粒度的步骤/工具/降级事件。
+2. 给 `agent benchmark` 补更完整的决策风格、学习速度和错误模式统计。
+3. 把 datasource switch history 持久化到事件日志或 MongoDB。
+4. 验证通过后再合并 `tauri-rewrite` 到 `main`。
 
 详细计划见：`docs/trellis/CLI_STREAMING_PLAN.md`
 
