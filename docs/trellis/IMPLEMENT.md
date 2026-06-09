@@ -25,8 +25,12 @@
 ## 1. 当前分支和最新提交
 
 - 当前分支：`tauri-rewrite`
-- 最新提交以 `git log -1 --oneline` 为准；当前代码稳定点已推进到 `af20112 feat(tui): 完善配置向导与命令验证`，并已推送到 `origin/tauri-rewrite`。本 handoff 文档提交后可能会有后续 docs-only 提交。
-- 本 handoff 批次包含的修复：TUI 配置向导回填/脱敏/跳过无关凭证、运行态配置优先级、slash command palette 与 `/agent` 命令对齐、`/dashboard`/`/start` 运行观测、真实后端 slash 链路验证，以及 Trellis handoff 文档同步。
+- 最新提交：`dce7b0d feat(events): add event system for CLI streaming output`，已推送到 `origin/tauri-rewrite`
+- 本 handoff 批次包含的修复：
+  - ✅ CLI流式运行器Phase 1：事件系统基础框架
+  - ✅ `AgentEventEmitter`和`ConsoleSubscriber`创建
+  - ✅ `MultiAgentOrchestrator`集成事件发射
+  - ✅ 文档化CLI streaming实施计划
 
 ## 2. 当前已经完成的实现
 
