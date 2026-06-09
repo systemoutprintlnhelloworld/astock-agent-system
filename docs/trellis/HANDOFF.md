@@ -1,6 +1,6 @@
 # Trellis Handoff：下一位 AI 接手入口
 
-更新时间：2026-06-09
+更新时间：2026-06-10
 
 本文档是新开对话时给下一位 AI / 开发者的交接入口。目标是让接手者先理解项目边界、当前有效计划、最新修复、验证命令和禁止事项，再继续开发。
 
@@ -26,6 +26,8 @@
   - TUI 配置向导支持已保存配置回填、密钥状态脱敏展示、按已选数据源跳过无关凭证问询。
   - `settings.override.json` 作为本地运行态配置优先于 `.env` 的同名旧值，避免向导保存后看起来未生效。
   - `/agent` 子命令与 slash palette 补全已对齐，`/dashboard` 默认交易看板，`/start` 会自动切换到运行观测视图。
+  - 数据源诊断修复：Baostock 股票池过滤指数/退市等非正常行，Tushare/AkShare 网络或限流失败进入本轮 source cooldown，`datasource status` 显示 `dependency_installed`，`datasource test` 对缺依赖/缺凭证返回 skipped 而不是误报崩溃。
+  - 可选源补齐：`yfinance`、`jqdatasdk`、`adata` 已纳入 `.[market]`；JQData 可用 `python -m astock_agent_system.cli datasource configure-jqdata` 通过隐藏输入写入 Git 忽略的运行态配置。
   - 真实后端 slash 链路验证与 `.\start.bat -Mode delivery-check` 已通过（65 passed）。
   - modern-ui / frontend dev 默认改用 `next dev --webpack`；`npm run dev:turbo` 仅用于复现 Turbopack 问题。
 
@@ -66,11 +68,16 @@
 - ✅ 本轮已把 CLI 主验证路径切到本地默认在线模型（当前本机为 `gpt-5.5`），不再把 `--model rule-baseline` 或 `--offline` 作为通过标准。
 - ✅ `DataAgent` 在线 provider 调用已加入 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时和本轮 cooldown；`agent start` 已加入 `--timeout-seconds` 总超时，避免命令持续监听/卡住。
 - ✅ Baostock 已安装并验证 history 可用；Baostock 登录 stdout 已捕获，JSON 诊断不会被 `login success!` 污染。AkShare 当前网络下可能 empty/断连/超时，但会按诊断返回，不会阻塞。
+- ✅ Baostock universe 已过滤指数/非正常股票，避免 `sh.000003` 等指数代码被误当作 A 股个股；Tushare 频率超限和 AkShare 断连会触发本轮 source cooldown，降低重复失败噪音。
+- ✅ 已验证 Baostock `history/quote/financial`、yfinance `history/quote` 对 `600519` 可用；JQData 未配置本地凭证时明确 skipped；AData 2.9.5 当前公开行情接口可能返回空表，作为参考源而非主链前列。
 
 本轮本地验证结论（不要误读为所有外部源永久可用）：
 
 - `python -m pytest tests/test_data_agent.py tests/test_agent_descriptor_learning.py -q`：29 passed。
 - `python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json`：纯 JSON 输出；Baostock history 成功；AkShare 在当前网络下可能 empty/断连/超时但不会阻塞。
+- `python -m astock_agent_system.cli datasource test --sources baostock --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：Baostock 3 checks passed。
+- `python -m astock_agent_system.cli datasource test --sources yfinance --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：yfinance history/quote passed，financial skipped（能力未声明）。
+- `python -m astock_agent_system.cli datasource test --sources jqdata --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：未配置本地凭证时返回 skipped/missing credentials；不要把用户凭证写入命令或文档。
 - `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60`：已用本地默认 `gpt-5.5` 在线配置跑通，输出决策、学习记录、收益摘要并正常退出。
 - Tushare 当前受本地 token 频率限制影响；用户正在自行处理 token/额度。代码应只做脱敏诊断和降级，不应打印 token。
 

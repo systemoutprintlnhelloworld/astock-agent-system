@@ -2,10 +2,12 @@
 
 from __future__ import annotations
 
-import json
 import copy
+import getpass
+import json
 import queue
 import threading
+from importlib.util import find_spec
 from typing import Any
 
 from astock_agent_system.agent_learning import (
@@ -15,7 +17,7 @@ from astock_agent_system.agent_learning import (
     trigger_learning_if_ready,
 )
 from astock_agent_system.agent_memory import AgentMemoryStore
-from astock_agent_system.config import load_settings
+from astock_agent_system.config import load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
@@ -197,6 +199,45 @@ def cmd_datasource_test(args: Any) -> int:
     else:
         RichEventRenderer().render_datasource_tests(payload)
     return 0 if any(item.get("status") == "ok" for item in payload["items"]) else 1
+
+
+def cmd_datasource_configure_jqdata(args: Any) -> int:
+    """Persist JQData credentials through hidden prompts in the ignored runtime config."""
+    username = str(getattr(args, "username", "") or "").strip()
+    if not username:
+        username = input("JQData username: ").strip()
+    password = getpass.getpass("JQData password: ").strip()
+    if not username or not password:
+        print(json.dumps({"status": "error", "message": "username and password are required"}, ensure_ascii=False, indent=2))
+        return 1
+    provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
+    if not provider_chain:
+        settings = load_settings(getattr(args, "config", None))
+        provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
+    normalized_chain = []
+    for item in provider_chain + ["jqdata"]:
+        source = normalize_provider_name(item)
+        if source and source not in normalized_chain:
+            normalized_chain.append(source)
+    path = save_runtime_overrides(
+        {
+            "data": {
+                "jqdata_username": username,
+                "jqdata_password": password,
+                "provider_chain": normalized_chain,
+            }
+        }
+    )
+    payload = {
+        "status": "ok",
+        "message": "JQData credentials saved to ignored runtime config",
+        "runtime_config_path": str(path),
+        "provider_chain": normalized_chain,
+        "has_jqdata_username": True,
+        "has_jqdata_password": True,
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
 
 
 class RichEventRenderer:
@@ -522,6 +563,14 @@ def _test_one_datasource(
             "source": source,
             "status": "skipped",
             "message": "no adapter is registered; this source is documented as reference/manual workflow only",
+            "checks": [],
+        }
+    dependency_module = str(spec.get("dependency_module", ""))
+    if dependency_module and find_spec(dependency_module) is None:
+        return {
+            "source": source,
+            "status": "skipped",
+            "message": f"dependency not installed: {dependency_module}",
             "checks": [],
         }
     missing = [field for field in spec.get("credential_fields", []) if not str(getattr(settings.data, str(field), "") or "").strip()]

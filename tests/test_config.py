@@ -1,8 +1,11 @@
 from __future__ import annotations
 
+import getpass
 import json
+from types import SimpleNamespace
 
 from astock_agent_system import config as config_module
+from astock_agent_system.cli_enhanced import cmd_datasource_configure_jqdata
 from astock_agent_system.config import load_settings
 
 
@@ -140,3 +143,22 @@ def test_empty_environment_does_not_mask_runtime_overrides(monkeypatch, tmp_path
     assert settings.llm.request_profile == "auto"
     assert settings.scheduler.max_count == 1
     assert settings.scheduler.history_days == 12
+
+
+def test_datasource_configure_jqdata_persists_runtime_credentials(monkeypatch, tmp_path, capsys):
+    runtime_path = isolate_runtime_config(monkeypatch, tmp_path)
+    monkeypatch.setattr(config_module, "RUNTIME_CONFIG_PATH", runtime_path)
+    monkeypatch.setattr("builtins.input", lambda prompt="": "jq-user")
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "jq-pass")
+
+    exit_code = cmd_datasource_configure_jqdata(
+        SimpleNamespace(config=None, username="", provider_chain="tushare,baostock")
+    )
+    payload = json.loads(capsys.readouterr().out)
+    settings = load_settings()
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert settings.data.jqdata_username == "jq-user"
+    assert settings.data.jqdata_password == "jq-pass"
+    assert settings.data.provider_chain == ["tushare", "baostock", "jqdata"]

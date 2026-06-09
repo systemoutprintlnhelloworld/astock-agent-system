@@ -1,6 +1,6 @@
 # Phase 1 - Implement：当前实现状态与下一步执行计划
 
-更新时间：2026-06-09
+更新时间：2026-06-10
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
@@ -16,8 +16,17 @@
 - 本轮修复在线 provider 失败路径：Tushare `financial` 不再触发 Pandas Series 布尔判断错误，`daily_basic` 限定查询窗口；在线数据源失败后未知股票离线兜底不再抛 `KeyError`；筛选器会跳过空行情/零价格，避免第三方限频或断连导致 CLI 崩溃。
 - `datasource test` 是逐源 smoke：默认只跑快速 `history`，避免 AkShare/Tushare 全市场接口长时间卡住；支持 `--timeout-seconds` 对每个 provider/check 设置硬超时，逐源结果不会把离线 fallback 误计为 provider 成功。
 - 本轮继续修复 CLI 卡住和在线链路：`DataAgent` 对在线 provider 的 `universe/history/financial/quote` 调用增加 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时和本轮 cooldown；`agent start` 增加 `--timeout-seconds` 总超时，超时返回 124 而不是持续监听；Baostock 登录 stdout 已被捕获，避免 `login success!` 污染 JSON 输出。
+- 本轮继续排查“所有数据源都有问题”的在线诊断：Baostock 股票池会返回指数/非正常行，现已按 `type/status` 和交易所前缀过滤，避免 `sh.000003` 被归一化为无效 A 股 `000003` 后拖垮后续筛选；Tushare 频率超限、AkShare 远端断连/超时会触发本轮 source cooldown，避免一轮运行里重复打同一坏源；`datasource status` 增加 `dependency_module/dependency_installed`，区分缺依赖、缺凭证和公网源空返回。
+- 已把 `yfinance`、`jqdatasdk`、`adata` 纳入 `.[market]`/`.[all]` 可选依赖；JQData 已声明 `financial` 保守占位能力，并新增 `datasource configure-jqdata`，通过隐藏输入把本地凭证写入 Git 忽略的 `data/runtime/settings.override.json`，不在命令、文档或提交中回显真实账号密码。
 - 本轮主验证路径已改为本地默认模型在线运行，不再以 `--model rule-baseline` 或 `--offline` 作为通过标准：`python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60` 已使用本地 `gpt-5.5` 配置跑通，输出决策、学习记录、收益摘要并正常退出。
-- 已验证 `tests/test_data_agent.py tests/test_agent_descriptor_learning.py` 29 passed；`datasource test --sources baostock,akshare --checks history --timeout-seconds 10 --format json` 可返回纯 JSON：Baostock history 成功，AkShare 在当前网络下返回 empty/远端断连但不会阻塞；Tushare 当前受本地 token 频率限制影响，按用户自行处理。
+- 已验证 `tests/test_data_agent.py` 15 passed；Baostock `history/quote/financial` 对 `600519` 通过；yfinance `history/quote` 对 `600519` 通过且 `financial` 明确 skipped；JQData 未配置本地凭证时明确 skipped/missing credentials；AData 2.9.5 已安装但当前公开接口对 `600519` 返回空表，保留为手动参考源；AkShare 当前网络下仍可能 remote disconnect/timeout，但会按诊断返回并 cooldown，不再阻塞。
+
+### 本轮新增的可复现实测
+
+- `python -m astock_agent_system.cli datasource test --sources baostock --stock-code 600519 --days 5 --checks universe,history,quote,financial --timeout-seconds 12 --format json`：4 checks passed。
+- `python -m astock_agent_system.cli datasource test --sources yfinance --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：history/quote passed，financial skipped。
+- `python -m astock_agent_system.cli datasource test --sources jqdata --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：未配置凭证时 skipped/missing credentials。
+- `python -m astock_agent_system.cli datasource test --sources akshare --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：当前网络下 history 断连后整源进入 source cooldown，quote/financial 跳过，不再重复打同一坏源。
 - 下一步应继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件，并把前台 CLI 运行事件复用到后端 API/WebSocket。
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。

@@ -53,6 +53,14 @@ class BaostockProvider:
             if not raw_code:
                 continue
             stock_code = self._normalize_code(raw_code)
+            stock_type = str(row[4]).strip() if len(row) > 4 else ""
+            stock_status = str(row[5]).strip() if len(row) > 5 else ""
+            if stock_type and stock_type != "1":
+                continue
+            if stock_status and stock_status != "1":
+                continue
+            if not _is_supported_a_share_stock_code(stock_code, raw_code):
+                continue
             stock_name = str(row[1]).strip() if len(row) > 1 else stock_code
             stocks.append(StockIdentity(stock_code=stock_code, stock_name=stock_name, sector=""))
             if limit and len(stocks) >= limit:
@@ -174,3 +182,21 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     if number != number:
         return default
     return number
+
+
+def _is_supported_a_share_stock_code(stock_code: str, raw_code: str = "") -> bool:
+    """Return whether a Baostock row is a normal A-share stock code.
+
+    Baostock universe rows can include indexes such as ``sh.000001``. If those
+    are normalized to ``000001`` without filtering, the screener later asks all
+    providers for non-stock symbols like 000003/000004 and looks broken.
+    """
+    code = stock_code.strip()
+    raw = raw_code.strip().lower()
+    if len(code) != 6 or not code.isdigit():
+        return False
+    if raw.startswith("sh.") and code.startswith(("0", "3")):
+        return False
+    if raw.startswith("sz.") and code.startswith("6"):
+        return False
+    return code.startswith(("0", "2", "3", "6", "8", "9"))

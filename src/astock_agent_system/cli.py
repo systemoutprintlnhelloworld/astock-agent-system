@@ -26,6 +26,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_start,
     cmd_agent_status,
     cmd_agent_stop,
+    cmd_datasource_configure_jqdata,
     cmd_datasource_status,
     cmd_datasource_test,
 )
@@ -526,6 +527,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     datasource_test_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_test_parser.set_defaults(func=cmd_datasource_test)
+
+    datasource_jqdata_parser = datasource_subparsers.add_parser(
+        "configure-jqdata",
+        help="Save JQData credentials through hidden prompts into ignored runtime config",
+    )
+    datasource_jqdata_parser.add_argument("--username", default="", help="Optional JQData username; password is always prompted securely")
+    datasource_jqdata_parser.add_argument(
+        "--provider-chain",
+        default="",
+        help="Optional comma-separated provider chain to save; jqdata is appended when absent",
+    )
+    datasource_jqdata_parser.set_defaults(func=cmd_datasource_configure_jqdata)
     return parser
 
 

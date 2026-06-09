@@ -1,0 +1,178 @@
+{
+  "ok": true,
+  "error_type": "",
+  "error": "",
+  "session_id": "cef0dbb09fae",
+  "query": "GitHub A股 量化 数据源 Tushare AkShare Baostock JQData Qlib vnpy high star",
+  "platform": "",
+  "model": "grok-4.20-multi-agent-xhigh",
+  "primary_api_mode": "chat-completions",
+  "content": "**2026年 A股量化 GitHub 高星项目推荐（数据源 & 框架）**\n\n以下是针对**A股量化**（数据获取、回测、研究、实盘）的热门 GitHub 项目，按星数（Stars，中2026年6月数据）排序。重点覆盖了你提到的 **Tushare、AkShare、Baostock、JQData、Qlib、vnpy**，并补充了其他高星相关项目。[[1]](https://github.com/microsoft/qlib)\n\n### 星数排名（Top 高星项目）\n\n| 排名 | 仓库 | Stars | 类型 | 主要特点（A股支持） | 推荐场景 |\n|------|------|-------|------|---------------------|---------|\n| 1 | [microsoft/qlib](https://github.com/microsoft/qlib) | **44.2k** | AI量化平台 | AI/ML/RL全流程（Alpha158/360因子、cn_data），原生支持A股数据、回测、因子研究 | **研究、因子挖掘、机器学习量化**（最推荐） |\n| 2 | [vnpy/vnpy](https://github.com/vnpy/vnpy) (VeighNa) | **41.4k** | 交易框架 | 支持A股（XTP、EMT等网关）、期货（CTP）、期权；实盘执行、vnpy.alpha（ML模块）、回测 | **实盘交易、执行系统**（国内最流行） |\n| 3 | [akfamily/akshare](https://github.com/akfamily/akshare) | **20.2k** | **数据源** | 一行代码获取A股历史/实时/基本面/宏观/资金流等，聚合东方财富等多源，更新活跃 | **首选免费数据源**（强烈推荐） |\n| 4 | [bbfamily/abu](https://github.com/bbfamily/abu) | ~17k | 量化系统 | 支持A股+美股+期货，含ML策略、回测 | 全栈量化 |\n| 5 | [waditu/tushare](https://github.com/waditu/tushare) | **15.1k** | **数据源** | 经典A股历史、财务、tick数据（免费+Pro付费token） | 补充高质量/高频数据 |\n| - | yutiansut/QUANTAXIS | ~10.7k–11k | 全栈框架 | 数据+回测+模拟交易，A股支持好 | 学习全流程 |\n| - | JoinQuant/jqdatasdk | ~1.3k | 数据SDK | JoinQuant平台高质量数据 | 有JQ账号的用户 |\n\n**其他值得关注的高星/实用项目（4k–6k stars）：**\n- **1nchaos/adata** (~4.7k)：专注A股，多数据源融合（容错强）。\n- **thuquant/awesome-quant** (~5.4k)：中文量化资源精选列表（必看）。\n- **hugo2046/QuantsPlaybook** (~5.2k)：复现券商量化研报策略，实战价值高。\n- **waditu/czsc** (~5k+)：缠论（Chan Theory）量化工具。\n\n**Baostock**：官方仓库星数较低（几百到低千级别），仍是免费A股历史数据工具，但**AkShare 已基本取代它**（更易用、数据更全）。[[2]](https://github.com/HuggingAGI/mcp-baostock-server)\n\n**JQData**：更偏商业平台/SDK，数据质量好但不是纯开源高星项目。\n\n### 实用推荐（2026年最新观点）\n\n- **数据源优先级**：**AkShare（首选）** → Tushare Pro（补充高频/特殊数据）→ adata（容错）→ Baostock/JQData（按需）。AkShare 星数已超过 Tushare，且维护更活跃，一行代码就能拿A股 `stock_zh_a_hist` 等数据。[[3]](https://github.com/akfamily/akshare)\n\n- **研究/回测/AI**：**Qlib** 是王者（Microsoft 出品），内置丰富中国市场数据集和SOTA模型，适合因子研究和机器学习。\n\n- **实盘交易**：**vnpy** 无敌，国内社区最庞大，支持主流券商/期货接口，可直接用于A股实盘。很多项目会把 AkShare/Tushare 数据接入 vnpy 或 Qlib。\n\n- **典型现代技术栈**：AkShare（数据） + Qlib（研究/回测） + vnpy（实盘执行） + 本地数据库（ArcticDB / ClickHouse）。\n\n- **学习路径**：先看 `thuquant/awesome-quant`，再跑 Qlib 的 A股示例和 vnpy 的策略模板，最后复现 `QuantsPlaybook` 中的研报策略。\n\n### 附加建议\n- 大部分项目都是 **Python** 主导，结合 Pandas、NumPy、LightGBM 等生态。\n- 数据权限：免费数据有频率限制，量化实盘建议申请 Tushare Pro 或使用券商/本地数据源。\n- 维护情况：Qlib、vnpy、AkShare 都在2026年仍有活跃更新（最近 commit 在4–5月）。\n\n需要具体仓库的安装教程、示例代码、数据获取对比、或某个项目的深入分析（例如 Qlib 如何加载A股数据），随时告诉我！这些项目星数高、社区活跃，是A股量化最可靠的开源起点。",
+  "sources": [
+    {
+      "title": "1",
+      "url": "https://github.com/microsoft/qlib"
+    },
+    {
+      "title": "2",
+      "url": "https://github.com/HuggingAGI/mcp-baostock-server"
+    },
+    {
+      "title": "3",
+      "url": "https://github.com/akfamily/akshare"
+    },
+    {
+      "url": "https://github.com/topics/akshare",
+      "provider": "firecrawl",
+      "title": "akshare · GitHub Topics",
+      "description": "基于AKShare 的A 股行情批量采集工具，支持分钟线、实时行情，内置代理轮转+ MongoDB 存储+ 定时调度，解决RemoteDisconnected问题。 python mongodb proxy stock ..."
+    },
+    {
+      "url": "https://www.vnpy.com/forum/topic/2703-yi-kuan-ji-yu-python-de-yuan-jin-rong-shu-ju-jie-kou-ku-an-li-jie-kou-tu",
+      "provider": "tavily",
+      "title": "$一款基于 Python 的$源金融数据接口库——案例、接口图 - 主题 - VeighNa量化社区",
+      "description": "#### 堕落天使\n\n##### Member\n\n加入于:\n\n帖子: 5\n\n声望: 0\n\n#7\n\n你好，我想问一下。这个库的数据有跟其他数据库进行对比吗？准确率怎么样\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n#8\n\n堕落天使 wrote:\n\n> 你好，我想问一下。这个库的数据有跟其他数据库进行对比吗？准确率怎么样  \n>  目前数据都是来自于各个网站的，大部分期货数据来自于交易所的官网，这部分数据质量还是可以，其余数据源需要谨慎使用\n\n#### 晴空\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 50\n\n声望: 1\n\n#9\n\n不错的东西，请问能拿到盘中实时数据吗 ？\n\n#### 湘水量化\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 16\n\n声望: 0\n\n#10\n\n请问支持期货盘中数据吗\n\n#### 王野\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 120\n\n声望: 2\n\n#11\n\n这个会不会最后搞成跟tushare的一样，收费\n\n#### jiang\\_10000\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 1\n\n声望: 0\n\n#12\n\n如何将AkShare 的数据应用于vnpy中？\n\n#### 七月雪\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 126\n\n声望: 4\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 0\n\njiang\\_10000 wrote:\n\n> 如何将AkShare 的数据应用于vnpy中？  \n>  大佬你这边有实现出来了嘛，我也是有这个的想法 ，\n\n 页面:\n 1\n\n#### 您确定? [...] VN.PY 首页\n 关于我们\n 产品Demo\n 社区论坛\n 使用文档\n Github\n Gitee\n\n \n\n 首页\n 关于我们\n 产品Demo\n 社区论坛\n 使用文档\n Github\n Gitee\n\n你的开源社区量化交易平台 | vn.py | vnpy\n\n 首页\n 论坛\n 用户列表\n 搜索\n\n 微信登录 \n  + 密码登录\n  + 忘记密码\n\n1. 论坛\n2. 策略应用\n3. 数据相关\n4. $一款基于 Python 的$源金融数据接口库——案例、接口图\n\n 页面:\n 1\n\n$一款基于 Python 的$源金融数据接口库——案例、接口图\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n(由 jindaxiang 最后编辑：)\n\nAkShare 是基于 Python 的开源金融数据接口库, 目的是实现对股票, 期货, 期权, 基金, 债券, 外汇等金融产品和另类数据从数据采集, 数据清洗到数据下载的工具, 满足金融数据科学家, 数据科学爱好者在数据获取方面的需求. 它的特点是利用 AkShare 获取的是基于可信任数据源发布的原始数据, 广大数据科学家可以利用原始数据进行再加工, 从而得出科学的结论.\n\n1. GitHub 地址：\n2. 示例代码：\n\n```\nimport akshare as ak hist_df = ak.stock_us_daily(symbol=\"AMZN\") # Get U.S. stock Amazon's price info print(hist_df)\n``` [...] ##### Member\n\navatar\n\n加入于:\n\n帖子: 10\n\n声望: 0\n\n#4\n\n你是作者吗？\n\n我也在用你这个库，还是很不错的，不过有个问题就是包含的东西太多了，依赖也有点多，有点杂乱的感觉。\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n(由 jindaxiang 最后编辑：)\n\n#5\n\n张加林 wrote:\n\n> 你是作者吗？\n>\n> 我也在用你这个库，还是很不错的，不过有个问题就是包含的东西太多了，依赖也有点多，有点杂乱的感觉。\n\n嗯，我是这个库的作者，安装的时候用国内的源会比较快，因为要采集数据，所以会有比较多的依赖。\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n#6\n\n更新 中国期货市场监控中心 指定的各类商品指数数据，可以参考下：\n\nCFMMC指数一览表\n\n| 指数名称 | 指定代码 |\n --- |\n| 商品期货指数 | CCFI |\n| 农产品期货指数 | CAFI |\n| 油脂油料期货指数 | OOFI |\n| 谷物期货指数 | CRFI |\n| 油脂期货指数 | OIFI |\n| 粮食期货指数 | GRFI |\n| 软商品期货指数 | SOFI |\n| 饲料期货指数 | FEFI |\n| 工业品期货指数 | CIFI |\n| 钢铁期货指数 | STFI |\n| 建材期货指数 | BMFI |\n| 能化期货指数 | ECFI |\n| 商品综合指数 | CCCI |\n| 林木综合指数 | FWCI |\n| 能化综合指数 | ECCI |\n| 金属综合指数 | MECI |\n| 农畜综合指数 | ALCI |\n\n#### 堕落天使\n\n##### Member\n\n加入于:\n\n帖子: 5"
+    }
+  ],
+  "sources_count": 5,
+  "primary_sources": [
+    {
+      "title": "1",
+      "url": "https://github.com/microsoft/qlib"
+    },
+    {
+      "title": "2",
+      "url": "https://github.com/HuggingAGI/mcp-baostock-server"
+    },
+    {
+      "title": "3",
+      "url": "https://github.com/akfamily/akshare"
+    }
+  ],
+  "primary_sources_count": 3,
+  "extra_sources": [
+    {
+      "url": "https://github.com/topics/akshare",
+      "provider": "firecrawl",
+      "title": "akshare · GitHub Topics",
+      "description": "基于AKShare 的A 股行情批量采集工具，支持分钟线、实时行情，内置代理轮转+ MongoDB 存储+ 定时调度，解决RemoteDisconnected问题。 python mongodb proxy stock ..."
+    },
+    {
+      "url": "https://www.vnpy.com/forum/topic/2703-yi-kuan-ji-yu-python-de-yuan-jin-rong-shu-ju-jie-kou-ku-an-li-jie-kou-tu",
+      "provider": "tavily",
+      "title": "$一款基于 Python 的$源金融数据接口库——案例、接口图 - 主题 - VeighNa量化社区",
+      "description": "#### 堕落天使\n\n##### Member\n\n加入于:\n\n帖子: 5\n\n声望: 0\n\n#7\n\n你好，我想问一下。这个库的数据有跟其他数据库进行对比吗？准确率怎么样\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n#8\n\n堕落天使 wrote:\n\n> 你好，我想问一下。这个库的数据有跟其他数据库进行对比吗？准确率怎么样  \n>  目前数据都是来自于各个网站的，大部分期货数据来自于交易所的官网，这部分数据质量还是可以，其余数据源需要谨慎使用\n\n#### 晴空\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 50\n\n声望: 1\n\n#9\n\n不错的东西，请问能拿到盘中实时数据吗 ？\n\n#### 湘水量化\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 16\n\n声望: 0\n\n#10\n\n请问支持期货盘中数据吗\n\n#### 王野\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 120\n\n声望: 2\n\n#11\n\n这个会不会最后搞成跟tushare的一样，收费\n\n#### jiang\\_10000\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 1\n\n声望: 0\n\n#12\n\n如何将AkShare 的数据应用于vnpy中？\n\n#### 七月雪\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 126\n\n声望: 4\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 0\n\njiang\\_10000 wrote:\n\n> 如何将AkShare 的数据应用于vnpy中？  \n>  大佬你这边有实现出来了嘛，我也是有这个的想法 ，\n\n 页面:\n 1\n\n#### 您确定? [...] VN.PY 首页\n 关于我们\n 产品Demo\n 社区论坛\n 使用文档\n Github\n Gitee\n\n \n\n 首页\n 关于我们\n 产品Demo\n 社区论坛\n 使用文档\n Github\n Gitee\n\n你的开源社区量化交易平台 | vn.py | vnpy\n\n 首页\n 论坛\n 用户列表\n 搜索\n\n 微信登录 \n  + 密码登录\n  + 忘记密码\n\n1. 论坛\n2. 策略应用\n3. 数据相关\n4. $一款基于 Python 的$源金融数据接口库——案例、接口图\n\n 页面:\n 1\n\n$一款基于 Python 的$源金融数据接口库——案例、接口图\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n(由 jindaxiang 最后编辑：)\n\nAkShare 是基于 Python 的开源金融数据接口库, 目的是实现对股票, 期货, 期权, 基金, 债券, 外汇等金融产品和另类数据从数据采集, 数据清洗到数据下载的工具, 满足金融数据科学家, 数据科学爱好者在数据获取方面的需求. 它的特点是利用 AkShare 获取的是基于可信任数据源发布的原始数据, 广大数据科学家可以利用原始数据进行再加工, 从而得出科学的结论.\n\n1. GitHub 地址：\n2. 示例代码：\n\n```\nimport akshare as ak hist_df = ak.stock_us_daily(symbol=\"AMZN\") # Get U.S. stock Amazon's price info print(hist_df)\n``` [...] ##### Member\n\navatar\n\n加入于:\n\n帖子: 10\n\n声望: 0\n\n#4\n\n你是作者吗？\n\n我也在用你这个库，还是很不错的，不过有个问题就是包含的东西太多了，依赖也有点多，有点杂乱的感觉。\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n(由 jindaxiang 最后编辑：)\n\n#5\n\n张加林 wrote:\n\n> 你是作者吗？\n>\n> 我也在用你这个库，还是很不错的，不过有个问题就是包含的东西太多了，依赖也有点多，有点杂乱的感觉。\n\n嗯，我是这个库的作者，安装的时候用国内的源会比较快，因为要采集数据，所以会有比较多的依赖。\n\n#### jindaxiang\n\n##### Member\n\navatar\n\n加入于:\n\n帖子: 7\n\n声望: 1\n\n#6\n\n更新 中国期货市场监控中心 指定的各类商品指数数据，可以参考下：\n\nCFMMC指数一览表\n\n| 指数名称 | 指定代码 |\n --- |\n| 商品期货指数 | CCFI |\n| 农产品期货指数 | CAFI |\n| 油脂油料期货指数 | OOFI |\n| 谷物期货指数 | CRFI |\n| 油脂期货指数 | OIFI |\n| 粮食期货指数 | GRFI |\n| 软商品期货指数 | SOFI |\n| 饲料期货指数 | FEFI |\n| 工业品期货指数 | CIFI |\n| 钢铁期货指数 | STFI |\n| 建材期货指数 | BMFI |\n| 能化期货指数 | ECFI |\n| 商品综合指数 | CCCI |\n| 林木综合指数 | FWCI |\n| 能化综合指数 | ECCI |\n| 金属综合指数 | MECI |\n| 农畜综合指数 | ALCI |\n\n#### 堕落天使\n\n##### Member\n\n加入于:\n\n帖子: 5"
+    }
+  ],
+  "extra_sources_count": 2,
+  "source_warning": "extra_sources are retrieved in parallel and are not automatically used to verify generated content; use fetch on key URLs for claim-level evidence.",
+  "routing_decision": {
+    "docs_intent": false,
+    "zh_current_intent": false,
+    "web_current_intent": false,
+    "fetch_intent": false,
+    "supplemental_paths": [],
+    "validation_level": "balanced",
+    "fallback_mode": "auto",
+    "providers": "auto",
+    "main_search_chain": [
+      "openai-compatible"
+    ],
+    "openai_compatible_stream": true
+  },
+  "providers_used": [
+    "OpenAI-compatible",
+    "tavily",
+    "firecrawl"
+  ],
+  "provider_attempts": [
+    {
+      "capability": "main_search",
+      "provider": "OpenAI-compatible",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 40911.83,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "tavily",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 43777.49,
+      "result_count": 1
+    },
+    {
+      "capability": "web_search",
+      "provider": "firecrawl",
+      "status": "ok",
+      "error_type": "",
+      "error": "",
+      "elapsed_ms": 43777.49,
+      "result_count": 1
+    }
+  ],
+  "fallback_used": true,
+  "validation_level": "balanced",
+  "minimum_profile_ok": true,
+  "capability_status": {
+    "main_search": {
+      "configured": [
+        "openai-compatible"
+      ],
+      "fallback_chain": [
+        "xai-responses",
+        "openai-compatible"
+      ],
+      "ok": true
+    },
+    "web_search": {
+      "configured": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "fallback_chain": [
+        "zhipu",
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "docs_search": {
+      "configured": [
+        "context7",
+        "exa"
+      ],
+      "fallback_chain": [
+        "context7",
+        "exa"
+      ],
+      "ok": true
+    },
+    "web_fetch": {
+      "configured": [
+        "tavily",
+        "firecrawl"
+      ],
+      "fallback_chain": [
+        "tavily",
+        "firecrawl"
+      ],
+      "ok": true
+    },
+    "vertical_search": {
+      "configured": [
+        "anysearch"
+      ],
+      "fallback_chain": [
+        "anysearch"
+      ],
+      "experimental": true,
+      "ok": true
+    }
+  },
+  "elapsed_ms": 43777.49
+}

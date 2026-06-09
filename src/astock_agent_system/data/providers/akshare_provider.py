@@ -109,7 +109,7 @@ class AkShareProvider:
                 df = df[df['日期'] >= cutoff]
         except Exception as exc:
             logger.warning(f"Failed to fetch history for {stock_code}: {exc}")
-            return []
+            raise
         
         if df is None or df.empty:
             return []

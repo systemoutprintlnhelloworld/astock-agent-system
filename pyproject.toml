@@ -17,7 +17,7 @@ dependencies = [
 ui = ["streamlit>=1.34"]
 tui = ["prompt-toolkit>=3.0.47", "InquirerPy>=0.3.4", "rich>=13.7.1"]
 storage = ["pymongo>=4.6", "redis>=5.0"]
-market = ["tushare>=1.4", "akshare>=1.15", "baostock", "yfinance"]
+market = ["tushare>=1.4", "akshare>=1.15", "baostock", "yfinance", "jqdatasdk", "adata"]
 backtest = ["backtrader>=1.9"]
 agent = ["langgraph>=0.2"]
 scheduler = ["APScheduler>=3.10"]
@@ -36,6 +36,8 @@ all = [
   "akshare>=1.15",
   "baostock",
   "yfinance",
+  "jqdatasdk",
+  "adata",
   "backtrader>=1.9",
   "langgraph>=0.2",
   "APScheduler>=3.10",

@@ -10,7 +10,7 @@ from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
 from astock_agent_system.data.providers.alpha_vantage_provider import AlphaVantageProvider
-from astock_agent_system.data.providers.baostock_provider import BaostockProvider
+from astock_agent_system.data.providers.baostock_provider import BaostockProvider, _is_supported_a_share_stock_code
 from astock_agent_system.data.providers.tushare_provider import TushareProvider
 from astock_agent_system.models import StockBar
 
@@ -61,6 +61,7 @@ def test_provider_catalog_normalizes_aliases_and_redacts_credentials(monkeypatch
     assert normalize_provider_name("同花顺") == "ths_skill"
     assert provider_supports("akshare", "financial") is True
     assert provider_supports("baostock", "financial") is True
+    assert provider_supports("jqdata", "financial") is True
     assert "secret-tushare-token" not in serialized
     assert "secret-alpha-key" not in serialized
     assert "secret-password" not in serialized
@@ -235,6 +236,45 @@ def test_baostock_login_stdout_is_suppressed(monkeypatch, capsys):
     assert capsys.readouterr().out == ""
 
 
+def test_baostock_universe_filters_indexes_and_inactive_rows(monkeypatch):
+    class _FakeResult:
+        error_code = "0"
+        error_msg = ""
+
+        def __init__(self, rows: list[list[str]]) -> None:
+            self.rows = rows
+            self.index = -1
+
+        def next(self) -> bool:
+            self.index += 1
+            return self.index < len(self.rows)
+
+        def get_row_data(self) -> list[str]:
+            return self.rows[self.index]
+
+    def _login() -> SimpleNamespace:
+        return SimpleNamespace(error_code="0", error_msg="")
+
+    def _query_stock_basic() -> _FakeResult:
+        return _FakeResult(
+            [
+                ["sh.000003", "上证指数样例", "", "", "2", "1"],
+                ["sz.000004", "退市样例", "", "", "1", "0"],
+                ["sz.000001", "平安银行", "", "", "1", "1"],
+                ["sh.600519", "贵州茅台", "", "", "1", "1"],
+            ]
+        )
+
+    monkeypatch.setitem(sys.modules, "baostock", SimpleNamespace(login=_login, query_stock_basic=_query_stock_basic))
+
+    provider = BaostockProvider()
+    stocks = provider.get_universe(limit=10)
+
+    assert [stock.stock_code for stock in stocks] == ["000001", "600519"]
+    assert _is_supported_a_share_stock_code("000003", "sh.000003") is False
+    assert _is_supported_a_share_stock_code("600519", "sh.600519") is True
+
+
 def test_datasource_smoke_command_classifies_skipped_sources(monkeypatch, capsys):
     monkeypatch.setenv("DATA_MODE", "online")
     monkeypatch.setenv("DATA_PROVIDER_CHAIN", "tushare,ths_skill")
@@ -312,6 +352,47 @@ def test_provider_error_cooldown_skips_repeated_failed_operation(monkeypatch):
     assert _FailingAkshareProvider.calls == 1
     assert any(
         item["source"] == "akshare" and item["operation"] == "financial" and item["status"] == "skipped"
+        for item in diagnostics["attempts"]
+    )
+
+
+def test_provider_rate_limit_sets_sourcewide_cooldown(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "online")
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "tushare")
+    monkeypatch.setenv("TUSHARE_TOKEN", "dummy-token")
+    monkeypatch.setenv("LLM_API_KEY", "")
+
+    class _RateLimitedTushareProvider:
+        history_calls = 0
+        quote_calls = 0
+
+        def __init__(self, token: str | None = None) -> None:
+            self.token = token
+
+        def get_history(self, stock_code: str, days: int = 30, **_: object) -> list[StockBar]:
+            type(self).history_calls += 1
+            raise RuntimeError("抱歉，您访问接口(daily_basic)频率超限(1次/小时)")
+
+        def get_quote(self, stock_code: str):
+            type(self).quote_calls += 1
+            raise RuntimeError("quote should be skipped after rate limit")
+
+    import astock_agent_system.data.providers as providers
+
+    monkeypatch.setattr(providers, "TushareProvider", _RateLimitedTushareProvider)
+    data_agent = DataAgent(settings=load_settings())
+
+    bars = data_agent.get_history("600519", days=3)
+    quote = data_agent.get_quote("600519")
+    diagnostics = data_agent.provider_diagnostics()
+
+    assert len(bars) == 3
+    assert quote.price > 0
+    assert _RateLimitedTushareProvider.history_calls == 1
+    assert _RateLimitedTushareProvider.quote_calls == 0
+    assert any(item["source"] == "tushare" for item in diagnostics["global_cooldowns"])
+    assert any(
+        item["source"] == "tushare" and item["operation"] == "quote" and item["status"] == "skipped"
         for item in diagnostics["attempts"]
     )
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import importlib.util
 import logging
 import os
 import queue
@@ -35,6 +36,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "tushare": {
         "display_name": "Tushare Pro",
         "class_name": "TushareProvider",
+        "dependency_module": "tushare",
         "capabilities": ["universe", "history", "financial", "quote"],
         "credential_fields": ["tushare_token"],
         "default_chain": True,
@@ -44,6 +46,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "baostock": {
         "display_name": "Baostock",
         "class_name": "BaostockProvider",
+        "dependency_module": "baostock",
         "capabilities": ["universe", "history", "financial", "quote"],
         "credential_fields": [],
         "default_chain": True,
@@ -53,6 +56,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "akshare": {
         "display_name": "AkShare",
         "class_name": "AkShareProvider",
+        "dependency_module": "akshare",
         "capabilities": ["universe", "history", "financial", "quote"],
         "credential_fields": [],
         "default_chain": True,
@@ -62,6 +66,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "adata": {
         "display_name": "AData",
         "class_name": "ADataProvider",
+        "dependency_module": "adata",
         "capabilities": ["universe", "history", "quote"],
         "credential_fields": [],
         "default_chain": False,
@@ -71,6 +76,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "openbb": {
         "display_name": "OpenBB",
         "class_name": "OpenBBProvider",
+        "dependency_module": "openbb",
         "capabilities": ["history", "quote"],
         "credential_fields": [],
         "default_chain": False,
@@ -89,6 +95,7 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "yfinance": {
         "display_name": "yfinance",
         "class_name": "YFinanceProvider",
+        "dependency_module": "yfinance",
         "capabilities": ["history", "quote"],
         "credential_fields": [],
         "default_chain": False,
@@ -107,7 +114,8 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "jqdata": {
         "display_name": "JQData / 聚宽",
         "class_name": "JQDataProvider",
-        "capabilities": ["universe", "history", "quote"],
+        "dependency_module": "jqdatasdk",
+        "capabilities": ["universe", "history", "financial", "quote"],
         "credential_fields": ["jqdata_username", "jqdata_password"],
         "default_chain": False,
         "suitability": "适合有聚宽账号时补充A股研究数据。",
@@ -145,6 +153,10 @@ def build_provider_catalog(settings: Settings | None = None) -> list[dict[str, A
     items: list[dict[str, Any]] = []
     for source, spec in PROVIDER_CATALOG.items():
         credential_fields = [str(item) for item in spec.get("credential_fields", [])]
+        dependency_module = str(spec.get("dependency_module", ""))
+        dependency_installed = True
+        if dependency_module:
+            dependency_installed = importlib.util.find_spec(dependency_module) is not None
         missing_credentials = [
             field_name
             for field_name in credential_fields
@@ -161,6 +173,8 @@ def build_provider_catalog(settings: Settings | None = None) -> list[dict[str, A
                 "has_credentials": not missing_credentials,
                 "missing_credentials": missing_credentials,
                 "adapter_available": bool(spec.get("class_name")),
+                "dependency_module": dependency_module,
+                "dependency_installed": dependency_installed,
                 "suitability": spec.get("suitability", ""),
                 "limitations": list(spec.get("limitations", [])),
             }
@@ -192,6 +206,7 @@ class DataAgent:
         self._provider_cache: dict[str, Any] = {}
         self._provider_attempts: list[dict[str, str]] = []
         self._provider_cooldowns: dict[tuple[str, str], str] = {}
+        self._provider_global_cooldowns: dict[str, str] = {}
         self._universe_cache: list[StockIdentity] | None = None
         self._history_cache: dict[tuple[str, int], list[StockBar]] = {}
         self._financial_cache: dict[str, FinancialSnapshot] = {}
@@ -219,6 +234,10 @@ class DataAgent:
             "cooldowns": [
                 {"source": source, "operation": operation, "reason": reason}
                 for (source, operation), reason in self._provider_cooldowns.items()
+            ],
+            "global_cooldowns": [
+                {"source": source, "reason": reason}
+                for source, reason in self._provider_global_cooldowns.items()
             ],
             "offline_data_path": str(self.data_path),
         }
@@ -434,6 +453,9 @@ class DataAgent:
 
     def _iter_online_providers(self, capability: str | None = None):
         for source in self._configured_provider_chain():
+            if source in self._provider_global_cooldowns:
+                self._record_provider_attempt(source, capability or "init", "skipped", self._provider_global_cooldowns[source])
+                continue
             if capability and not provider_supports(source, capability):
                 self._record_provider_attempt(source, capability, "skipped", "capability not supported")
                 continue
@@ -484,6 +506,10 @@ class DataAgent:
         class_name = str(spec.get("class_name", ""))
         if not class_name:
             self._record_provider_attempt(name, "init", "skipped", "no provider adapter")
+            return None
+        dependency_module = str(spec.get("dependency_module", ""))
+        if dependency_module and importlib.util.find_spec(dependency_module) is None:
+            self._record_provider_attempt(name, "init", "skipped", f"dependency not installed: {dependency_module}")
             return None
         missing = self._missing_credentials(name)
         if missing:
@@ -553,10 +579,24 @@ class DataAgent:
             "connection aborted",
             "timeout",
             "timed out",
+            "exceeded",
             "not installed",
         ]
         if any(marker in lower or marker in text for marker in transient_markers):
             self._provider_cooldowns[(source, operation)] = f"cooldown after previous error: {text[:220]}"
+        sourcewide_markers = [
+            "频率超限",
+            "rate limit",
+            "quota",
+            "remote end closed connection",
+            "connection aborted",
+            "timeout",
+            "timed out",
+            "exceeded",
+            "not installed",
+        ]
+        if any(marker in lower or marker in text for marker in sourcewide_markers):
+            self._provider_global_cooldowns[source] = f"source cooldown after previous error: {text[:220]}"
 
     def _resolve_path(self, path: str) -> Path:
         candidate = Path(path)
