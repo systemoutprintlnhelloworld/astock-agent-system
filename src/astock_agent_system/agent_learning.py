@@ -66,7 +66,7 @@ def append_experience(entry: dict[str, Any], path: Path | None = None) -> dict[s
     normalized.setdefault("recorded_at", datetime.now().isoformat(timespec="seconds"))
     normalized.setdefault("experience_id", _stable_id(normalized))
     with target.open("a", encoding="utf-8") as file:
-        file.write(json.dumps(normalized, ensure_ascii=False, sort_keys=True) + "\n")
+        file.write(json.dumps(normalized, ensure_ascii=False, sort_keys=True, default=str) + "\n")
     return normalized
 
 

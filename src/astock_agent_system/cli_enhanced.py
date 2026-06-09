@@ -4,6 +4,8 @@ from __future__ import annotations
 
 import json
 import copy
+import queue
+import threading
 from typing import Any
 
 from astock_agent_system.agent_learning import (
@@ -32,19 +34,31 @@ def cmd_agent_start(args: Any) -> int:
 
     _render_run_header(renderer, settings, models=models, offline=bool(getattr(args, "offline", False)))
     _emit_datasource_snapshot(emitter, settings)
+    timeout_seconds = float(getattr(args, "timeout_seconds", 900.0) or 900.0)
+    orchestrator = MultiAgentOrchestrator(settings=settings, event_emitter=emitter)
     try:
-        payload = MultiAgentOrchestrator(settings=settings, event_emitter=emitter).run_competition(
-            models=models or None,
-            max_count=int(getattr(args, "max_count", 3)),
-            history_days=int(getattr(args, "days", 24)),
-            initial_capital=getattr(args, "initial_capital", None),
-            persist=not bool(getattr(args, "no_persist", False)),
-            continue_from_storage=not bool(getattr(args, "fresh_start", False)),
-            collect_learning=not bool(getattr(args, "no_learning", False)),
+        payload = _run_with_timeout(
+            lambda: orchestrator.run_competition(
+                models=models or None,
+                max_count=int(getattr(args, "max_count", 3)),
+                history_days=int(getattr(args, "days", 24)),
+                initial_capital=getattr(args, "initial_capital", None),
+                persist=not bool(getattr(args, "no_persist", False)),
+                continue_from_storage=not bool(getattr(args, "fresh_start", False)),
+                collect_learning=not bool(getattr(args, "no_learning", False)),
+            ),
+            timeout_seconds=timeout_seconds,
+            label="agent run",
         )
     except KeyboardInterrupt:
         emitter.emit("run_error", message="收到 Ctrl+C，当前前台运行已停止")
         return 130
+    except TimeoutError as exc:
+        emitter.emit("run_error", message=str(exc))
+        return 124
+    except Exception as exc:
+        emitter.emit("run_error", message=f"运行失败: {exc}")
+        return 1
 
     _emit_post_run_visibility(emitter, settings, payload)
     renderer.render_result_summary(payload)
@@ -159,6 +173,7 @@ def cmd_datasource_test(args: Any) -> int:
         requested = list(PROVIDER_CATALOG) if getattr(args, "all", False) else list(diagnostics.get("provider_chain", []))
     sources = [normalize_provider_name(item) for item in requested]
     checks = _parse_models(getattr(args, "checks", "history")) or ["history"]
+    timeout_seconds = float(getattr(args, "timeout_seconds", 15.0) or 15.0)
     payload = {
         "status": "ok",
         "stock_code": getattr(args, "stock_code", "600519"),
@@ -172,6 +187,7 @@ def cmd_datasource_test(args: Any) -> int:
                 days=int(getattr(args, "days", 5)),
                 checks=checks,
                 include_universe=bool(getattr(args, "include_universe", False)),
+                timeout_seconds=timeout_seconds,
             )
             for source in sources
         ],
@@ -495,6 +511,7 @@ def _test_one_datasource(
     days: int,
     checks: list[str] | None = None,
     include_universe: bool = False,
+    timeout_seconds: float = 15.0,
 ) -> dict[str, Any]:
     source = normalize_provider_name(source)
     spec = PROVIDER_CATALOG.get(source)
@@ -528,26 +545,11 @@ def _test_one_datasource(
             continue
         attempts_before = _provider_attempt_count(agent)
         try:
-            if operation == "universe":
-                result = agent.get_universe()
-                result_status = "ok" if result else "empty"
-                result_detail = f"{len(result)} stocks"
-            elif operation == "history":
-                result = agent.get_history(stock_code, days=days)
-                result_status = "ok" if result else "empty"
-                result_detail = f"{len(result)} bars"
-            elif operation == "financial":
-                result = agent.get_financial(stock_code)
-                ok = bool(result.stock_code)
-                result_status = "ok" if ok else "empty"
-                result_detail = f"pe={result.pe_ttm}, roe={result.roe}"
-            elif operation == "quote":
-                result = agent.get_quote(stock_code)
-                result_status = "ok" if result.price > 0 else "empty"
-                result_detail = f"price={result.price}"
-            else:
-                result_status = "skipped"
-                result_detail = "unknown operation"
+            result_status, result_detail = _run_with_timeout(
+                lambda: _run_datasource_operation(agent, operation=operation, stock_code=stock_code, days=days),
+                timeout_seconds=timeout_seconds,
+                label="provider check",
+            )
             check_results.append(
                 _source_check_result(
                     agent,
@@ -569,6 +571,49 @@ def _test_one_datasource(
         "checks": check_results,
         "attempts": agent.provider_diagnostics().get("attempts", []),
     }
+
+
+def _run_datasource_operation(agent: DataAgent, *, operation: str, stock_code: str, days: int) -> tuple[str, str]:
+    if operation == "universe":
+        result = agent.get_universe()
+        return ("ok" if result else "empty", f"{len(result)} stocks")
+    if operation == "history":
+        result = agent.get_history(stock_code, days=days)
+        return ("ok" if result else "empty", f"{len(result)} bars")
+    if operation == "financial":
+        result = agent.get_financial(stock_code)
+        ok = bool(result.stock_code)
+        return ("ok" if ok else "empty", f"pe={result.pe_ttm}, roe={result.roe}")
+    if operation == "quote":
+        result = agent.get_quote(stock_code)
+        return ("ok" if result.price > 0 else "empty", f"price={result.price}")
+    return "skipped", "unknown operation"
+
+
+def _run_with_timeout(func: Any, *, timeout_seconds: float, label: str = "operation") -> Any:
+    """Run one provider smoke operation with a hard CLI timeout.
+
+    Some free web data sources can hang inside third-party network calls. The
+    smoke command is a diagnostic command, so it must return a clear timeout
+    result instead of turning into a long-running listener.
+    """
+    result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+    def _target() -> None:
+        try:
+            result_queue.put(("ok", func()))
+        except Exception as exc:  # pragma: no cover - exercised through caller tests/network smoke
+            result_queue.put(("error", exc))
+
+    worker = threading.Thread(target=_target, daemon=True)
+    worker.start()
+    worker.join(max(0.1, float(timeout_seconds)))
+    if worker.is_alive():
+        raise TimeoutError(f"{label} exceeded {timeout_seconds:.1f}s")
+    status, value = result_queue.get_nowait()
+    if status == "error":
+        raise value
+    return value
 
 
 def _provider_attempt_count(agent: DataAgent) -> int:

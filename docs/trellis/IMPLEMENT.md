@@ -14,9 +14,11 @@
 - `src/astock_agent_system/orchestrator/multi_agent_orchestrator.py` 在竞赛运行中发射 run/agent/learning 事件，并把学习经验记录/建议生成反馈给 CLI。
 - `apps/backend/schemas.py` 扩展 WebSocket 事件枚举，`apps/backend/app.py` 新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，便于后续 GUI/TUI 复用 CLI 先验证出的可观察内容。
 - 本轮修复在线 provider 失败路径：Tushare `financial` 不再触发 Pandas Series 布尔判断错误，`daily_basic` 限定查询窗口；在线数据源失败后未知股票离线兜底不再抛 `KeyError`；筛选器会跳过空行情/零价格，避免第三方限频或断连导致 CLI 崩溃。
-- `datasource test` 是逐源 smoke：默认只跑快速 `history`，避免 AkShare/Tushare 全市场接口长时间卡住；需要完整能力核验时显式传 `--checks history,financial,quote --include-universe`。逐源结果不会把离线 fallback 误计为 provider 成功。
-- 已验证 `tests/test_data_agent.py` 10 passed、快速数据源 smoke 可区分 Tushare 可用、Baostock 缺包、AkShare 网络/空结果和 `ths_skill` 未注册 adapter；离线 `agent start --model rule-baseline --max-count 1` 已能完成决策/模拟交易/收益摘要。
-- 下一步应先验证增强 CLI 命令链路，再继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件。
+- `datasource test` 是逐源 smoke：默认只跑快速 `history`，避免 AkShare/Tushare 全市场接口长时间卡住；支持 `--timeout-seconds` 对每个 provider/check 设置硬超时，逐源结果不会把离线 fallback 误计为 provider 成功。
+- 本轮继续修复 CLI 卡住和在线链路：`DataAgent` 对在线 provider 的 `universe/history/financial/quote` 调用增加 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时和本轮 cooldown；`agent start` 增加 `--timeout-seconds` 总超时，超时返回 124 而不是持续监听；Baostock 登录 stdout 已被捕获，避免 `login success!` 污染 JSON 输出。
+- 本轮主验证路径已改为本地默认模型在线运行，不再以 `--model rule-baseline` 或 `--offline` 作为通过标准：`python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60` 已使用本地 `gpt-5.5` 配置跑通，输出决策、学习记录、收益摘要并正常退出。
+- 已验证 `tests/test_data_agent.py tests/test_agent_descriptor_learning.py` 29 passed；`datasource test --sources baostock,akshare --checks history --timeout-seconds 10 --format json` 可返回纯 JSON：Baostock history 成功，AkShare 在当前网络下返回 empty/远端断连但不会阻塞；Tushare 当前受本地 token 频率限制影响，按用户自行处理。
+- 下一步应继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件，并把前台 CLI 运行事件复用到后端 API/WebSocket。
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
 - 配置向导现在会先读取 `/api/config` 的脱敏当前配置并动态展示：非密钥字段回填已保存值，密钥字段只显示“已配置/未配置”；已配置密钥留空会保留旧值，且只对 provider chain 中被选中的数据源继续询问对应凭证。

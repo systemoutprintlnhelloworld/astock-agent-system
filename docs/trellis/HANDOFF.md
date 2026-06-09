@@ -63,13 +63,16 @@
 - ✅ 修复 Tushare `financial` Pandas Series 布尔判断错误，并为 `daily_basic` 限定查询窗口，避免无界查询。
 - ✅ 修复 CLI 事件 payload 中 `agent_id` 重复导致 `agent start --offline` 崩溃的问题，决策详情现在放入 `decision` 字段。
 - ✅ 后端新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，并扩展 WebSocket 事件枚举。
+- ✅ 本轮已把 CLI 主验证路径切到本地默认在线模型（当前本机为 `gpt-5.5`），不再把 `--model rule-baseline` 或 `--offline` 作为通过标准。
+- ✅ `DataAgent` 在线 provider 调用已加入 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时和本轮 cooldown；`agent start` 已加入 `--timeout-seconds` 总超时，避免命令持续监听/卡住。
+- ✅ Baostock 已安装并验证 history 可用；Baostock 登录 stdout 已捕获，JSON 诊断不会被 `login success!` 污染。AkShare 当前网络下可能 empty/断连/超时，但会按诊断返回，不会阻塞。
 
 本轮本地验证结论（不要误读为所有外部源永久可用）：
 
-- `python -m pytest tests/test_data_agent.py -q`：10 passed。
-- `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --stock-code 600519 --days 5 --checks history --format json`：Tushare history 成功；Baostock 当前环境缺少 `baostock` 包；AkShare 当前网络返回空/远端断连；`ths_skill` 仍是人工/参考源，未注册行情 adapter。
-- `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning`：已通过，能展示决策、模拟交易和收益摘要。
-- 在线最小 `agent start` 不应再因 Tushare Series 或未知离线样例股票崩溃；若 Tushare/免费源限频或网络失败，会降级并跳过不完整数据。联网结果仍取决于本机 token、依赖安装和第三方站点可用性。
+- `python -m pytest tests/test_data_agent.py tests/test_agent_descriptor_learning.py -q`：29 passed。
+- `python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json`：纯 JSON 输出；Baostock history 成功；AkShare 在当前网络下可能 empty/断连/超时但不会阻塞。
+- `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60`：已用本地默认 `gpt-5.5` 在线配置跑通，输出决策、学习记录、收益摘要并正常退出。
+- Tushare 当前受本地 token 频率限制影响；用户正在自行处理 token/额度。代码应只做脱敏诊断和降级，不应打印 token。
 
 ### 下一步优先级
 
@@ -77,7 +80,7 @@
 1. 运行 `python -m astock_agent_system.cli agent learning status --format json`。
 2. 运行 `python -m astock_agent_system.cli datasource status --format json`。
 3. 运行 `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --checks history --format json`，先看逐源真实状态。
-4. 运行 `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning`。
+4. 运行 `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60`，确认使用本地默认模型在线运行。
 5. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
 
 **选项B：继续完整实现**

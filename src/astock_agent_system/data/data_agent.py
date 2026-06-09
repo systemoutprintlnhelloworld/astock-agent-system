@@ -4,6 +4,9 @@ from __future__ import annotations
 
 import json
 import logging
+import os
+import queue
+import threading
 from pathlib import Path
 from typing import Any
 
@@ -41,11 +44,11 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
     "baostock": {
         "display_name": "Baostock",
         "class_name": "BaostockProvider",
-        "capabilities": ["universe", "history", "quote"],
+        "capabilities": ["universe", "history", "financial", "quote"],
         "credential_fields": [],
         "default_chain": True,
-        "suitability": "免费A股历史行情补充源，适合在 Tushare 不可用时补 K 线。",
-        "limitations": ["不提供本系统所需的完整财务快照，财务数据会继续降级。"],
+        "suitability": "免费A股历史行情补充源，适合在 Tushare 不可用时补 K 线和生成保守财务占位。",
+        "limitations": ["不提供完整财务指标；financial 仅返回基于行情的保守占位，PE/PB/ROE 等为 0。"],
     },
     "akshare": {
         "display_name": "AkShare",
@@ -170,6 +173,15 @@ def default_provider_chain() -> list[str]:
     return list(DEFAULT_PROVIDER_CHAIN)
 
 
+def _provider_timeout_seconds() -> float:
+    """Return the hard timeout for one external data-provider operation."""
+    raw_value = os.getenv("DATA_PROVIDER_TIMEOUT_SECONDS", "15")
+    try:
+        return max(0.5, float(raw_value))
+    except (TypeError, ValueError):
+        return 15.0
+
+
 class DataAgent:
     """Fetch market data, using checked-in sample data when providers are absent."""
 
@@ -179,6 +191,11 @@ class DataAgent:
         self._offline_payload: dict[str, Any] | None = None
         self._provider_cache: dict[str, Any] = {}
         self._provider_attempts: list[dict[str, str]] = []
+        self._provider_cooldowns: dict[tuple[str, str], str] = {}
+        self._universe_cache: list[StockIdentity] | None = None
+        self._history_cache: dict[tuple[str, int], list[StockBar]] = {}
+        self._financial_cache: dict[str, FinancialSnapshot] = {}
+        self._quote_cache: dict[str, StockQuote] = {}
 
     def _get_tushare_provider(self) -> Any | None:
         """Lazy load Tushare provider if token is available."""
@@ -199,29 +216,42 @@ class DataAgent:
             "provider_chain": self._configured_provider_chain(),
             "catalog": self.provider_catalog(),
             "attempts": list(self._provider_attempts[-50:]),
+            "cooldowns": [
+                {"source": source, "operation": operation, "reason": reason}
+                for (source, operation), reason in self._provider_cooldowns.items()
+            ],
             "offline_data_path": str(self.data_path),
         }
 
     def get_universe(self) -> list[StockIdentity]:
         """Get stock universe from online providers, then offline samples."""
+        if self._universe_cache is not None:
+            self._record_provider_attempt("cache", "universe", "ok", f"{len(self._universe_cache)} stocks")
+            return list(self._universe_cache)
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("universe"):
                 try:
                     limit = getattr(self.settings.data, "dynamic_universe_limit", None)
-                    stocks = provider.get_universe(limit=limit)
+                    stocks = self._run_provider_call(
+                        source,
+                        "universe",
+                        lambda: provider.get_universe(limit=limit),
+                    )
                     if stocks:
                         self._record_provider_attempt(source, "universe", "ok", f"{len(stocks)} stocks")
                         logger.info("Fetched %s stocks from %s", len(stocks), source)
+                        self._universe_cache = list(stocks)
                         return stocks
                     self._record_provider_attempt(source, "universe", "empty", "no stocks returned")
                 except Exception as exc:
                     self._record_provider_attempt(source, "universe", "error", str(exc))
+                    self._cooldown_provider(source, "universe", exc)
                     logger.warning("%s universe fetch failed: %s", source, exc)
         
         # Final fallback to offline data
         payload = self._load_offline_payload()
         self._record_provider_attempt("offline", "universe", "ok", "sample data")
-        return [
+        stocks = [
             StockIdentity(
                 stock_code=str(item["code"]),
                 stock_name=str(item.get("name", item["code"])),
@@ -229,23 +259,36 @@ class DataAgent:
             )
             for item in payload.get("stocks", [])
         ]
+        self._universe_cache = list(stocks)
+        return stocks
 
     def get_history(self, stock_code: str, days: int | None = None) -> list[StockBar]:
         """Get historical bars from provider chain, then offline samples."""
         days = days or 30
+        cache_key = (str(stock_code), int(days))
+        if cache_key in self._history_cache:
+            bars = self._history_cache[cache_key]
+            self._record_provider_attempt("cache", "history", "ok", f"{stock_code}: {len(bars)} bars")
+            return list(bars)
         
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("history"):
                 try:
                     kwargs = self._history_kwargs_for_provider(source)
-                    bars = provider.get_history(stock_code, days=days, **kwargs)
+                    bars = self._run_provider_call(
+                        source,
+                        "history",
+                        lambda: provider.get_history(stock_code, days=days, **kwargs),
+                    )
                     if bars:
                         self._record_provider_attempt(source, "history", "ok", f"{stock_code}: {len(bars)} bars")
                         logger.info("Fetched %s bars for %s from %s", len(bars), stock_code, source)
+                        self._history_cache[cache_key] = list(bars)
                         return bars
                     self._record_provider_attempt(source, "history", "empty", stock_code)
                 except Exception as exc:
                     self._record_provider_attempt(source, "history", "error", f"{stock_code}: {exc}")
+                    self._cooldown_provider(source, "history", exc)
                     logger.warning("%s history fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
@@ -256,25 +299,36 @@ class DataAgent:
         detail = stock_code if bars else f"{stock_code}: no offline sample"
         self._record_provider_attempt("offline", "history", status, detail)
         if days is not None and days > 0:
-            return bars[-days:]
+            bars = bars[-days:]
+        self._history_cache[cache_key] = list(bars)
         return bars
 
     def get_financial(self, stock_code: str) -> FinancialSnapshot:
         """Get financial data from provider chain, then offline samples."""
+        stock_key = str(stock_code)
+        if stock_key in self._financial_cache:
+            self._record_provider_attempt("cache", "financial", "ok", stock_key)
+            return self._financial_cache[stock_key]
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("financial"):
                 try:
-                    snapshot = provider.get_financial(stock_code)
+                    snapshot = self._run_provider_call(
+                        source,
+                        "financial",
+                        lambda: provider.get_financial(stock_code),
+                    )
                     self._record_provider_attempt(source, "financial", "ok", stock_code)
+                    self._financial_cache[stock_key] = snapshot
                     return snapshot
                 except Exception as exc:
                     self._record_provider_attempt(source, "financial", "error", f"{stock_code}: {exc}")
+                    self._cooldown_provider(source, "financial", exc)
                     logger.warning("%s financial fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
         record = self._get_stock_record(stock_code, strict=False)
         raw = record.get("financial", {})
-        return FinancialSnapshot(
+        snapshot = FinancialSnapshot(
             stock_code=str(record["code"]),
             stock_name=str(record.get("name", record["code"])),
             report_date=str(raw.get("report_date", self._load_offline_payload().get("as_of", ""))),
@@ -287,17 +341,29 @@ class DataAgent:
             market_cap=float(raw.get("market_cap", 0.0)),
             sector=str(record.get("sector", "")),
         )
+        self._financial_cache[stock_key] = snapshot
+        return snapshot
 
     def get_quote(self, stock_code: str) -> StockQuote:
         """Get latest quote from provider chain, then offline samples."""
+        stock_key = str(stock_code)
+        if stock_key in self._quote_cache:
+            self._record_provider_attempt("cache", "quote", "ok", stock_key)
+            return self._quote_cache[stock_key]
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("quote"):
                 try:
-                    quote = provider.get_quote(stock_code)
+                    quote = self._run_provider_call(
+                        source,
+                        "quote",
+                        lambda: provider.get_quote(stock_code),
+                    )
                     self._record_provider_attempt(source, "quote", "ok", stock_code)
+                    self._quote_cache[stock_key] = quote
                     return quote
                 except Exception as exc:
                     self._record_provider_attempt(source, "quote", "error", f"{stock_code}: {exc}")
+                    self._cooldown_provider(source, "quote", exc)
                     logger.warning("%s quote fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
@@ -307,7 +373,7 @@ class DataAgent:
             bars = self.get_history(stock_code, days=2)
             if not bars:
                 self._record_provider_attempt("offline", "quote", "empty", f"{stock_code}: no quote or history")
-                return StockQuote(
+                quote_obj = StockQuote(
                     stock_code=str(record["code"]),
                     stock_name=str(record.get("name", record["code"])),
                     date=str(self._load_offline_payload().get("as_of", "")),
@@ -317,10 +383,12 @@ class DataAgent:
                     amount=0.0,
                     sector=str(record.get("sector", "")),
                 )
+                self._quote_cache[stock_key] = quote_obj
+                return quote_obj
             latest = bars[-1]
             previous_close = bars[-2].close if len(bars) > 1 else latest.close
             change_pct = (latest.close - previous_close) / previous_close if previous_close else 0.0
-            return StockQuote(
+            quote_obj = StockQuote(
                 stock_code=str(record["code"]),
                 stock_name=str(record.get("name", record["code"])),
                 date=latest.date,
@@ -330,7 +398,9 @@ class DataAgent:
                 amount=latest.amount,
                 sector=str(record.get("sector", "")),
             )
-        return StockQuote(
+            self._quote_cache[stock_key] = quote_obj
+            return quote_obj
+        quote_obj = StockQuote(
             stock_code=str(record["code"]),
             stock_name=str(record.get("name", record["code"])),
             date=str(quote.get("date", self._load_offline_payload().get("as_of", ""))),
@@ -340,6 +410,8 @@ class DataAgent:
             amount=float(quote.get("amount", 0.0)),
             sector=str(record.get("sector", "")),
         )
+        self._quote_cache[stock_key] = quote_obj
+        return quote_obj
 
     def refresh_from_providers(self) -> bool:
         """Return whether at least one configured online provider can initialize.
@@ -365,9 +437,38 @@ class DataAgent:
             if capability and not provider_supports(source, capability):
                 self._record_provider_attempt(source, capability, "skipped", "capability not supported")
                 continue
+            if capability and (source, capability) in self._provider_cooldowns:
+                self._record_provider_attempt(source, capability, "skipped", self._provider_cooldowns[(source, capability)])
+                continue
             provider = self._get_provider(source)
             if provider is not None:
                 yield source, provider
+
+    def _run_provider_call(self, source: str, operation: str, func: Any) -> Any:
+        """Run an external provider call with a hard timeout.
+
+        Free web sources such as AkShare and Baostock can occasionally hang in
+        third-party network code. Online CLI runs must remain bounded and fall
+        through the provider chain instead of turning into a long-running wait.
+        """
+        timeout_seconds = _provider_timeout_seconds()
+        result_queue: queue.Queue[tuple[str, Any]] = queue.Queue(maxsize=1)
+
+        def _target() -> None:
+            try:
+                result_queue.put(("ok", func()))
+            except Exception as exc:  # pragma: no cover - depends on external providers
+                result_queue.put(("error", exc))
+
+        worker = threading.Thread(target=_target, daemon=True, name=f"data-provider-{source}-{operation}")
+        worker.start()
+        worker.join(timeout_seconds)
+        if worker.is_alive():
+            raise TimeoutError(f"{source} {operation} exceeded {timeout_seconds:.1f}s")
+        status, value = result_queue.get_nowait()
+        if status == "error":
+            raise value
+        return value
 
     def _get_provider(self, source: str) -> Any | None:
         name = normalize_provider_name(source)
@@ -440,6 +541,22 @@ class DataAgent:
             }
         )
         self._provider_attempts = self._provider_attempts[-100:]
+
+    def _cooldown_provider(self, source: str, operation: str, exc: Exception) -> None:
+        """Skip repeated calls to a provider operation after likely run-wide failures."""
+        text = str(exc)
+        lower = text.lower()
+        transient_markers = [
+            "频率超限",
+            "rate limit",
+            "remote end closed connection",
+            "connection aborted",
+            "timeout",
+            "timed out",
+            "not installed",
+        ]
+        if any(marker in lower or marker in text for marker in transient_markers):
+            self._provider_cooldowns[(source, operation)] = f"cooldown after previous error: {text[:220]}"
 
     def _resolve_path(self, path: str) -> Path:
         candidate = Path(path)

@@ -1,6 +1,8 @@
 from __future__ import annotations
 
 import json
+import sys
+import time
 from types import SimpleNamespace
 
 from astock_agent_system.cli_enhanced import cmd_datasource_test
@@ -8,6 +10,7 @@ from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
 from astock_agent_system.data.providers.alpha_vantage_provider import AlphaVantageProvider
+from astock_agent_system.data.providers.baostock_provider import BaostockProvider
 from astock_agent_system.data.providers.tushare_provider import TushareProvider
 from astock_agent_system.models import StockBar
 
@@ -57,7 +60,7 @@ def test_provider_catalog_normalizes_aliases_and_redacts_credentials(monkeypatch
     assert normalize_provider_name("alpha-vantage") == "alpha_vantage"
     assert normalize_provider_name("同花顺") == "ths_skill"
     assert provider_supports("akshare", "financial") is True
-    assert provider_supports("baostock", "financial") is False
+    assert provider_supports("baostock", "financial") is True
     assert "secret-tushare-token" not in serialized
     assert "secret-alpha-key" not in serialized
     assert "secret-password" not in serialized
@@ -219,6 +222,19 @@ def test_tushare_financial_handles_series_like_rows_without_truth_check():
     assert snapshot.market_cap == 10000000.0
 
 
+def test_baostock_login_stdout_is_suppressed(monkeypatch, capsys):
+    def _login() -> SimpleNamespace:
+        print("login success!")
+        return SimpleNamespace(error_code="0", error_msg="")
+
+    monkeypatch.setitem(sys.modules, "baostock", SimpleNamespace(login=_login))
+
+    provider = BaostockProvider()
+    provider._get_bs()
+
+    assert capsys.readouterr().out == ""
+
+
 def test_datasource_smoke_command_classifies_skipped_sources(monkeypatch, capsys):
     monkeypatch.setenv("DATA_MODE", "online")
     monkeypatch.setenv("DATA_PROVIDER_CHAIN", "tushare,ths_skill")
@@ -268,3 +284,67 @@ def test_datasource_smoke_does_not_count_offline_fallback_as_source_success(monk
     assert item["status"] == "error"
     assert item["checks"][0]["status"] == "error"
     assert "simulated provider outage" in item["checks"][0]["detail"]
+
+
+def test_provider_error_cooldown_skips_repeated_failed_operation(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "online")
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "akshare")
+    monkeypatch.setenv("LLM_API_KEY", "")
+
+    class _FailingAkshareProvider:
+        calls = 0
+
+        def get_financial(self, stock_code: str):
+            type(self).calls += 1
+            raise RuntimeError(f"Connection aborted for {stock_code}")
+
+    import astock_agent_system.data.providers as providers
+
+    monkeypatch.setattr(providers, "AkShareProvider", _FailingAkshareProvider)
+    data_agent = DataAgent(settings=load_settings())
+
+    first = data_agent.get_financial("600519")
+    second = data_agent.get_financial("000333")
+    diagnostics = data_agent.provider_diagnostics()
+
+    assert first.stock_code == "600519"
+    assert second.stock_code == "000333"
+    assert _FailingAkshareProvider.calls == 1
+    assert any(
+        item["source"] == "akshare" and item["operation"] == "financial" and item["status"] == "skipped"
+        for item in diagnostics["attempts"]
+    )
+
+
+def test_provider_call_timeout_falls_back_without_hanging(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "online")
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "akshare")
+    monkeypatch.setenv("DATA_PROVIDER_TIMEOUT_SECONDS", "0.1")
+    monkeypatch.setenv("LLM_API_KEY", "")
+
+    class _HungAkshareProvider:
+        calls = 0
+
+        def get_history(self, stock_code: str, days: int = 30, **_: object) -> list[StockBar]:
+            type(self).calls += 1
+            time.sleep(5)
+            return []
+
+    import astock_agent_system.data.providers as providers
+
+    monkeypatch.setattr(providers, "AkShareProvider", _HungAkshareProvider)
+    data_agent = DataAgent(settings=load_settings())
+
+    started = time.perf_counter()
+    bars = data_agent.get_history("600519", days=3)
+    elapsed = time.perf_counter() - started
+    diagnostics = data_agent.provider_diagnostics()
+
+    assert len(bars) == 3
+    assert elapsed < 1.0
+    assert _HungAkshareProvider.calls == 1
+    assert any(
+        item["source"] == "akshare" and item["operation"] == "history" and item["status"] == "error"
+        and "exceeded" in item["detail"]
+        for item in diagnostics["attempts"]
+    )

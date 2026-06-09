@@ -15,7 +15,7 @@
 - Baostock / AkShare：免费 A 股补充源，可安装 `.[market]` 后作为降级链使用。
 - Alpha Vantage / JQData：只有在用户本地维护相应凭证时才启用。
 
-建议先保留 `rule-baseline`，这样 LLM 临时不可用时仍有规则基线账户可跑。
+建议把本地 `.env` 中的 `LLM_DEFAULT_MODEL` 指向你当前可用的在线模型（例如本机网关中的 `gpt-5.5`），这样 CLI 和 TUI 会优先使用本地默认模型跑在线链路；`rule-baseline` 仅作为可选回退，不再作为主验证路径。
 
 ## 2. `.env` 推荐配置
 
@@ -48,7 +48,7 @@ MONGO_DB=astock_agent_system
 MONGO_TIMEOUT_MS=3000
 REDIS_URL=redis://localhost:6379/0
 
-SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
+SCHEDULER_MODELS=gpt-5.5
 SCHEDULER_DAILY_RUN_TIME=15:05
 STOP_LOSS_INTERVAL_MINUTES=5
 ```
@@ -139,6 +139,17 @@ python -m astock_agent_system.cli run-daily --max-count 3 --days 24
 
 如果 Tushare/Baostock/AkShare 暂时失败，`DataAgent` 会按 provider chain 尝试降级到可用数据源，最终回到离线样例。
 在线 provider 失败不会再因为离线样例缺少某只在线股票而抛 `KeyError`；未知股票会生成保守空占位，筛选器会跳过空行情或零价格数据。
+`datasource test` 现在支持 `--timeout-seconds`，可以对每个 provider/check 设置硬超时，避免 AkShare 这类免费网页源把诊断命令卡住：
+
+```powershell
+python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json
+```
+
+验证结果说明：
+
+- Baostock 当前可作为无鉴权历史行情补充源使用，JSON 输出不会被 `login success!` 污染。
+- AkShare 在当前网络环境下可能返回 empty、断连或超时；这属于外部服务状态，不再让 CLI 无限等待。
+- Tushare 频率限制仍由你本地 token 配额决定；当它超限时，系统会继续降级，不会把离线 fallback 误判为已接通的在线源。
 
 数据源诊断接口：
 
@@ -159,7 +170,7 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 等价 CLI：
 
 ```powershell
-python -m astock_agent_system.cli scheduler run-auto-investment --models "rule-baseline,gpt-5.4-mini" --max-count 3 --days 24
+python -m astock_agent_system.cli scheduler run-auto-investment --models "gpt-5.5" --max-count 3 --days 24
 ```
 
 通过标准：
@@ -253,8 +264,9 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 
 - `LLM_BASE_URL` 使用带 `/v1` 的 OpenAI-compatible 网关。
 - `bench --list-models` 可返回模型列表。
-- `gpt-5.4-mini` 单模型 JSON smoke 通过。
+- 本轮主验证路径为本地默认 `LLM_DEFAULT_MODEL=gpt-5.5`：
+  `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60` 已完成并正常退出。
+- CLI 数据源快速 smoke 可区分逐源真实状态：Baostock history 成功；AkShare 在当前网络下可能 empty/断连/超时但不会阻塞；Tushare 当前受本地 token 频率限制影响，由用户自行处理配额。
 - 在线自动投资可运行；同一交易日重复运行会触发幂等跳过，避免重复买入。
-- CLI 数据源快速 smoke 可区分逐源真实状态：Tushare history 在本机 token/额度可用时成功；Baostock 需要安装 `baostock` 包；AkShare 受公开网页源网络和远端稳定性影响；同花顺 Skill 当前不是行情 adapter。
 
-不同模型仍可能因账户分组、额度或渠道限制失败。遇到模型不可用时，请先换用已 bench 通过的模型，并保留 `rule-baseline` 作为兜底账户。
+不同模型仍可能因账户分组、额度或渠道限制失败。遇到模型不可用时，请先换用已 bench 通过的模型；`rule-baseline` 只是诊断回退，不再作为默认在线验证命令。

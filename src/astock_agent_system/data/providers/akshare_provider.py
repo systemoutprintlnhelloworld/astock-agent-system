@@ -44,15 +44,21 @@ class AkShareProvider:
         try:
             df = _call_with_retries(ak.stock_zh_a_spot_em)
         except Exception as exc:
-            logger.error(f"Failed to fetch stock universe from AkShare: {exc}")
-            return []
+            logger.warning(f"AkShare spot universe failed: {exc}; trying code-name list")
+            try:
+                df = _call_with_retries(ak.stock_info_a_code_name, attempts=2)
+            except Exception as fallback_exc:
+                logger.error(f"Failed to fetch stock universe from AkShare: {fallback_exc}")
+                return []
         
         stocks = []
         for _, row in df.iterrows():
-            stock_code = str(row['代码'])
+            stock_code = str(_first_existing(row, "代码", "code", "证券代码", default="")).strip()
+            if not stock_code:
+                continue
             stocks.append(StockIdentity(
                 stock_code=stock_code,
-                stock_name=str(row['名称']),
+                stock_name=str(_first_existing(row, "名称", "name", "证券简称", default=stock_code)),
                 sector=str(row.get('行业', ''))
             ))
             if limit and len(stocks) >= limit:
@@ -129,6 +135,11 @@ class AkShareProvider:
     def get_financial(self, stock_code: str) -> FinancialSnapshot:
         """Get financial data from AkShare."""
         ak = self._get_ak()
+
+        try:
+            return self._get_financial_from_individual_info(stock_code)
+        except Exception as exc:
+            logger.warning(f"AkShare individual financial failed for {stock_code}: {exc}; trying spot snapshot")
         
         try:
             # Get basic stock info
@@ -161,12 +172,28 @@ class AkShareProvider:
                 sector=str(stock_row.get('行业', ''))
             )
         except Exception as exc:
-            logger.warning(f"AkShare spot financial failed for {stock_code}: {exc}; trying individual info")
-            return self._get_financial_from_individual_info(stock_code)
+            logger.warning(f"AkShare spot financial failed for {stock_code}: {exc}; using history-only placeholder")
+            return self._get_financial_from_history(stock_code)
 
     def get_quote(self, stock_code: str) -> StockQuote:
         """Get real-time quote from AkShare."""
         ak = self._get_ak()
+
+        bars = self.get_history(stock_code, days=5, freq='daily')
+        if bars:
+            latest = bars[-1]
+            previous = bars[-2] if len(bars) > 1 else latest
+            change_pct = (latest.close - previous.close) / previous.close if previous.close else 0.0
+            return StockQuote(
+                stock_code=stock_code,
+                stock_name=stock_code,
+                date=latest.date,
+                price=latest.close,
+                change_pct=change_pct,
+                volume=latest.volume,
+                amount=latest.amount,
+                sector='',
+            )
         
         try:
             df = _call_with_retries(ak.stock_zh_a_spot_em)
@@ -188,23 +215,8 @@ class AkShareProvider:
                 sector=str(stock_row.get('行业', ''))
             )
         except Exception as exc:
-            logger.warning(f"AkShare spot quote failed for {stock_code}: {exc}; trying daily history fallback")
-            bars = self.get_history(stock_code, days=5, freq='daily')
-            if not bars:
-                raise
-            latest = bars[-1]
-            previous = bars[-2] if len(bars) > 1 else latest
-            change_pct = (latest.close - previous.close) / previous.close if previous.close else 0.0
-            return StockQuote(
-                stock_code=stock_code,
-                stock_name=stock_code,
-                date=latest.date,
-                price=latest.close,
-                change_pct=change_pct,
-                volume=latest.volume,
-                amount=latest.amount,
-                sector='',
-            )
+            logger.warning(f"AkShare spot quote failed for {stock_code}: {exc}")
+            raise
 
     def _get_financial_from_individual_info(self, stock_code: str) -> FinancialSnapshot:
         ak = self._get_ak()
@@ -227,6 +239,23 @@ class AkShareProvider:
             profit_growth=0.0,
             market_cap=_safe_float(info.get('总市值', 0.0)),
             sector=str(info.get('行业') or ''),
+        )
+
+    def _get_financial_from_history(self, stock_code: str) -> FinancialSnapshot:
+        bars = self.get_history(stock_code, days=5, freq='daily')
+        latest = bars[-1] if bars else None
+        return FinancialSnapshot(
+            stock_code=stock_code,
+            stock_name=stock_code,
+            report_date=latest.date if latest else datetime.now().strftime('%Y%m%d'),
+            pe_ttm=0.0,
+            pb=0.0,
+            roe=0.0,
+            debt_ratio=0.0,
+            revenue_growth=0.0,
+            profit_growth=0.0,
+            market_cap=0.0,
+            sector='',
         )
 
 
@@ -252,3 +281,14 @@ def _safe_float(value: Any, default: float = 0.0) -> float:
     if number != number:  # NaN guard
         return default
     return number
+
+
+def _first_existing(row: Any, *keys: str, default: Any = "") -> Any:
+    for key in keys:
+        try:
+            value = row.get(key)
+        except AttributeError:
+            value = None
+        if value is not None and str(value).strip():
+            return value
+    return default

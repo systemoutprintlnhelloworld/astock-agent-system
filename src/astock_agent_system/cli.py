@@ -435,29 +435,31 @@ def build_parser() -> argparse.ArgumentParser:
     agent_parser = subparsers.add_parser("agent", help="Run and inspect streaming model-driven agents")
     agent_subparsers = agent_parser.add_subparsers(dest="agent_command")
 
-    agent_start_parser = agent_subparsers.add_parser("start", help="Start a streaming agent run")
-    agent_start_parser.add_argument("--model", default="", help="Single model id to run")
-    agent_start_parser.add_argument("--models", default="", help="Comma-separated model ids; overrides --model")
-    agent_start_parser.add_argument("--offline", action="store_true", help="Force offline sample data mode")
+    agent_start_parser = agent_subparsers.add_parser("start", help="Start a streaming agent run using the local configured default model")
+    agent_start_parser.add_argument("--model", default="", help="Optional single model id override; empty uses local llm.default_model")
+    agent_start_parser.add_argument("--models", default="", help="Optional comma-separated model overrides; empty uses local llm.default_model")
+    agent_start_parser.add_argument("--offline", action="store_true", help="Diagnostic fallback only: force offline sample data mode")
     agent_start_parser.add_argument("--max-count", type=int, default=3, help="Maximum candidates to analyze per model")
     agent_start_parser.add_argument("--days", type=int, default=24, help="History days used for analysis")
     agent_start_parser.add_argument("--initial-capital", type=float, default=None, help="Initial capital for each model account")
     agent_start_parser.add_argument("--fresh-start", action="store_true", help="Ignore stored snapshots and start from initial capital")
     agent_start_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
     agent_start_parser.add_argument("--no-learning", action="store_true", help="Do not record learning experiences for this run")
+    agent_start_parser.add_argument("--timeout-seconds", type=float, default=900.0, help="Hard timeout for one foreground agent run")
     agent_start_parser.add_argument("--verbose", action="store_true", help="Print verbose stream events")
     agent_start_parser.add_argument("--debug", action="store_true", help="Print raw JSON events")
     agent_start_parser.set_defaults(func=cmd_agent_start)
 
     agent_benchmark_parser = agent_subparsers.add_parser("benchmark", help="Run streaming multi-model benchmark")
-    agent_benchmark_parser.add_argument("--models", default="", help="Comma-separated model ids")
-    agent_benchmark_parser.add_argument("--offline", action="store_true", help="Force offline sample data mode")
+    agent_benchmark_parser.add_argument("--models", default="", help="Optional comma-separated model ids; empty uses local llm.default_model")
+    agent_benchmark_parser.add_argument("--offline", action="store_true", help="Diagnostic fallback only: force offline sample data mode")
     agent_benchmark_parser.add_argument("--max-count", type=int, default=3, help="Maximum candidates to analyze per model")
     agent_benchmark_parser.add_argument("--days", type=int, default=24, help="History days used for analysis")
     agent_benchmark_parser.add_argument("--initial-capital", type=float, default=None, help="Initial capital for each model account")
     agent_benchmark_parser.add_argument("--fresh-start", action="store_true", help="Ignore stored snapshots and start from initial capital")
     agent_benchmark_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
     agent_benchmark_parser.add_argument("--no-learning", action="store_true", help="Do not record learning experiences for this run")
+    agent_benchmark_parser.add_argument("--timeout-seconds", type=float, default=900.0, help="Hard timeout for one foreground benchmark run")
     agent_benchmark_parser.add_argument("--verbose", action="store_true", help="Print verbose stream events")
     agent_benchmark_parser.add_argument("--debug", action="store_true", help="Print raw JSON events")
     agent_benchmark_parser.set_defaults(func=cmd_agent_benchmark)
@@ -516,6 +518,12 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated checks to run: history,financial,quote,universe. Default keeps smoke tests fast.",
     )
     datasource_test_parser.add_argument("--include-universe", action="store_true", help="Also test full/limited universe listing when the provider supports it")
+    datasource_test_parser.add_argument(
+        "--timeout-seconds",
+        type=float,
+        default=15.0,
+        help="Hard timeout per provider/check so web sources cannot keep the CLI running forever",
+    )
     datasource_test_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_test_parser.set_defaults(func=cmd_datasource_test)
     return parser

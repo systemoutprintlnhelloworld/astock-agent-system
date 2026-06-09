@@ -393,7 +393,7 @@ class MultiAgentOrchestrator:
         try:
             recorded = record_competition_experience(payload)
             status = trigger_learning_if_ready()
-            return {"recorded": recorded, "status": status}
+            return {"recorded": recorded, "record_result": recorded, "status": status}
         except Exception as exc:  # pragma: no cover - learning persistence is best-effort
             logger.warning("Agent learning collection skipped: %s", exc)
             return {"recorded": {"recorded": 0}, "status": "skipped", "reason": str(exc)}

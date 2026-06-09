@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+from datetime import datetime
 from pathlib import Path
 
 from astock_agent_system.agent_descriptor import (
@@ -111,6 +112,23 @@ def test_learning_status_and_trigger_use_temp_files(tmp_path: Path) -> None:
     assert json.loads(suggestions_path.read_text(encoding="utf-8"))["analyzed_count"] == 3
     assert load_learning_suggestions(suggestions_path)["suggestions"]
     assert "学习分析" in evolution_path.read_text(encoding="utf-8")
+
+
+def test_append_experience_serializes_datetime_values(tmp_path: Path) -> None:
+    log_path = tmp_path / "experience.jsonl"
+
+    append_experience(
+        {
+            "date": "2026-06-09",
+            "stock_code": "600519",
+            "agent_outputs": {"decision": {"timestamp": datetime(2026, 6, 9, 10, 30)}} ,
+            "outcome": {"return_pct": 0.0},
+        },
+        path=log_path,
+    )
+
+    payload = json.loads(log_path.read_text(encoding="utf-8").splitlines()[0])
+    assert payload["agent_outputs"]["decision"]["timestamp"].startswith("2026-06-09 10:30")
 
 
 def test_tui_agent_command_and_panel_render() -> None:

@@ -34,7 +34,7 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 | 来源 | 默认链路 | 能力 | 凭证 | 适配判断 |
 | --- | --- | --- | --- | --- |
 | Tushare Pro | 是 | 股票池、历史K线、财务、报价 | `TUSHARE_TOKEN` | A 股主数据源。 |
-| Baostock | 是 | 股票池、历史K线、报价 | 无 | 免费 A 股历史行情补充源；财务指标不足。 |
+| Baostock | 是 | 股票池、历史K线、报价、保守财务占位 | 无 | 免费 A 股历史行情补充源；财务指标不足，`financial` 只生成 PE/PB/ROE 为 0 的保守占位。 |
 | AkShare | 是 | 股票池、历史K线、财务、报价 | 无 | 免费综合兜底源；网页字段可能变化。 |
 | AData | 否 | 股票池、历史K线、报价 | 无 | 第三方包 API 差异较大，作为手动可选源。 |
 | OpenBB | 否 | 历史K线、报价 | 通常无 | 更适合全球市场/宏观/港美股参考，依赖较重。 |
@@ -50,6 +50,9 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 - `/api/config` 只返回 `has_*` 布尔值，不返回密钥原文。
 - `/api/data/providers` 返回 provider chain、能力、缺失凭证和最近尝试结果，便于 GUI/TUI 诊断。
 - 任一 provider 初始化、限流、字段变化或网络失败时，`DataAgent` 继续尝试下一个 provider。
+- 在线 provider 的 `universe/history/financial/quote` 调用受 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时保护，默认 15 秒；超时后会记录 error、进入本轮 cooldown，并继续降级，避免 CLI 或后端长时间卡住。
+- Baostock 登录时第三方库可能打印 `login success!`；适配器已捕获 stdout，避免污染 `datasource test --format json` 输出。
+- AkShare 依赖公开网页源，可能出现 empty、远端断连或超时；这些会作为诊断结果返回，不代表离线 fallback 成功就是 AkShare 成功。
 - 离线样例始终是最后兜底，保证无密钥环境可运行。
 
 ## 4. 开发约定
@@ -69,6 +72,14 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 ```powershell
 Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 ```
+
+也可以不启动后端直接用 CLI 做逐源 smoke：
+
+```powershell
+python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json
+```
+
+`datasource test` 的结果只按目标 provider 本身的尝试判断成功与否；即使离线样例兜底拿到了数据，也不会把该 provider 误标为 `ok`。
 
 返回结果会包含：
 

@@ -1,5 +1,7 @@
 from __future__ import annotations
 
+import contextlib
+import io
 import logging
 from datetime import datetime, timedelta
 from typing import Any
@@ -25,7 +27,11 @@ class BaostockProvider:
             raise ImportError("baostock is not installed. Run: pip install baostock") from exc
         self._bs = bs
         if not self._logged_in:
-            login_result = self._bs.login()
+            # baostock prints "login success!" to stdout, which corrupts JSON
+            # output from diagnostic CLI commands. Capture it and rely on the
+            # returned error_code/error_msg instead.
+            with contextlib.redirect_stdout(io.StringIO()):
+                login_result = self._bs.login()
             self._logged_in = True
             if str(getattr(login_result, "error_code", "0")) not in {"0", "0000"}:
                 raise RuntimeError(f"Baostock login failed: {getattr(login_result, 'error_msg', 'unknown error')}")
