@@ -19,6 +19,7 @@ from astock_agent_system.agents import MasterAgent
 from astock_agent_system.backtest.virtual_account import VirtualAccount
 from astock_agent_system.config import Settings, load_settings
 from astock_agent_system.data import DataAgent
+from astock_agent_system.events import AgentEventEmitter
 from astock_agent_system.llm import LLMClient
 from astock_agent_system.models import StockAnalysisReport
 
@@ -58,9 +59,15 @@ class AgentCompetitionResult:
 class MultiAgentOrchestrator:
     """Run multiple LLM models as independent paper-trading agents."""
 
-    def __init__(self, settings: Settings | None = None, data_agent: DataAgent | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        data_agent: DataAgent | None = None,
+        event_emitter: AgentEventEmitter | None = None,
+    ) -> None:
         self.settings = settings or load_settings()
         self.data_agent = data_agent or DataAgent(settings=self.settings)
+        self.event_emitter = event_emitter or AgentEventEmitter()
 
     def run_competition(
         self,
@@ -85,8 +92,18 @@ class MultiAgentOrchestrator:
         snapshot_by_agent = self._load_account_snapshots(selected_models) if continue_from_storage else {}
         results: list[AgentCompetitionResult] = []
 
-        for model in selected_models:
+        for idx, model in enumerate(selected_models, 1):
             agent_id = _agent_id_for_model(model)
+            
+            self.event_emitter.emit(
+                "agent_start",
+                run_id=run_id,
+                agent_id=agent_id,
+                model=model,
+                message=f"启动智能体 {model} [{idx}/{len(selected_models)}]",
+                progress={"current": idx, "total": len(selected_models)},
+            )
+            
             model_settings = copy.deepcopy(self.settings)
             if model != "rule-baseline":
                 model_settings.llm.default_model = model
@@ -99,8 +116,20 @@ class MultiAgentOrchestrator:
                 initial_capital=initial_capital,
                 trade_date=run_date,
                 previous_snapshot=snapshot_by_agent.get(agent_id),
+                run_id=run_id,
             )
             results.append(result)
+            
+            self.event_emitter.emit(
+                "agent_complete",
+                run_id=run_id,
+                agent_id=agent_id,
+                model=model,
+                message=f"智能体 {model} 运行完成",
+                equity=result.equity,
+                total_return=result.total_return,
+                trades=result.total_trades,
+            )
 
         rankings = sorted(results, key=lambda item: item.total_return, reverse=True)
         payload = {
@@ -127,6 +156,7 @@ class MultiAgentOrchestrator:
         initial_capital: float | None,
         trade_date: str,
         previous_snapshot: dict[str, Any] | None = None,
+        run_id: str = "",
     ) -> AgentCompetitionResult:
         account = (
             VirtualAccount.from_snapshot(previous_snapshot, settings=settings, initial_capital=initial_capital)

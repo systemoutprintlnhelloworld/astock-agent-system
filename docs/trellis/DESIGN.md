@@ -22,10 +22,16 @@ Python Business Core
   ├─ src/astock_agent_system/orchestrator
   ├─ src/astock_agent_system/backtest/virtual_account.py
   ├─ src/astock_agent_system/scheduler
-  └─ src/astock_agent_system/agent_memory.py
+  ├─ src/astock_agent_system/agent_memory.py
+  └─ src/astock_agent_system/events (新增事件系统)
+
+CLI Streaming (开发中)
+  ├─ src/astock_agent_system/events/emitter.py
+  ├─ src/astock_agent_system/events/subscriber.py
+  └─ 计划扩展 cli.py 添加 agent 子命令组
 ```
 
-设计原则：`apps/backend` 和 `apps/frontend` 是产品适配层，不能把核心交易/Agent 逻辑复制到前端或 sidecar 壳里。
+设计原则：`apps/backend` 和 `apps/frontend` 是产品适配层，不能把核心交易/Agent 逻辑复制到前端或 sidecar 壳里。CLI工具直接调用业务核心，通过事件系统实现流式输出。
 
 ## 2. 关键设计决策
 
@@ -98,6 +104,26 @@ Python Business Core
 | project skills | 已有 `astock-delivery-workflow` 与 `astock-trellis-handoff` | 固化交付闭环和下一轮接手流程。 |
 
 ## 5. 下一轮设计优先级
+
+### 优先级1：CLI流式运行器（开发中）
+
+**当前进展**：
+- ✅ 事件系统基础框架（`AgentEventEmitter`, `ConsoleSubscriber`）
+- ✅ `MultiAgentOrchestrator`集成事件发射
+- ⏳ 待完成：CLI命令骨架、Rich美化、状态查询
+
+**下一步**：
+1. MVP快速验证（创建最小CLI命令，验证事件流）
+2. 或继续完整实现（Phase 2-8，详见`docs/trellis/CLI_STREAMING_PLAN.md`）
+
+**目标**：让用户通过简单命令启动智能体，实时看到带颜色格式的运行过程（筛选、分析、决策、交易、盈亏）。
+
+### 优先级2：TUI全局启动加固（暂停）
+
+用户要求先完成CLI验证，TUI优化延后。如需继续：
+1. 加固`astock-tui`全局命令（任意目录启动）
+2. `/run --watch`实时刷新
+3. 补充运行观测细节
 
 推荐顺序：
 

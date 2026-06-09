@@ -49,14 +49,35 @@
 
 ## 5. 建议下一轮立即做什么
 
-优先做 **TUI 全局启动和实时刷新加固**。GUI 连接可诊断性已完成；如果新对话明确转回 GUI，则继续做组件拆分和连接诊断增强。当前 TUI 是长期并存的调试/观测入口，应先解决任意目录启动、长程任务实时刷新和运行观测细节。
+用户明确要求**暂停TUI/GUI开发，优先通过Python CLI命令打通后端逻辑**。
+
+### 当前进展（2026-06-09）
+
+已完成CLI流式运行器的Phase 1基础：
+- ✅ 创建事件系统 (`src/astock_agent_system/events/`)
+- ✅ `AgentEventEmitter` 和 `ConsoleSubscriber`
+- ✅ 在`MultiAgentOrchestrator`中集成事件发射
+
+### 下一步优先级
+
+**选项A（推荐）：MVP快速验证**
+1. 创建最小CLI命令验证事件流
+2. 运行看到实时输出后再决定是否继续完整实现
+
+**选项B：继续完整实现**
+1. Phase 2: 扩展`cli.py`，添加`agent start/stop/status/history`命令
+2. Phase 3: 用Rich美化输出（颜色、动画、进度条）
+3. Phase 4-5: 状态查询和多模型benchmark
+4. Phase 6-8: 配置共享、API化、合并到main
+
+详细计划见：`docs/trellis/CLI_STREAMING_PLAN.md`
+
+### 如果用户改变主意继续TUI
 
 最小任务：
-
-1. 加固 `astock-tui` Windows entry point 和 `astock-tui.bat`，从任意目录启动时自动定位项目根目录。
-2. 给 `/run` 增加可选轮询/刷新参数，例如 `/run --watch` 或 `/dashboard run --watch`。
-3. 在运行观测中补充后台任务开始/结束时间、耗时、最近事件和错误摘要。
-4. 继续保持 TUI 只调用 FastAPI 后端，不在终端层复制交易逻辑。
+1. 加固 `astock-tui` 全局启动（任意目录自动定位项目根）
+2. `/run` 增加 `--watch` 实时刷新
+3. 补充运行观测细节（时间、耗时、错误摘要）
 
 ## 6. 常用验证命令
 
