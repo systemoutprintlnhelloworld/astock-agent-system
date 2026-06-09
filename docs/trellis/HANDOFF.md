@@ -58,15 +58,27 @@
 - ✅ `AgentEventEmitter`、`ConsoleSubscriber` 和 Rich 优先的 `cli_enhanced.RichEventRenderer`。
 - ✅ 在`MultiAgentOrchestrator`中集成 run/agent/learning 事件发射。
 - ✅ 新增 CLI 命令：`agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status`。
+- ✅ 新增 `datasource test` 逐源 smoke 命令，默认只做快速 `history` 检查；需要完整检查时显式传 `--checks history,financial,quote --include-universe`。
+- ✅ 修复在线数据源失败后离线样例缺失股票导致 `KeyError` 崩溃的问题；未知股票会返回保守空占位，筛选器会跳过不完整数据。
+- ✅ 修复 Tushare `financial` Pandas Series 布尔判断错误，并为 `daily_basic` 限定查询窗口，避免无界查询。
+- ✅ 修复 CLI 事件 payload 中 `agent_id` 重复导致 `agent start --offline` 崩溃的问题，决策详情现在放入 `decision` 字段。
 - ✅ 后端新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，并扩展 WebSocket 事件枚举。
+
+本轮本地验证结论（不要误读为所有外部源永久可用）：
+
+- `python -m pytest tests/test_data_agent.py -q`：10 passed。
+- `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --stock-code 600519 --days 5 --checks history --format json`：Tushare history 成功；Baostock 当前环境缺少 `baostock` 包；AkShare 当前网络返回空/远端断连；`ths_skill` 仍是人工/参考源，未注册行情 adapter。
+- `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning`：已通过，能展示决策、模拟交易和收益摘要。
+- 在线最小 `agent start` 不应再因 Tushare Series 或未知离线样例股票崩溃；若 Tushare/免费源限频或网络失败，会降级并跳过不完整数据。联网结果仍取决于本机 token、依赖安装和第三方站点可用性。
 
 ### 下一步优先级
 
 **选项A（推荐）：验证增强 CLI 链路**
 1. 运行 `python -m astock_agent_system.cli agent learning status --format json`。
 2. 运行 `python -m astock_agent_system.cli datasource status --format json`。
-3. 运行 `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist`。
-4. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
+3. 运行 `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --checks history --format json`，先看逐源真实状态。
+4. 运行 `python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning`。
+5. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
 
 **选项B：继续完整实现**
 1. 让 `MasterAgent`、各分析 Agent 和 `DataAgent` 发射更细粒度的步骤/工具/降级事件。

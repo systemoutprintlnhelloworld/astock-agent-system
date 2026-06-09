@@ -240,7 +240,7 @@ class MultiAgentOrchestrator:
                 model=llm_model,
                 stage="decision",
                 message=f"{llm_model} 对 {quote.stock_code} 给出 {effective['action']} 决策",
-                **decision_row,
+                decision=decision_row,
             )
             if effective["action"] == "BUY" and effective["position_size"] > 0:
                 target_value = account.equity(latest_prices) * effective["position_size"]

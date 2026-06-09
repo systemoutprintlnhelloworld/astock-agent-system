@@ -31,6 +31,9 @@ python -m astock_agent_system.cli agent list-models
 
 # 运行benchmark（多模型对比）
 python -m astock_agent_system.cli agent benchmark [--models MODEL1,MODEL2] [--offline]
+
+# 逐源数据源 smoke，默认只跑快速 history 检查；完整检查需显式传 checks
+python -m astock_agent_system.cli datasource test [--sources tushare,baostock,akshare] [--checks history] [--format json]
 ```
 
 ## 实施进度
@@ -44,6 +47,9 @@ python -m astock_agent_system.cli agent benchmark [--models MODEL1,MODEL2] [--of
 - `python -m astock_agent_system.cli agent start` 支持前台流式运行、数据源快照、学习经验记录摘要和记忆案例检索摘要。
 - 新增 `agent status/history/stop/benchmark/learning status|suggestions|trigger/memory` 命令。
 - 新增 `datasource status` 命令，展示 provider chain 诊断。
+- 新增 `datasource test` 命令，按 provider 逐源核验，不把离线 fallback 误算为该 provider 成功；默认只做 `history` 快速检查，完整检查使用 `--checks history,financial,quote --include-universe`。
+- 修复 Tushare `financial` Pandas Series 布尔判断错误、`daily_basic` 查询窗口过宽，以及在线 provider 失败后未知股票离线兜底抛 `KeyError` 的崩溃路径。
+- 修复 `decision_made` 事件 payload 与事件 envelope 的 `agent_id` 字段冲突，离线 `agent start` 已能展示决策、交易和收益摘要。
 - 后端事件协议新增学习/记忆/数据源事件类型；新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`。
 
 推荐验证命令：
@@ -53,8 +59,11 @@ python -m astock_agent_system.cli agent learning status --format json
 python -m astock_agent_system.cli agent learning suggestions
 python -m astock_agent_system.cli agent memory --agent-id agent-rule-baseline --format json
 python -m astock_agent_system.cli datasource status --format json
-python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist
+python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --stock-code 600519 --days 5 --checks history --format json
+python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning
 ```
+
+本地最新 smoke 结论：Tushare history 可用；Baostock 在当前环境缺少 `baostock` 包；AkShare 在当前网络下返回空/远端断连；`ths_skill` 为手工/参考能力，未注册行情 adapter。在线运行应把这些状态显示为可诊断结果，而不是静默声明全部可用。
 
 ### Phase 1: 事件系统基础 ✅ (增强完成)
 

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import json
+import copy
 from typing import Any
 
 from astock_agent_system.agent_learning import (
@@ -14,6 +15,7 @@ from astock_agent_system.agent_learning import (
 from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
+from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 
@@ -145,6 +147,40 @@ def cmd_datasource_status(args: Any) -> int:
     else:
         RichEventRenderer().render_datasource(payload)
     return 0
+
+
+def cmd_datasource_test(args: Any) -> int:
+    """Smoke-test configured data providers without exposing credentials."""
+    settings = load_settings(args.config)
+    base_agent = DataAgent(settings=settings)
+    diagnostics = base_agent.provider_diagnostics()
+    requested = _parse_models(getattr(args, "sources", ""))
+    if not requested:
+        requested = list(PROVIDER_CATALOG) if getattr(args, "all", False) else list(diagnostics.get("provider_chain", []))
+    sources = [normalize_provider_name(item) for item in requested]
+    checks = _parse_models(getattr(args, "checks", "history")) or ["history"]
+    payload = {
+        "status": "ok",
+        "stock_code": getattr(args, "stock_code", "600519"),
+        "days": int(getattr(args, "days", 5)),
+        "checks": checks,
+        "items": [
+            _test_one_datasource(
+                settings,
+                source=source,
+                stock_code=getattr(args, "stock_code", "600519"),
+                days=int(getattr(args, "days", 5)),
+                checks=checks,
+                include_universe=bool(getattr(args, "include_universe", False)),
+            )
+            for source in sources
+        ],
+    }
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().render_datasource_tests(payload)
+    return 0 if any(item.get("status") == "ok" for item in payload["items"]) else 1
 
 
 class RichEventRenderer:
@@ -294,6 +330,19 @@ class RichEventRenderer:
                     )
         self.print_info("数据源状态", "\n".join(lines))
 
+    def render_datasource_tests(self, payload: dict[str, Any]) -> None:
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        lines = [f"测试股票: {payload.get('stock_code', '')}", f"历史窗口: {payload.get('days', '')} 天", ""]
+        for item in items:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('source', '')}: {item.get('status', '')}")
+            lines.append(f"  原因/结果: {item.get('message', '')}")
+            for check in item.get("checks", []) if isinstance(item.get("checks"), list) else []:
+                if isinstance(check, dict):
+                    lines.append(f"  - {check.get('operation', '')}: {check.get('status', '')} {check.get('detail', '')}")
+        self.print_info("数据源 smoke 测试", "\n".join(lines).strip())
+
     def render_result_summary(self, payload: dict[str, Any]) -> None:
         agents = payload.get("agents", []) if isinstance(payload.get("agents"), list) else []
         rankings = payload.get("rankings", []) if isinstance(payload.get("rankings"), list) else []
@@ -336,9 +385,10 @@ class RichEventRenderer:
         )
 
     def _render_decision(self, event: AgentEvent) -> None:
+        decision = event.payload.get("decision", {}) if isinstance(event.payload.get("decision"), dict) else event.payload
         self._print(
-            f"[yellow]决策[/yellow] {event.payload.get('stock_code', '')} "
-            f"{event.payload.get('action', '')} 置信度={_percent(event.payload.get('confidence', 0.0))}"
+            f"[yellow]决策[/yellow] {decision.get('stock_code', '')} "
+            f"{decision.get('action', '')} 置信度={_percent(decision.get('confidence', 0.0))}"
         )
 
     def _render_trade(self, event: AgentEvent) -> None:
@@ -435,6 +485,140 @@ def _provider_diagnostics(settings: Any) -> dict[str, Any]:
             "error": str(exc),
         }
     return payload if isinstance(payload, dict) else {"providers": []}
+
+
+def _test_one_datasource(
+    settings: Any,
+    *,
+    source: str,
+    stock_code: str,
+    days: int,
+    checks: list[str] | None = None,
+    include_universe: bool = False,
+) -> dict[str, Any]:
+    source = normalize_provider_name(source)
+    spec = PROVIDER_CATALOG.get(source)
+    if not spec:
+        return {"source": source, "status": "skipped", "message": "unknown provider", "checks": []}
+    if not spec.get("class_name"):
+        return {
+            "source": source,
+            "status": "skipped",
+            "message": "no adapter is registered; this source is documented as reference/manual workflow only",
+            "checks": [],
+        }
+    missing = [field for field in spec.get("credential_fields", []) if not str(getattr(settings.data, str(field), "") or "").strip()]
+    if missing:
+        return {"source": source, "status": "skipped", "message": f"missing credentials: {', '.join(missing)}", "checks": []}
+    scoped = copy.deepcopy(settings)
+    scoped.data.mode = "online"
+    scoped.data.provider_chain = [source]
+    agent = DataAgent(settings=scoped)
+    check_results: list[dict[str, Any]] = []
+    requested_operations = [item for item in checks or ["history"] if item]
+    operations = [item for item in requested_operations if item in {"universe", "history", "financial", "quote"}]
+    if include_universe:
+        operations.insert(0, "universe")
+    for operation in dict.fromkeys(operations):
+        if operation != "universe" and not provider_supports(source, operation):
+            check_results.append({"operation": operation, "status": "skipped", "detail": "capability not supported"})
+            continue
+        if operation == "universe" and not provider_supports(source, operation):
+            check_results.append({"operation": operation, "status": "skipped", "detail": "capability not supported"})
+            continue
+        attempts_before = _provider_attempt_count(agent)
+        try:
+            if operation == "universe":
+                result = agent.get_universe()
+                result_status = "ok" if result else "empty"
+                result_detail = f"{len(result)} stocks"
+            elif operation == "history":
+                result = agent.get_history(stock_code, days=days)
+                result_status = "ok" if result else "empty"
+                result_detail = f"{len(result)} bars"
+            elif operation == "financial":
+                result = agent.get_financial(stock_code)
+                ok = bool(result.stock_code)
+                result_status = "ok" if ok else "empty"
+                result_detail = f"pe={result.pe_ttm}, roe={result.roe}"
+            elif operation == "quote":
+                result = agent.get_quote(stock_code)
+                result_status = "ok" if result.price > 0 else "empty"
+                result_detail = f"price={result.price}"
+            else:
+                result_status = "skipped"
+                result_detail = "unknown operation"
+            check_results.append(
+                _source_check_result(
+                    agent,
+                    source=source,
+                    operation=operation,
+                    attempts_before=attempts_before,
+                    fallback_status=result_status,
+                    fallback_detail=result_detail,
+                )
+            )
+        except Exception as exc:
+            check_results.append({"operation": operation, "status": "error", "detail": str(exc)[:300]})
+    ok_count = sum(1 for check in check_results if check.get("status") == "ok")
+    status = "ok" if ok_count else "error"
+    return {
+        "source": source,
+        "status": status,
+        "message": f"{ok_count} checks passed" if ok_count else "all executable checks failed",
+        "checks": check_results,
+        "attempts": agent.provider_diagnostics().get("attempts", []),
+    }
+
+
+def _provider_attempt_count(agent: DataAgent) -> int:
+    attempts = agent.provider_diagnostics().get("attempts", [])
+    return len(attempts) if isinstance(attempts, list) else 0
+
+
+def _source_check_result(
+    agent: DataAgent,
+    *,
+    source: str,
+    operation: str,
+    attempts_before: int,
+    fallback_status: str,
+    fallback_detail: str,
+) -> dict[str, Any]:
+    attempts = agent.provider_diagnostics().get("attempts", [])
+    if not isinstance(attempts, list):
+        attempts = []
+    new_attempts = [item for item in attempts[attempts_before:] if isinstance(item, dict)]
+    operation_attempts = [
+        item
+        for item in new_attempts
+        if item.get("source") == source and item.get("operation") == operation
+    ]
+    if operation_attempts:
+        latest = operation_attempts[-1]
+        status = str(latest.get("status", fallback_status))
+        detail = str(latest.get("detail", fallback_detail) or fallback_detail)
+        if status == "ok":
+            detail = fallback_detail
+        return {"operation": operation, "status": status, "detail": detail[:300]}
+
+    init_attempts = [item for item in new_attempts if item.get("source") == source and item.get("operation") == "init"]
+    if init_attempts:
+        latest = init_attempts[-1]
+        return {
+            "operation": operation,
+            "status": str(latest.get("status", "error")),
+            "detail": f"provider init {latest.get('status', 'error')}: {latest.get('detail', '')}"[:300],
+        }
+
+    offline_attempts = [item for item in new_attempts if item.get("source") == "offline"]
+    if offline_attempts:
+        return {
+            "operation": operation,
+            "status": "error",
+            "detail": "provider produced no result; offline fallback was ignored for this source smoke check",
+        }
+    return {"operation": operation, "status": fallback_status, "detail": fallback_detail[:300]}
 
 
 def _memory_summary(settings: Any, *, agent_id: str = "", limit: int = 20) -> dict[str, Any]:

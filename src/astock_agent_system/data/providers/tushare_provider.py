@@ -127,10 +127,14 @@ class TushareProvider:
         """Get financial data from Tushare."""
         api = self._get_api()
         ts_code = self._to_ts_code(stock_code)
+        end_date = datetime.now().strftime('%Y%m%d')
+        start_date = (datetime.now() - timedelta(days=370)).strftime('%Y%m%d')
         
         # Get latest daily basic data (PE, PB, etc.)
         df_basic = api.daily_basic(
             ts_code=ts_code,
+            start_date=start_date,
+            end_date=end_date,
             fields='ts_code,trade_date,pe_ttm,pb,total_mv'
         )
         
@@ -149,18 +153,19 @@ class TushareProvider:
         identity = self._identity_cache.get(stock_code)
         stock_name = identity.stock_name if identity else stock_code
         sector = identity.sector if identity else ''
+        fina_row = fina if isinstance(fina, dict) else fina.to_dict()
         
         return FinancialSnapshot(
             stock_code=stock_code,
             stock_name=str(stock_name),
             report_date=str(basic['trade_date']),
-            pe_ttm=float(basic.get('pe_ttm', 0.0) or 0.0),
-            pb=float(basic.get('pb', 0.0) or 0.0),
-            roe=float(fina.get('roe', 0.0) or 0.0) if fina else 0.0,
-            debt_ratio=float(fina.get('debt_to_assets', 0.0) or 0.0) if fina else 0.0,
-            revenue_growth=float(fina.get('q_sales_yoy', 0.0) or 0.0) if fina else 0.0,
-            profit_growth=float(fina.get('q_profit_yoy', 0.0) or 0.0) if fina else 0.0,
-            market_cap=float(basic.get('total_mv', 0.0) or 0.0) * 10000,  # Tushare uses 万元
+            pe_ttm=_safe_float(basic.get('pe_ttm', 0.0)),
+            pb=_safe_float(basic.get('pb', 0.0)),
+            roe=_safe_float(fina_row.get('roe', 0.0)),
+            debt_ratio=_safe_float(fina_row.get('debt_to_assets', 0.0)),
+            revenue_growth=_safe_float(fina_row.get('q_sales_yoy', 0.0)),
+            profit_growth=_safe_float(fina_row.get('q_profit_yoy', 0.0)),
+            market_cap=_safe_float(basic.get('total_mv', 0.0)) * 10000,  # Tushare uses 万元
             sector=str(sector)
         )
 
@@ -212,3 +217,21 @@ class TushareProvider:
     def _normalize_code(ts_code: str) -> str:
         """Convert Tushare code to normalized format (e.g., '600519.SH' -> '600519')."""
         return ts_code.split('.')[0] if '.' in ts_code else ts_code
+
+
+def _safe_float(value: Any, default: float = 0.0) -> float:
+    """Convert Tushare/Pandas scalar values to float without ambiguous truth checks."""
+    try:
+        if value is None:
+            return default
+        # pandas.NA/nan compare oddly; use pandas when available but keep provider optional.
+        try:
+            import pandas as pd  # type: ignore
+
+            if pd.isna(value):
+                return default
+        except Exception:
+            pass
+        return float(value)
+    except (TypeError, ValueError):
+        return default

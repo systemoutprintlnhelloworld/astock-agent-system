@@ -27,6 +27,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_status,
     cmd_agent_stop,
     cmd_datasource_status,
+    cmd_datasource_test,
 )
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
@@ -504,6 +505,19 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_status_parser = datasource_subparsers.add_parser("status", help="Show datasource mode and provider-chain status")
     datasource_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_status_parser.set_defaults(func=cmd_datasource_status)
+    datasource_test_parser = datasource_subparsers.add_parser("test", help="Smoke-test configured or selected datasource providers")
+    datasource_test_parser.add_argument("--sources", default="", help="Comma-separated provider ids; empty uses configured provider chain")
+    datasource_test_parser.add_argument("--all", action="store_true", help="Include non-configured catalog entries and explain skipped sources")
+    datasource_test_parser.add_argument("--stock-code", default="600519", help="Stock code used for history/financial/quote checks")
+    datasource_test_parser.add_argument("--days", type=int, default=5, help="History days used for smoke checks")
+    datasource_test_parser.add_argument(
+        "--checks",
+        default="history",
+        help="Comma-separated checks to run: history,financial,quote,universe. Default keeps smoke tests fast.",
+    )
+    datasource_test_parser.add_argument("--include-universe", action="store_true", help="Also test full/limited universe listing when the provider supports it")
+    datasource_test_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_test_parser.set_defaults(func=cmd_datasource_test)
     return parser
 
 

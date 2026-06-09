@@ -249,10 +249,12 @@ class DataAgent:
                     logger.warning("%s history fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
-        record = self._get_stock_record(stock_code)
+        record = self._get_stock_record(stock_code, strict=False)
         bars = [self._bar_from_raw(stock_code, raw) for raw in record.get("history", [])]
         bars.sort(key=lambda bar: bar.date)
-        self._record_provider_attempt("offline", "history", "ok", stock_code)
+        status = "ok" if bars else "empty"
+        detail = stock_code if bars else f"{stock_code}: no offline sample"
+        self._record_provider_attempt("offline", "history", status, detail)
         if days is not None and days > 0:
             return bars[-days:]
         return bars
@@ -270,7 +272,7 @@ class DataAgent:
                     logger.warning("%s financial fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
-        record = self._get_stock_record(stock_code)
+        record = self._get_stock_record(stock_code, strict=False)
         raw = record.get("financial", {})
         return FinancialSnapshot(
             stock_code=str(record["code"]),
@@ -299,12 +301,22 @@ class DataAgent:
                     logger.warning("%s quote fetch failed for %s: %s", source, stock_code, exc)
         
         # Final fallback to offline data
-        record = self._get_stock_record(stock_code)
+        record = self._get_stock_record(stock_code, strict=False)
         quote = record.get("quote") or {}
         if not quote:
             bars = self.get_history(stock_code, days=2)
             if not bars:
-                raise ValueError(f"No quote or history found for {stock_code}")
+                self._record_provider_attempt("offline", "quote", "empty", f"{stock_code}: no quote or history")
+                return StockQuote(
+                    stock_code=str(record["code"]),
+                    stock_name=str(record.get("name", record["code"])),
+                    date=str(self._load_offline_payload().get("as_of", "")),
+                    price=0.0,
+                    change_pct=0.0,
+                    volume=0.0,
+                    amount=0.0,
+                    sector=str(record.get("sector", "")),
+                )
             latest = bars[-1]
             previous_close = bars[-2].close if len(bars) > 1 else latest.close
             change_pct = (latest.close - previous_close) / previous_close if previous_close else 0.0
@@ -447,11 +459,30 @@ class DataAgent:
         self._offline_payload = payload
         return payload
 
-    def _get_stock_record(self, stock_code: str) -> dict[str, Any]:
+    def _get_stock_record(self, stock_code: str, *, strict: bool = True) -> dict[str, Any]:
         for item in self._load_offline_payload().get("stocks", []):
             if str(item.get("code")) == str(stock_code):
                 return item
-        raise KeyError(f"Stock code not found in offline data: {stock_code}")
+        if strict:
+            raise KeyError(f"Stock code not found in offline data: {stock_code}")
+        self._record_provider_attempt("offline", "fallback", "missing", f"{stock_code}: generated conservative placeholder")
+        return {
+            "code": str(stock_code),
+            "name": str(stock_code),
+            "sector": "",
+            "history": [],
+            "quote": {},
+            "financial": {
+                "report_date": self._load_offline_payload().get("as_of", ""),
+                "pe_ttm": 0.0,
+                "pb": 0.0,
+                "roe": 0.0,
+                "debt_ratio": 0.0,
+                "revenue_growth": 0.0,
+                "profit_growth": 0.0,
+                "market_cap": 0.0,
+            },
+        }
 
     @staticmethod
     def _bar_from_raw(stock_code: str, raw: Any) -> StockBar:

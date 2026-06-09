@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import logging
 from dataclasses import asdict, dataclass, field
 from typing import Any
 
@@ -9,6 +10,9 @@ from astock_agent_system.agents.fundamental_analyst import FundamentalAnalyst
 from astock_agent_system.agents.technical_analyst import TechnicalAnalyst
 from astock_agent_system.data import DataAgent
 from astock_agent_system.models import AnalysisResult, StockIdentity
+
+
+logger = logging.getLogger(__name__)
 
 
 @dataclass(slots=True)
@@ -39,12 +43,28 @@ class StockScreener:
         self.fundamental_analyst = fundamental_analyst or FundamentalAnalyst()
 
     def screen(self, max_count: int = 10, history_days: int = 24) -> list[ScreenedStock]:
+        if max_count <= 0:
+            return []
         candidates: list[ScreenedStock] = []
         min_turnover = self.data_agent.settings.risk.min_turnover
+        online_mode = self.data_agent.settings.data.mode != "offline"
+        scan_limit = max(max_count * 10, 20) if online_mode else None
+        scanned = 0
         for stock in self.data_agent.get_universe():
-            bars = self.data_agent.get_history(stock.stock_code, days=history_days)
-            financial = self.data_agent.get_financial(stock.stock_code)
-            quote = self.data_agent.get_quote(stock.stock_code)
+            scanned += 1
+            if online_mode and scan_limit is not None and scanned > scan_limit:
+                logger.warning("Stopping online screening after %s scanned stocks to avoid provider rate limits", scan_limit)
+                break
+            try:
+                bars = self.data_agent.get_history(stock.stock_code, days=history_days)
+                financial = self.data_agent.get_financial(stock.stock_code)
+                quote = self.data_agent.get_quote(stock.stock_code)
+            except Exception as exc:
+                logger.warning("Skipping %s during screening because data fetch failed: %s", stock.stock_code, exc)
+                continue
+            if not bars or quote.price <= 0:
+                logger.warning("Skipping %s during screening because provider data is incomplete", stock.stock_code)
+                continue
             technical = self.technical_analyst.analyze(stock.stock_code, bars)
             fundamental = self.fundamental_analyst.analyze(financial)
 
@@ -83,5 +103,7 @@ class StockScreener:
                     },
                 )
             )
+            if online_mode and len(candidates) >= max_count:
+                break
         candidates.sort(key=lambda item: item.score, reverse=True)
         return candidates[: max(0, max_count)]

@@ -138,6 +138,7 @@ python -m astock_agent_system.cli run-daily --max-count 3 --days 24
 ```
 
 如果 Tushare/Baostock/AkShare 暂时失败，`DataAgent` 会按 provider chain 尝试降级到可用数据源，最终回到离线样例。
+在线 provider 失败不会再因为离线样例缺少某只在线股票而抛 `KeyError`；未知股票会生成保守空占位，筛选器会跳过空行情或零价格数据。
 
 数据源诊断接口：
 
@@ -254,5 +255,6 @@ streamlit run src/astock_agent_system/ui/streamlit_app.py
 - `bench --list-models` 可返回模型列表。
 - `gpt-5.4-mini` 单模型 JSON smoke 通过。
 - 在线自动投资可运行；同一交易日重复运行会触发幂等跳过，避免重复买入。
+- CLI 数据源快速 smoke 可区分逐源真实状态：Tushare history 在本机 token/额度可用时成功；Baostock 需要安装 `baostock` 包；AkShare 受公开网页源网络和远端稳定性影响；同花顺 Skill 当前不是行情 adapter。
 
 不同模型仍可能因账户分组、额度或渠道限制失败。遇到模型不可用时，请先换用已 bench 通过的模型，并保留 `rule-baseline` 作为兜底账户。

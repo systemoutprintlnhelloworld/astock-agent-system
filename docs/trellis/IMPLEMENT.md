@@ -10,9 +10,12 @@
 
 - `src/astock_agent_system/events/emitter.py` 新增学习、记忆和数据源事件类型：`learning_experience_recorded`、`learning_analysis_triggered`、`learning_suggestion_generated`、`memory_case_retrieved`、`data_source_switched`。
 - 新增 `src/astock_agent_system/cli_enhanced.py`，提供 Rich 优先、纯文本 fallback 的流式运行渲染、学习状态/建议、记忆案例和数据源诊断展示。
-- `src/astock_agent_system/cli.py` 新增 `agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status` 命令。
+- `src/astock_agent_system/cli.py` 新增 `agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status/test` 命令。
 - `src/astock_agent_system/orchestrator/multi_agent_orchestrator.py` 在竞赛运行中发射 run/agent/learning 事件，并把学习经验记录/建议生成反馈给 CLI。
 - `apps/backend/schemas.py` 扩展 WebSocket 事件枚举，`apps/backend/app.py` 新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，便于后续 GUI/TUI 复用 CLI 先验证出的可观察内容。
+- 本轮修复在线 provider 失败路径：Tushare `financial` 不再触发 Pandas Series 布尔判断错误，`daily_basic` 限定查询窗口；在线数据源失败后未知股票离线兜底不再抛 `KeyError`；筛选器会跳过空行情/零价格，避免第三方限频或断连导致 CLI 崩溃。
+- `datasource test` 是逐源 smoke：默认只跑快速 `history`，避免 AkShare/Tushare 全市场接口长时间卡住；需要完整能力核验时显式传 `--checks history,financial,quote --include-universe`。逐源结果不会把离线 fallback 误计为 provider 成功。
+- 已验证 `tests/test_data_agent.py` 10 passed、快速数据源 smoke 可区分 Tushare 可用、Baostock 缺包、AkShare 网络/空结果和 `ths_skill` 未注册 adapter；离线 `agent start --model rule-baseline --max-count 1` 已能完成决策/模拟交易/收益摘要。
 - 下一步应先验证增强 CLI 命令链路，再继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件。
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
