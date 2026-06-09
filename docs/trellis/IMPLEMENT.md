@@ -25,8 +25,8 @@
 ## 1. 当前分支和最新提交
 
 - 当前分支：`tauri-rewrite`
-- 最新提交以 `git log -1 --oneline` 为准；本 handoff 批次开始前的已推送稳定点是 `e13bc16 fix: move astock backend to dedicated ports`。
-- 本 handoff 批次包含的修复：Next dev 改 webpack、端口占用识别增强、handoff 文档与 skill。
+- 最新提交以 `git log -1 --oneline` 为准；当前代码稳定点已推进到 `af20112 feat(tui): 完善配置向导与命令验证`，并已推送到 `origin/tauri-rewrite`。本 handoff 文档提交后可能会有后续 docs-only 提交。
+- 本 handoff 批次包含的修复：TUI 配置向导回填/脱敏/跳过无关凭证、运行态配置优先级、slash command palette 与 `/agent` 命令对齐、`/dashboard`/`/start` 运行观测、真实后端 slash 链路验证，以及 Trellis handoff 文档同步。
 
 ## 2. 当前已经完成的实现
 

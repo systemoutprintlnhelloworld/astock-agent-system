@@ -1,12 +1,12 @@
 # 持久化开发计划
 
-更新时间：2026-06-07
+更新时间：2026-06-09
 
 本计划记录当前交付批次的目标、完成状态和后续增强方向。所有配置示例均使用占位符，不包含真实密钥。
 
 > 当前有效计划：本文件、[现代化重构计划](modernization-plan.md) 与 `docs/trellis/` 下的 Phase 0 / Phase 1 / Handoff 文档。工作区中没有 `a股llm系统现代化重构_efa1eeac.plan.md` 文件；该名称来自历史/外部计划引用，不是当前仓库内可执行的 Trellis 计划文件。
 
-当前 Trellis 任务状态：本轮重点是 handoff 和可交接性固化；当前计划、需求拷问、PRD、设计、实现状态和下一轮任务已落到 `docs/trellis/`，供新开对话的 AI 继续接手。
+当前 Trellis 任务状态：本轮已完成 TUI 配置向导、命令补全、配置优先级和真实 slash 链路验证的收尾；当前计划、需求拷问、PRD、设计、实现状态和下一轮任务已落到 `docs/trellis/`，供新开对话的 AI 继续接手。
 
 新对话 / 新 Agent 接手时必须先读：
 
@@ -66,6 +66,19 @@
 | Tauri 桌面壳与 sidecar 打包入口 | 已完成可验证版 | 新增 `apps/desktop` Tauri 2 壳、Next.js 静态导出、PyInstaller sidecar 入口，以及 `desktop-release` / `delivery-check` 自动化交付模式；已验证 `.exe` 和 NSIS 安装包产物。 |
 | Agent Markdown 持续学习系统 | 已完成首版 | 新增 `config/agents/*.md`、`config/user_profile.yaml`、Agent descriptor/learning 核心模块、后端管理接口、TUI `/agent` 命令骨架和 `docs/technical/AGENT_MD_LEARNING.md`；学习系统只生成建议，不静默改策略或实盘交易。 |
 | 数据源 Provider chain 扩展 | 已完成首版 | `DataAgent` 支持 `DATA_PROVIDER_CHAIN` 可配置降级；默认 `Tushare -> Baostock -> AkShare -> offline samples`；新增 AData/OpenBB/yfinance/Alpha Vantage/JQData 可选适配器、AAStock/同花顺适配判断和 `/api/data/providers` 脱敏诊断接口。 |
+| TUI 长程运行入口打磨 | 已完成当前批次 | 配置向导支持已保存配置回填、密钥状态脱敏、按已选数据源跳过凭证；slash palette 和 `/agent` 子命令已对齐；`/dashboard` 默认交易看板，`/start` 自动进入运行观测；真实后端 slash 链路和 `delivery-check` 已通过。 |
+
+## 3.1 下一轮当前执行计划
+
+新对话接手时，若用户没有改变方向，默认继续 **TUI 全局启动和实时刷新加固**：
+
+1. 加固 `astock-tui` Windows entry point 和仓库内 `astock-tui.bat`，保证从任意目录启动时能自动定位项目根目录和后端地址。
+2. 为 `/run` 和 `/dashboard run` 增加 `--watch`，支持长程后台任务的定时刷新、退出提示和异常状态展示。
+3. 在运行观测中增加后台任务开始/结束时间、耗时、最近事件、最近错误摘要和更清晰的状态分组。
+4. 保持 TUI / GUI 都只调用 `apps/backend` FastAPI 契约，不在客户端复制交易、Agent 编排或模拟盘逻辑。
+5. 验证优先级：先跑真实 TUI slash 命令链路，再跑 `python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q` 和 `.\start.bat -Mode delivery-check`。
+
+当前无需用户额外申请新信息；在线运行仍只依赖用户本地未提交的 Tushare token、LLM gateway base URL/API key 和可选数据源凭证。
 
 ## 4. 推荐一键运行路径
 

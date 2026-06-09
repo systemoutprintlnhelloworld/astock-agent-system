@@ -1,6 +1,6 @@
 # Trellis Handoff：下一位 AI 接手入口
 
-更新时间：2026-06-07
+更新时间：2026-06-09
 
 本文档是新开对话时给下一位 AI / 开发者的交接入口。目标是让接手者先理解项目边界、当前有效计划、最新修复、验证命令和禁止事项，再继续开发。
 
@@ -21,13 +21,13 @@
 ## 2. 当前分支和最新状态
 
 - 工作分支：`tauri-rewrite`。
-- 最新提交以 `git log -1 --oneline` 为准；本 handoff 批次开始前的已推送稳定点是 `e13bc16 fix: move astock backend to dedicated ports`。
-- 本 handoff 批次新增/修复方向：
-  - modern-ui / frontend dev 默认改用 `next dev --webpack`。
-  - 保留 `npm run dev:turbo` 仅用于复现 Turbopack 问题。
-  - `start.ps1` 端口占用检查只看 `Listen`，并打印同端口多个监听进程。
-  - 新增 Trellis Phase 0 / PRD / Design / Implement / Handoff 文档。
-  - 新增项目 handoff skill。
+- 最新提交以 `git log -1 --oneline` 为准；当前代码稳定点已推进到 `af20112 feat(tui): 完善配置向导与命令验证`，并已推送到 `origin/tauri-rewrite`。本 handoff 文档提交后可能会有后续 docs-only 提交。
+- 本 handoff 批次已完成的重点修复：
+  - TUI 配置向导支持已保存配置回填、密钥状态脱敏展示、按已选数据源跳过无关凭证问询。
+  - `settings.override.json` 作为本地运行态配置优先于 `.env` 的同名旧值，避免向导保存后看起来未生效。
+  - `/agent` 子命令与 slash palette 补全已对齐，`/dashboard` 默认交易看板，`/start` 会自动切换到运行观测视图。
+  - 真实后端 slash 链路验证与 `.\start.bat -Mode delivery-check` 已通过（65 passed）。
+  - modern-ui / frontend dev 默认改用 `next dev --webpack`；`npm run dev:turbo` 仅用于复现 Turbopack 问题。
 
 ## 3. 当前架构不要误解
 
@@ -42,31 +42,27 @@
 
 ## 4. 外部工具和技能状态
 
-- context weaver：已用于本地代码检索，可继续作为代码理解第一步。
-- smart-search：已按用户要求尝试；当前 `doctor` 未 ok，OpenAI-compatible 诊断遇到上游 `503` 和 CLI streaming response 异常。下一位 AI 不能声称已完成新的外部调研，除非重新跑通并保存证据。
+- fast-context / 本地工作区检索：作为本地代码和架构理解的首选方式，优先用于快速定位符号、模块和跨文件关系。
+- smart-search：`doctor --format json` 当前可跑通；如需新的外部调研，必须先重新跑 doctor 并保存证据，不能伪造检索结果。
 - find-skills：已搜索 Trellis/handoff 相关 skill；搜索结果安装量偏低，暂未安装第三方 skill。
 - create-skill：本轮按项目范围新增 handoff skill，固化下一轮接手流程。
 
 ## 5. 建议下一轮立即做什么
 
-优先做 **GUI 连接可诊断性**，因为它直接解决用户对“连接中”和“黑箱”的不信任。
+优先做 **TUI 全局启动和实时刷新加固**。GUI 连接可诊断性已完成；如果新对话明确转回 GUI，则继续做组件拆分和连接诊断增强。当前 TUI 是长期并存的调试/观测入口，应先解决任意目录启动、长程任务实时刷新和运行观测细节。
 
 最小任务：
 
-1. 在 `apps/frontend/src/lib/dashboard-api.ts` 记录最近一次 backend discovery 候选 URL、成功/失败、错误类型。
-2. 在 `apps/frontend/src/components/trading-dashboard.tsx` 总览页展示：
-   - backend base URL
-   - WebSocket URL
-   - HTTP health 是否 ok
-   - WebSocket 是否 connected
-   - 最近错误和下一步建议
-3. 保持 API 契约，不重写 Python 业务核心。
-4. 跑 `npm --prefix apps/frontend run lint` 和 `.\start.bat -Mode delivery-check`。
+1. 加固 `astock-tui` Windows entry point 和 `astock-tui.bat`，从任意目录启动时自动定位项目根目录。
+2. 给 `/run` 增加可选轮询/刷新参数，例如 `/run --watch` 或 `/dashboard run --watch`。
+3. 在运行观测中补充后台任务开始/结束时间、耗时、最近事件和错误摘要。
+4. 继续保持 TUI 只调用 FastAPI 后端，不在终端层复制交易逻辑。
 
 ## 6. 常用验证命令
 
 ```powershell
 python -m pytest tests/test_backend_api.py
+python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q
 npm --prefix apps/frontend run lint
 npm --prefix apps/frontend run build:desktop
 .\start.bat -Mode delivery-check

@@ -12,7 +12,7 @@
 | 第一次安装和运行 | [docs/USER_GUIDE.md](docs/USER_GUIDE.md) | 15 分钟 |
 | 接入真实 LLM 和 Tushare | [docs/ONLINE_RUNBOOK.md](docs/ONLINE_RUNBOOK.md) | 20 分钟 |
 | 理解系统架构和模块 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | 30 分钟 |
-| 使用/验证 TUI 终端长程运行入口 | [docs/tui/MANUAL_TEST.md](docs/tui/MANUAL_TEST.md) + [docs/tui/TUI_UX_REDESIGN_PLAN.md](docs/tui/TUI_UX_REDESIGN_PLAN.md) | 15 分钟 |
+| 使用/验证 TUI 终端长程运行入口 | [docs/tui/MANUAL_TEST.md](docs/tui/MANUAL_TEST.md) + [docs/tui/TUI_UX_REDESIGN_PLAN.md](docs/tui/TUI_UX_REDESIGN_PLAN.md) + [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) | 15 分钟 |
 | 配置和诊断多数据源降级 | [docs/technical/DATA_PROVIDERS.md](docs/technical/DATA_PROVIDERS.md) | 10 分钟 |
 | 维护 Agent 指令与持续学习 | [docs/technical/AGENT_MD_LEARNING.md](docs/technical/AGENT_MD_LEARNING.md) | 15 分钟 |
 | 了解当前开发进度 | [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) | 10 分钟 |
@@ -53,7 +53,7 @@
 4. [docs/modernization-plan.md](docs/modernization-plan.md) - 现代化重构架构（Tauri/Next.js/FastAPI）
 5. [docs/trellis-plan.md](docs/trellis-plan.md) - 持久化开发计划和后续方向
 6. [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) - 当前交付状态和验证结果
-7. [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) - TUI 交互、命令面板和运行观测实现状态
+7. [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) - TUI 交互、命令面板、运行观测和配置向导实现状态
 
 **关键命令**：
 ```powershell
@@ -180,6 +180,7 @@ graph TD
     DevGuide --> ModernizationPlan[docs/modernization-plan.md<br/>现代化架构]
     
     DeliverySummary --> GitHubPublish[docs/GITHUB_PUBLISHING.md<br/>GitHub 发布]
+    Handoff --> TUIRefactor[docs/tui/TUI_REFACTOR_SUMMARY.md<br/>TUI 改造总结]
     
     ModernizationPlan --> Backend[apps/backend/<br/>FastAPI 后端]
     ModernizationPlan --> Frontend[apps/frontend/<br/>Next.js 前端]
