@@ -15,7 +15,7 @@
 - Baostock / AkShare：免费 A 股补充源，可安装 `.[market]` 后作为降级链使用。
 - yfinance：无鉴权参考行情源，可用于 Yahoo A 股映射代码的 history/quote 兜底。
 - AData：无鉴权参考源；当前环境下包可安装，但部分公开行情接口可能返回空。
-- Alpha Vantage / JQData：只有在用户本地维护相应凭证时才启用。
+- Alpha Vantage / JQData / iFinD：只有在用户本地维护相应凭证时才启用；iFinD / 同花顺 QuantAPI 推荐用隐藏输入配置，不要把 token 写入命令行。
 
 建议把本地 `.env` 中的 `LLM_DEFAULT_MODEL` 指向你当前可用的在线模型（例如本机网关中的 `gpt-5.5`），这样 CLI 和 TUI 会优先使用本地默认模型跑在线链路；`rule-baseline` 仅作为可选回退，不再作为主验证路径。
 
@@ -63,6 +63,7 @@ STOP_LOSS_INTERVAL_MINUTES=5
 - `.env` 不要提交到 GitHub。
 - CLI `config` 只显示是否存在 key，不显示完整 key。
 - JQData 也可不用手写 `.env`，通过 `python -m astock_agent_system.cli datasource configure-jqdata` 隐藏输入后保存到 Git 忽略的 `data/runtime/settings.override.json`。
+- iFinD / 同花顺 QuantAPI 同理，使用 `python -m astock_agent_system.cli datasource configure-ifind` 隐藏输入 access token / refresh token；不要把 token 粘贴进 PowerShell 参数、文档或提交。
 
 ## 3. 启动存储服务
 
@@ -134,9 +135,10 @@ python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
 在线模式的数据读取顺序是：
 
 1. 进程内内存缓存（同一轮运行内避免重复取同一股票）。
-2. 本地文件缓存 `data/market_cache/`。
-3. 配置的 provider chain，例如 `tushare -> baostock -> akshare`。
-4. 离线样例兜底。
+2. 本地 SQLite 市场库 `data/market_local/market.sqlite`（由 `datasource sync-local` 批量同步，Git 忽略）。
+3. 本地文件缓存 `data/market_cache/`。
+4. 配置的 provider chain，例如 `tushare -> baostock -> akshare`。
+5. 离线样例兜底。
 
 缓存 TTL：
 
@@ -147,6 +149,13 @@ python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
 | financial | 1 天 | 用于估值/财务快照，日内无需反复拉取。 |
 
 该缓存不是替代实时接口，而是外部 API 的本地加速层；缓存过期后会重新走 provider chain。缓存文件属于运行时数据，不应提交到 Git。
+
+SQLite 本地库用于 Tushare 式“先批量下载、再本地查询”的工作流，和 TTL 文件缓存不同：它是显式由用户运行 `datasource sync-local` 写入的本地数据仓库。可用以下环境变量控制：
+
+```powershell
+$env:ASTOCK_MARKET_LOCAL_READ="false"   # 临时关闭本地库读取
+$env:ASTOCK_MARKET_LOCAL_DB="D:\\market-data\\astock.sqlite"  # 指定自定义库路径
+```
 
 ### 6.2 在线 smoke 命令
 
@@ -197,13 +206,36 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 
 `datasource test` 是逐源 smoke 命令，运行时会绕过共享文件缓存 `data/market_cache/`，避免缓存命中把失败 provider 误判为成功；它只用来判断当前 provider 自身是否真实可用。
 
-## 6.3 CLI 客观数据可观察性
+### 6.3 本地 SQLite “撸数据”
+
+如果你有 Tushare / JQData / iFinD 等额度，建议先用小批量命令把常用股票数据同步到本地 SQLite，减少后续 Agent 运行时的外部 API 压力：
+
+```powershell
+python -m astock_agent_system.cli datasource sync-local --sources tushare,baostock,akshare --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+```
+
+iFinD / 同花顺 QuantAPI 的安全配置与同步示例：
+
+```powershell
+python -m astock_agent_system.cli datasource configure-ifind
+python -m astock_agent_system.cli datasource sync-local --sources tushare,ifind,baostock --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+```
+
+调试阶段建议先小批量：
+
+```powershell
+python -m astock_agent_system.cli datasource sync-local --sources baostock --max-stocks 5 --days 30 --checks universe,history,quote,financial --format json
+```
+
+同步结果会写入 `data/market_local/market.sqlite`，该目录已被 `.gitignore` 忽略。同步命令不会通过参数接收 token，也不会把 `offline`、`cache`、`file_cache` 或 `local_market` 当作真实 provider 成功来源写库。
+
+## 6.4 CLI 客观数据可观察性
 
 为了避免只看到“评分”和“BUY/REJECT”结论，CLI 现在开始提供面向终端的客观数据渲染基础：
 
 - `cli_data_viz.py` 可渲染 ASCII K 线、MA/RSI 等技术指标、财务指标表、公司/报价快照和新闻/舆情摘要。
 - `TradeDecision.explanation_data` 会记录本次决策建议展示哪些证据块，例如 `kline`、`financial`、`sentiment`、`risk`。
-- 当前批次已完成数据结构和缓存基础；完整把这些图表接入 `agent start` 的实时流式输出仍在后续 CLI 可观察性任务中继续完成。
+- `agent start` 的默认流式输出已展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；后续仍需继续补新闻/公告 provider、连续运行累计收益/持仓/下一轮时间看板。
 
 ## 7. 在线自动投资 smoke
 

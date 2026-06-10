@@ -1,6 +1,6 @@
 # 数据源 Provider 接入说明
 
-更新时间：2026-06-10
+更新时间：2026-06-11
 
 本文说明 `DataAgent` 如何接入 A 股和参考市场数据源。当前系统仍只做模拟盘；数据源只影响分析输入，不会触发真实下单。
 
@@ -41,10 +41,41 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 | yfinance | 否 | 历史K线、报价 | 无 | 适合海外/港股或 Yahoo 映射代码参考；A 股覆盖不稳定。 |
 | Alpha Vantage | 否 | 历史K线、报价 | `ALPHA_VANTAGE_API_KEY` | 全球参考源，免费额度和 A 股覆盖有限；A 股后缀映射仅 best-effort，失败会继续降级。 |
 | JQData / 聚宽 | 否 | 股票池、历史K线、报价、保守财务占位 | `JQDATA_USERNAME` / `JQDATA_PASSWORD` | 需要用户本地授权账号。 |
+| iFinD / 同花顺 QuantAPI | 否 | 历史K线、报价 | `IFIND_ACCESS_TOKEN` | 推荐通过 `datasource configure-ifind` 隐藏输入保存；HTTP 路线当前优先覆盖 history/quote，权限不足时继续降级。 |
 | AAStock | 否 | 港股新闻参考 | 无 | 当前不做未授权网页抓取，不直接适配 A 股行情模型。 |
 | 同花顺 Skill | 否 | 人工研究流程 / 合规插件候选 | 无 | 当前不做未授权抓取，也不接入真实交易。 |
 
-## 3. 安全与降级规则
+## 3. 本地 SQLite “撸数据”首版
+
+本轮新增 `src/astock_agent_system/data/local_store.py`，提供 SQLite-backed 本地市场数据仓库。默认路径：
+
+```text
+data/market_local/market.sqlite
+```
+
+该目录已加入 `.gitignore`，只作为用户本机运行态数据，不提交到仓库。
+
+在线模式下 `DataAgent` 的读取顺序变为：
+
+1. 进程内内存缓存。
+2. 本地 SQLite 市场库（`datasource sync-local` 写入）。
+3. 本地文件缓存 `data/market_cache/`。
+4. provider chain。
+5. 离线样例兜底。
+
+同步命令示例：
+
+```powershell
+python -m astock_agent_system.cli datasource sync-local --sources tushare,baostock,akshare --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+```
+
+安全边界：
+
+- 同步时使用 `DataAgent(use_local_store=False)`，避免把旧本地库误当作新 provider 结果写回自己。
+- 只在 provider 真正成功时写库；`offline`、`cache`、`file_cache`、`local_market` 不会被计为可同步来源。
+- Tushare / JQData / iFinD 凭证仍必须来自本地 `.env` 或 Git 忽略的 `data/runtime/settings.override.json`。
+
+## 4. 安全与降级规则
 
 - 真实 token、API key、JQData 密码只允许放在本地 `.env` 或 shell 环境中。
 - `/api/config` 只返回 `has_*` 布尔值，不返回密钥原文。
@@ -57,7 +88,7 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 - AData 2.9.5 在当前环境下可安装，但 `stock.market.get_market()` / `list_market_current()` 仍可能返回空表；如需要更稳定的可选源，可先把它视为参考源，再根据本机网络条件或代理进行调整。
 - 离线样例始终是最后兜底，保证无密钥环境可运行。
 
-## 4. 外部项目调研结论
+## 5. 外部项目调研结论
 
 本轮用 smart-search 对高星/活跃 A 股量化项目做了快速调研，证据保存在 `docs/trellis/research_a_share_sources.json`、`docs/trellis/research_akshare.md`、`docs/trellis/research_qlib.md`、`docs/trellis/research_vnpy.md` 和 `docs/trellis/research_adata.md`。
 
@@ -65,7 +96,7 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 - `microsoft/qlib`、`vnpy/vnpy` 更偏研究/交易框架，通常需要先把数据接入本地数据目录或数据库；不是把公网实时网页接口直接当作唯一运行依赖。
 - 因此本项目不应把某个公网源一次断连解读成“系统全坏”，而应保留 provider catalog、逐源 smoke、hard timeout、source cooldown、本地样例兜底和后续本地缓存/数据库化路线。
 
-## 5. 开发约定
+## 6. 开发约定
 
 新增 provider 时：
 
@@ -83,7 +114,7 @@ python -m astock_agent_system.cli datasource configure-jqdata
 
 该命令会通过隐藏输入把用户名/密码写入 `data/runtime/settings.override.json`，不会回显密码，也不会把密钥提交到 Git。
 
-## 6. 诊断入口
+## 7. 诊断入口
 
 启动后端后可检查：
 

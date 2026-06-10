@@ -29,6 +29,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_ifind,
     cmd_datasource_configure_jqdata,
     cmd_datasource_status,
+    cmd_datasource_sync_local,
     cmd_datasource_test,
 )
 from astock_agent_system.config import load_settings
@@ -531,6 +532,35 @@ def build_parser() -> argparse.ArgumentParser:
     )
     datasource_test_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_test_parser.set_defaults(func=cmd_datasource_test)
+
+    datasource_sync_parser = datasource_subparsers.add_parser(
+        "sync-local",
+        help="Sync online provider-chain market data into the ignored local SQLite store",
+    )
+    datasource_sync_parser.add_argument(
+        "--sources",
+        default="",
+        help="Comma-separated provider ids; empty uses configured provider chain",
+    )
+    datasource_sync_parser.add_argument(
+        "--stock-codes",
+        default="",
+        help="Comma-separated stock codes; when omitted, sync-local first pulls provider universe",
+    )
+    datasource_sync_parser.add_argument("--max-stocks", type=int, default=20, help="Maximum stocks to sync in one batch")
+    datasource_sync_parser.add_argument("--days", type=int, default=120, help="History days to store for each stock")
+    datasource_sync_parser.add_argument(
+        "--checks",
+        default="universe,history,quote,financial",
+        help="Comma-separated sync operations: universe,history,quote,financial",
+    )
+    datasource_sync_parser.add_argument(
+        "--db-path",
+        default="",
+        help="Optional SQLite path; default is data/market_local/market.sqlite and is ignored by Git",
+    )
+    datasource_sync_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_sync_parser.set_defaults(func=cmd_datasource_sync_local)
 
     datasource_jqdata_parser = datasource_subparsers.add_parser(
         "configure-jqdata",

@@ -24,7 +24,7 @@
 | 可观察性严重不足 | 部分完成，本轮继续补齐默认展示 | `MasterAgent` 已发出客观数据事件；本轮将 `analysis_complete` 默认渲染升级为“分析总览”，直接展示公司/行情、K 线 ASCII 图、技术指标、财务估值、舆情摘要和 Agent 协作链，而不是只输出评分/BUY 结论。 |
 | 一次就结束，无法持续运行 | 已有 CLI 参数，仍需持续看板增强 | `agent start --continuous --interval-minutes N` 已存在，可持续运行直到 Ctrl+C；后续还应补累计收益、下一轮时间、持仓等循环看板。 |
 | 学习记录质量低 | 未完全完成 | 当前学习仍记录本轮模拟盘结果；“真实 7 日后 outcome 回填”和低质量样本过滤仍需拆成单独任务，不应把即时模拟盈亏当成真实学习闭环。 |
-| 数据获取策略不明确 | 部分完成 | 已有 `data/market_cache` 轻量缓存和 provider 诊断；Tushare 官方推荐的批量“撸数据”路线仍需独立实现 SQLite/Parquet 本地库同步任务。 |
+| 数据获取策略不明确 | 已完成首版 | 已有 `data/market_cache` 轻量缓存、provider 诊断和本轮新增的 SQLite 本地库 `data/market_local/market.sqlite`；`datasource sync-local` 可把 provider chain 的 universe/history/quote/financial 批量写入本地库，`DataAgent` 在线模式优先读取该库。 |
 
 因此，旧计划没有完全放弃，但只能算“基础事件 + 缓存 + 诊断完成，默认用户可读看板和本地化数据仍在推进”。本 handoff 用于避免后续再次把“有字段/有事件”误报成“用户已能看懂”。
 
@@ -94,7 +94,48 @@ python -m astock_agent_system.cli datasource configure-ifind
 
 该命令使用隐藏输入写入 Git 忽略的 `data/runtime/settings.override.json`。不要把 token 写进命令行、文档或提交。
 
-### 4. 本地资料处理
+### 4. 本地 SQLite “撸数据”首版
+
+本轮新增 `src/astock_agent_system/data/local_store.py`，提供 SQLite-backed 本地市场数据仓库。默认路径：
+
+```text
+data/market_local/market.sqlite
+```
+
+该目录已加入 `.gitignore`，只作为用户本机运行态数据，不提交到仓库。
+
+新增命令：
+
+```powershell
+python -m astock_agent_system.cli datasource sync-local --sources tushare,baostock,akshare --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+```
+
+也可先配置 iFinD / 同花顺 QuantAPI 后把它加入补充源：
+
+```powershell
+python -m astock_agent_system.cli datasource configure-ifind
+python -m astock_agent_system.cli datasource sync-local --sources tushare,ifind,baostock --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+```
+
+同步命令的安全边界：
+
+- 同步时使用 `DataAgent(use_local_store=False)`，避免把旧本地库误当作新 provider 结果写回自己。
+- 只在最近 provider attempt 显示真实在线 provider 成功时写库；`offline`、`cache`、`file_cache`、`local_market` 不会被计为可同步来源。
+- 不通过命令行参数接收 token；Tushare/JQData/iFinD 凭证仍必须来自本地 `.env` 或 Git 忽略的 `data/runtime/settings.override.json`。
+
+在线读取顺序已变为：进程内缓存 -> SQLite 本地库 -> TTL 文件缓存 -> provider chain -> 离线样例兜底。可用环境变量关闭本地库读取：
+
+```powershell
+$env:ASTOCK_MARKET_LOCAL_READ="false"
+```
+
+或指定自定义库路径：
+
+```powershell
+$env:ASTOCK_MARKET_LOCAL_DB="D:\\market-data\\astock.sqlite"
+```
+
+### 5. 本地资料处理
 
 `docs/misc/*.pdf` 仅作为本地参考资料，不纳入 Git 提交。`.gitignore` 已忽略该路径下 PDF，避免把第三方手册或可能含账号信息的文件提交。
 
@@ -113,16 +154,18 @@ python -m py_compile src/astock_agent_system/agents/master_agent.py src/astock_a
 
 python -m astock_agent_system.cli config
 python -m astock_agent_system.cli datasource status --format json
+python -m astock_agent_system.cli datasource sync-local --sources baostock --max-stocks 5 --days 30 --checks universe,history,quote,financial --format json
 python -m astock_agent_system.cli datasource test --sources baostock,akshare,jqdata,ifind --stock-code 600519 --days 5 --checks history --format json
 python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --no-learning --timeout-seconds 180
 python -m astock_agent_system.cli agent start --continuous --interval-minutes 60 --max-count 3 --days 24 --fresh-start --timeout-seconds 300
 
+python -m pytest tests/test_data_agent.py -q
 .\start.bat -Mode delivery-check
 ```
 
 ## 后续开发建议
 
 1. 将 `agent start --continuous` 的长程运行补齐为真正的循环看板：每轮记录开始/结束、等待时间、累计收益、当前持仓、下一次运行时间。
-2. 将 Tushare “撸数据”路线拆成独立任务：批量同步股票基础信息、日线、每日指标、财务指标到本地 SQLite/Parquet，再由 `DataAgent` 优先读本地库。
+2. 将 SQLite “撸数据”首版继续扩展为更完整的本地数据仓库：增量日期窗口、失败重试、分表统计、Parquet 导出、公告/新闻/财务报告期维度和更细的 freshness 检查。
 3. 将新闻/舆情数据源显式分层：行情 provider 不负责新闻，舆情 provider 单独接入 AkShare/Tushare 新闻、公告或 smart-search 摘要。
 4. 将 MCP/Tushare MCP 作为研究与辅助查询入口，先做只读 POC，确认接口能力、限频和数据结构后再进入主 provider chain。

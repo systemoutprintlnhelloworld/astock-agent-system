@@ -1,6 +1,6 @@
 # Phase 1 - Implement：当前实现状态与下一步执行计划
 
-更新时间：2026-06-10
+更新时间：2026-06-11
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
@@ -21,7 +21,8 @@
 - 本轮主验证路径已改为本地默认模型在线运行，不再以 `--model rule-baseline` 或 `--offline` 作为通过标准：`python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60` 已使用本地 `gpt-5.5` 配置跑通，输出决策、学习记录、收益摘要并正常退出。
 - 本轮继续审计用户提出的“可观察性计划是否完成”：基础事件、缓存和数据源诊断已落地，但原先默认输出仍偏评分/结论；现在 `analysis_complete` 会默认输出公司/行情、K线 ASCII 图、技术指标、财务估值、舆情摘要、Agent 协作链和最终决策，`agent_chain_step` 也默认显示相关客观数据，不再只在 `--verbose` 下展示关键 K线。
 - 本轮 iFinD / 同花顺接入采用安全方式：`configure-ifind` 使用隐藏输入写入 Git 忽略的运行态配置；真实 access token / refresh token 不得写入命令、文档、提交或日志。官方资料显示 iFinD 同时有 SDK 函数（`THS_BD`/`THS_DS`/`THS_DR`/`THS_RQ`）与 HTTP 路线，当前代码优先走 HTTP provider 骨架，字段权限不足时降级到下一 provider。
-- 已验证 `tests/test_data_agent.py` 15 passed；Baostock `history/quote/financial` 对 `600519` 通过；yfinance `history/quote` 对 `600519` 通过且 `financial` 明确 skipped；JQData 未配置本地凭证时明确 skipped/missing credentials；AData 2.9.5 已安装但当前公开接口对 `600519` 返回空表，保留为手动参考源；AkShare 当前网络下仍可能 remote disconnect/timeout，但会按诊断返回并 cooldown，不再阻塞。
+- 本轮新增 SQLite 本地市场数据仓库 `src/astock_agent_system/data/local_store.py`，默认写入 Git 忽略的 `data/market_local/market.sqlite`；新增 `datasource sync-local` 命令，可把真实 provider-chain 成功返回的股票池、K 线、报价和财务快照批量写入本地库；`DataAgent` 在线模式读取顺序升级为进程内缓存 -> SQLite 本地库 -> TTL 文件缓存 -> provider chain -> 离线样例兜底。
+- 已验证 `tests/test_data_agent.py` 18 passed；新增覆盖 `LocalMarketStore` roundtrip、`DataAgent` 本地优先读取、`datasource sync-local` 写库命令。Baostock `history/quote/financial` 对 `600519` 通过；yfinance `history/quote` 对 `600519` 通过且 `financial` 明确 skipped；JQData 未配置本地凭证时明确 skipped/missing credentials；AData 2.9.5 已安装但当前公开接口对 `600519` 返回空表，保留为手动参考源；AkShare 当前网络下仍可能 remote disconnect/timeout，但会按诊断返回并 cooldown，不再阻塞。
 
 ### 本轮新增的可复现实测
 
@@ -30,7 +31,7 @@
 - `python -m astock_agent_system.cli datasource test --sources jqdata --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：未配置凭证时 skipped/missing credentials。
 - `python -m astock_agent_system.cli datasource test --sources akshare --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：当前网络下 history 断连后整源进入 source cooldown，quote/financial 跳过，不再重复打同一坏源。
 - 下一步应继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件，并把前台 CLI 运行事件复用到后端 API/WebSocket。
-- 仍未完成且不要误报为已完成：Tushare 批量“撸数据”到 SQLite/Parquet、本地优先读取、真实 7 日后 outcome 回填、低质量学习样本过滤、连续运行累计收益/持仓/下一轮时间看板。
+- 仍未完成且不要误报为已完成：SQLite “撸数据”目前是首版批量同步和本地优先读取，尚未完成增量日期窗口、Parquet 导出、新闻/公告入库和 freshness 策略；真实 7 日后 outcome 回填、低质量学习样本过滤、连续运行累计收益/持仓/下一轮时间看板仍需后续任务。
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
 - 配置向导现在会先读取 `/api/config` 的脱敏当前配置并动态展示：非密钥字段回填已保存值，密钥字段只显示“已配置/未配置”；已配置密钥留空会保留旧值，且只对 provider chain 中被选中的数据源继续询问对应凭证。

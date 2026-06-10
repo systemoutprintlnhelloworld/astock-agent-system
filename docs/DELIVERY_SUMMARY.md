@@ -1,6 +1,6 @@
 # 交付总结
 
-生成时间：2026-06-09
+生成时间：2026-06-11
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
@@ -12,6 +12,7 @@
 
 - 离线样例数据运行：无密钥时也能验证主流程。
 - 在线数据接入：支持可配置 provider chain，默认 Tushare、Baostock、AkShare，并保留离线兜底；AData/OpenBB/yfinance/Alpha Vantage/JQData 可作为手动参考源。
+- 本地市场数据仓库：支持 `datasource sync-local` 将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照批量写入 Git 忽略的 `data/market_local/market.sqlite`；在线 `DataAgent` 会先读本地 SQLite，再读 TTL 文件缓存和外部 provider。
 - LLM 模型 bench：支持 `bench` 和兼容旧命令 `bench-models`。
 - 多模型虚拟账户：每个 LLM/规则模型独立管理一个模拟账户。
 - 自动投资轮次：可手动运行，也可由调度器定时运行。
@@ -29,6 +30,7 @@
 - Next.js 现代控制台首版：已新增 `apps/frontend`，支持 React Flow 流程图、设置中心、实时事件流、可折叠决策日志、股票看板、模型排行榜和 Recharts 长期曲线。
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
 - TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、已保存配置动态回填、密钥状态脱敏展示、按已选数据源跳过无关凭证、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
+- CLI 客观数据与本地同步：`agent start` 默认展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；`datasource configure-ifind` 使用隐藏输入保存同花顺 iFinD token 到忽略的运行态配置，`datasource sync-local` 用于先批量同步本地数据再运行 Agent。
 
 ## 2. 最短运行路径
 

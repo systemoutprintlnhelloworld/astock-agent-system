@@ -14,6 +14,7 @@ from typing import Any
 
 from astock_agent_system.config import PROJECT_ROOT, Settings, load_settings
 from astock_agent_system.data.cache import MarketDataCache
+from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
 from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
 
 logger = logging.getLogger(__name__)
@@ -219,9 +220,16 @@ def _provider_timeout_seconds() -> float:
 class DataAgent:
     """Fetch market data, using checked-in sample data when providers are absent."""
 
-    def __init__(self, settings: Settings | None = None, data_path: str | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        data_path: str | None = None,
+        use_local_store: bool = True,
+        local_store_path: str | Path | None = None,
+    ) -> None:
         self.settings = settings or load_settings()
         self.data_path = self._resolve_path(data_path or self.settings.data.offline_data_path)
+        self._use_local_store = use_local_store
         self._offline_payload: dict[str, Any] | None = None
         self._provider_cache: dict[str, Any] = {}
         self._provider_attempts: list[dict[str, str]] = []
@@ -232,6 +240,20 @@ class DataAgent:
         self._financial_cache: dict[str, FinancialSnapshot] = {}
         self._quote_cache: dict[str, StockQuote] = {}
         self._market_cache = MarketDataCache(root=self._market_cache_root())
+        self._local_store = LocalMarketStore(path=local_store_path or self._local_store_path())
+
+    def _local_store_path(self) -> Path:
+        raw_path = os.getenv("ASTOCK_MARKET_LOCAL_DB", "").strip()
+        return Path(raw_path) if raw_path else DEFAULT_LOCAL_MARKET_DB
+
+    def _local_store_enabled(self) -> bool:
+        if not self._use_local_store or self.settings.data.mode == "offline":
+            return False
+        if os.getenv("ASTOCK_MARKET_LOCAL_READ", "true").strip().lower() in {"0", "false", "no", "off"}:
+            return False
+        if os.getenv("PYTEST_CURRENT_TEST") and not os.getenv("ASTOCK_MARKET_LOCAL_DB"):
+            return False
+        return self._local_store.exists()
 
     def _market_cache_root(self) -> Path:
         """Scope persistent cache by data mode and provider chain."""
@@ -271,6 +293,7 @@ class DataAgent:
                 {"source": source, "reason": reason}
                 for source, reason in self._provider_global_cooldowns.items()
             ],
+            "local_market": self._local_store.stats(),
             "offline_data_path": str(self.data_path),
         }
 
@@ -279,6 +302,13 @@ class DataAgent:
         if self._universe_cache is not None:
             self._record_provider_attempt("cache", "universe", "ok", f"{len(self._universe_cache)} stocks")
             return list(self._universe_cache)
+        if self._local_store_enabled():
+            limit = getattr(self.settings.data, "dynamic_universe_limit", None)
+            stocks = self._local_store.get_universe(limit=limit)
+            if stocks:
+                self._record_provider_attempt("local_market", "universe", "ok", f"{len(stocks)} stocks")
+                self._universe_cache = list(stocks)
+                return list(stocks)
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("universe"):
                 try:
@@ -321,6 +351,12 @@ class DataAgent:
             bars = self._history_cache[cache_key]
             self._record_provider_attempt("cache", "history", "ok", f"{stock_code}: {len(bars)} bars")
             return list(bars)
+        if self._local_store_enabled():
+            bars = self._local_store.get_history(str(stock_code), days=int(days))
+            if bars:
+                self._record_provider_attempt("local_market", "history", "ok", f"{stock_code}: {len(bars)} bars")
+                self._history_cache[cache_key] = list(bars)
+                return list(bars)
         cached_bars = self._market_cache.get_history(str(stock_code), int(days)) if self._persistent_cache_enabled() else None
         if cached_bars:
             self._record_provider_attempt("file_cache", "history", "ok", f"{stock_code}: {len(cached_bars)} bars")
@@ -367,6 +403,12 @@ class DataAgent:
         if stock_key in self._financial_cache:
             self._record_provider_attempt("cache", "financial", "ok", stock_key)
             return self._financial_cache[stock_key]
+        if self._local_store_enabled():
+            snapshot = self._local_store.get_financial(stock_key)
+            if snapshot is not None:
+                self._record_provider_attempt("local_market", "financial", "ok", stock_key)
+                self._financial_cache[stock_key] = snapshot
+                return snapshot
         cached_snapshot = self._market_cache.get_financial(stock_key) if self._persistent_cache_enabled() else None
         if cached_snapshot is not None:
             self._record_provider_attempt("file_cache", "financial", "ok", stock_key)
@@ -415,6 +457,12 @@ class DataAgent:
         if stock_key in self._quote_cache:
             self._record_provider_attempt("cache", "quote", "ok", stock_key)
             return self._quote_cache[stock_key]
+        if self._local_store_enabled():
+            quote = self._local_store.get_quote(stock_key)
+            if quote is not None:
+                self._record_provider_attempt("local_market", "quote", "ok", stock_key)
+                self._quote_cache[stock_key] = quote
+                return quote
         cached_quote = self._market_cache.get_quote(stock_key) if self._persistent_cache_enabled() else None
         if cached_quote is not None:
             self._record_provider_attempt("file_cache", "quote", "ok", stock_key)

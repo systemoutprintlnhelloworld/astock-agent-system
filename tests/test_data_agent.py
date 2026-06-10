@@ -5,14 +5,15 @@ import sys
 import time
 from types import SimpleNamespace
 
-from astock_agent_system.cli_enhanced import cmd_datasource_test
+from astock_agent_system.cli_enhanced import cmd_datasource_sync_local, cmd_datasource_test
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
+from astock_agent_system.data.local_store import LocalMarketStore
 from astock_agent_system.data.providers.alpha_vantage_provider import AlphaVantageProvider
 from astock_agent_system.data.providers.baostock_provider import BaostockProvider, _is_supported_a_share_stock_code
 from astock_agent_system.data.providers.tushare_provider import TushareProvider
-from astock_agent_system.models import StockBar
+from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
 
 
 def _offline_data_agent(monkeypatch) -> DataAgent:
@@ -44,6 +45,189 @@ def test_history_days_limit(monkeypatch):
 
     assert len(bars) == 5
     assert bars == sorted(bars, key=lambda item: item.date)
+
+
+def test_local_market_store_roundtrip(tmp_path):
+    store = LocalMarketStore(path=tmp_path / "market.sqlite")
+    stocks = [
+        StockIdentity(stock_code="000001", stock_name="平安银行", sector="银行"),
+        StockIdentity(stock_code="600519", stock_name="贵州茅台", sector="白酒"),
+    ]
+    bars = [
+        StockBar(stock_code="000001", date="2026-06-01", open=10.0, high=10.5, low=9.8, close=10.2, volume=100.0, amount=1020.0),
+        StockBar(stock_code="000001", date="2026-06-02", open=10.2, high=10.8, low=10.1, close=10.6, volume=120.0, amount=1272.0),
+        StockBar(stock_code="000001", date="2026-06-03", open=10.6, high=11.0, low=10.4, close=10.9, volume=130.0, amount=1417.0),
+    ]
+    quote = StockQuote(
+        stock_code="000001",
+        stock_name="平安银行",
+        date="2026-06-03",
+        price=10.9,
+        change_pct=0.0283,
+        volume=130.0,
+        amount=1417.0,
+        sector="银行",
+    )
+    financial = FinancialSnapshot(
+        stock_code="000001",
+        stock_name="平安银行",
+        report_date="2026-03-31",
+        pe_ttm=5.2,
+        pb=0.62,
+        roe=0.11,
+        debt_ratio=0.9,
+        revenue_growth=0.04,
+        profit_growth=0.06,
+        market_cap=2000.0,
+        sector="银行",
+    )
+
+    assert store.upsert_universe(stocks) == 2
+    assert store.upsert_history("000001", bars, source="unit") == 3
+    assert store.upsert_quote(quote, source="unit") == 1
+    assert store.upsert_financial(financial, source="unit") == 1
+    store.record_sync(source="unit", operation="history", stock_code="000001", status="ok", detail="3 bars")
+
+    assert [stock.stock_code for stock in store.get_universe(limit=1)] == ["000001"]
+    assert [bar.date for bar in store.get_history("000001", days=2)] == ["2026-06-02", "2026-06-03"]
+    assert store.get_quote("000001").price == 10.9
+    assert store.get_financial("000001").pe_ttm == 5.2
+    stats = store.stats()
+    assert stats["stocks"] == 2
+    assert stats["bars"] == 3
+    assert stats["quotes"] == 1
+    assert stats["financials"] == 1
+    assert stats["sync_runs"] == 1
+
+
+def test_data_agent_reads_local_market_store_first(monkeypatch, tmp_path):
+    db_path = tmp_path / "market.sqlite"
+    store = LocalMarketStore(path=db_path)
+    store.upsert_universe([StockIdentity(stock_code="000001", stock_name="平安银行", sector="银行")])
+    store.upsert_history(
+        "000001",
+        [
+            StockBar(stock_code="000001", date="2026-06-01", open=10.0, high=10.5, low=9.8, close=10.2, volume=100.0, amount=1020.0),
+            StockBar(stock_code="000001", date="2026-06-02", open=10.2, high=10.8, low=10.1, close=10.6, volume=120.0, amount=1272.0),
+        ],
+        source="unit",
+    )
+    store.upsert_quote(
+        StockQuote(
+            stock_code="000001",
+            stock_name="平安银行",
+            date="2026-06-02",
+            price=10.6,
+            change_pct=0.0392,
+            volume=120.0,
+            amount=1272.0,
+            sector="银行",
+        ),
+        source="unit",
+    )
+    store.upsert_financial(
+        FinancialSnapshot(
+            stock_code="000001",
+            stock_name="平安银行",
+            report_date="2026-03-31",
+            pe_ttm=5.2,
+            pb=0.62,
+            roe=0.11,
+            debt_ratio=0.9,
+            revenue_growth=0.04,
+            profit_growth=0.06,
+            market_cap=2000.0,
+            sector="银行",
+        ),
+        source="unit",
+    )
+    monkeypatch.setenv("DATA_MODE", "online")
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "baostock")
+    monkeypatch.setenv("ASTOCK_MARKET_LOCAL_DB", str(db_path))
+    monkeypatch.setenv("LLM_API_KEY", "")
+
+    data_agent = DataAgent(settings=load_settings(), local_store_path=db_path)
+
+    assert data_agent.get_universe()[0].stock_code == "000001"
+    assert data_agent.get_history("000001", days=1)[0].close == 10.6
+    assert data_agent.get_quote("000001").price == 10.6
+    assert data_agent.get_financial("000001").market_cap == 2000.0
+    diagnostics = data_agent.provider_diagnostics()
+    assert diagnostics["local_market"]["exists"] is True
+    assert any(item["source"] == "local_market" and item["operation"] == "history" for item in diagnostics["attempts"])
+
+
+def test_datasource_sync_local_writes_provider_results(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DATA_MODE", "online")
+    monkeypatch.setenv("DATA_PROVIDER_CHAIN", "baostock")
+    monkeypatch.setenv("LLM_API_KEY", "")
+
+    class _FakeBaostockProvider:
+        def get_universe(self, limit: int | None = None) -> list[StockIdentity]:
+            stocks = [StockIdentity(stock_code="000001", stock_name="平安银行", sector="银行")]
+            return stocks[:limit] if limit else stocks
+
+        def get_history(self, stock_code: str, days: int = 30, **_: object) -> list[StockBar]:
+            return [
+                StockBar(stock_code=stock_code, date="2026-06-01", open=10.0, high=10.5, low=9.8, close=10.2, volume=100.0, amount=1020.0),
+                StockBar(stock_code=stock_code, date="2026-06-02", open=10.2, high=10.8, low=10.1, close=10.6, volume=120.0, amount=1272.0),
+            ][-days:]
+
+        def get_quote(self, stock_code: str) -> StockQuote:
+            return StockQuote(
+                stock_code=stock_code,
+                stock_name="平安银行",
+                date="2026-06-02",
+                price=10.6,
+                change_pct=0.0392,
+                volume=120.0,
+                amount=1272.0,
+                sector="银行",
+            )
+
+        def get_financial(self, stock_code: str) -> FinancialSnapshot:
+            return FinancialSnapshot(
+                stock_code=stock_code,
+                stock_name="平安银行",
+                report_date="2026-03-31",
+                pe_ttm=5.2,
+                pb=0.62,
+                roe=0.11,
+                debt_ratio=0.9,
+                revenue_growth=0.04,
+                profit_growth=0.06,
+                market_cap=2000.0,
+                sector="银行",
+            )
+
+    import astock_agent_system.data.providers as providers
+
+    monkeypatch.setattr(providers, "BaostockProvider", _FakeBaostockProvider)
+    db_path = tmp_path / "market.sqlite"
+
+    exit_code = cmd_datasource_sync_local(
+        SimpleNamespace(
+            config=None,
+            sources="baostock",
+            stock_codes="",
+            max_stocks=1,
+            days=2,
+            checks="universe,history,quote,financial",
+            db_path=str(db_path),
+            format="json",
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+    store = LocalMarketStore(path=db_path)
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["provider_chain"] == ["baostock"]
+    assert any(item["operation"] == "universe" and item["source"] == "baostock" for item in payload["items"])
+    assert [stock.stock_code for stock in store.get_universe()] == ["000001"]
+    assert len(store.get_history("000001", days=5)) == 2
+    assert store.get_quote("000001").price == 10.6
+    assert store.get_financial("000001").market_cap == 2000.0
 
 
 def test_provider_catalog_normalizes_aliases_and_redacts_credentials(monkeypatch):

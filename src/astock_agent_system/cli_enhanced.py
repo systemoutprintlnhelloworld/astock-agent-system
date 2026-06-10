@@ -29,6 +29,7 @@ from astock_agent_system.cli_data_viz import (
 from astock_agent_system.config import load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
+from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 
@@ -225,6 +226,78 @@ def cmd_datasource_test(args: Any) -> int:
     else:
         RichEventRenderer().render_datasource_tests(payload)
     return 0 if any(item.get("status") == "ok" for item in payload["items"]) else 1
+
+
+def cmd_datasource_sync_local(args: Any) -> int:
+    """Sync provider-chain market data into the local SQLite store."""
+    settings = load_settings(args.config)
+    sources = _parse_models(str(getattr(args, "sources", "") or ""))
+    if sources:
+        settings.data.provider_chain = [normalize_provider_name(item) for item in sources]
+    max_stocks = max(1, int(getattr(args, "max_stocks", 20) or 20))
+    settings.data.dynamic_universe_limit = max_stocks
+    checks = _parse_models(str(getattr(args, "checks", "universe,history,quote,financial") or ""))
+    if not checks:
+        checks = ["universe", "history", "quote", "financial"]
+    db_path = str(getattr(args, "db_path", "") or "")
+    store = LocalMarketStore(path=db_path or DEFAULT_LOCAL_MARKET_DB)
+    store.initialize()
+    agent = DataAgent(settings=settings, use_local_store=False, local_store_path=store.path)
+    days = int(getattr(args, "days", 120) or 120)
+    requested_codes = _parse_models(str(getattr(args, "stock_codes", "") or ""))
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "db_path": str(store.path),
+        "provider_chain": list(settings.data.provider_chain),
+        "checks": checks,
+        "days": days,
+        "max_stocks": max_stocks,
+        "items": [],
+    }
+
+    stocks = []
+    if "universe" in checks or not requested_codes:
+        try:
+            before = _provider_attempt_count(agent)
+            universe = agent.get_universe()
+            source = _latest_success_source(agent, operation="universe", attempts_before=before)
+            if source:
+                stored = store.upsert_universe(universe[:max_stocks])
+                store.record_sync(source=source, operation="universe", status="ok", detail=f"{stored} stocks")
+                payload["items"].append({"operation": "universe", "status": "ok", "source": source, "stored": stored})
+            else:
+                payload["items"].append({"operation": "universe", "status": "skipped", "detail": "no online provider success"})
+            stocks = universe[:max_stocks]
+        except Exception as exc:
+            store.record_sync(source="provider_chain", operation="universe", status="error", detail=str(exc))
+            payload["items"].append({"operation": "universe", "status": "error", "detail": str(exc)[:300]})
+
+    if requested_codes:
+        stock_codes = requested_codes[:max_stocks]
+    else:
+        stock_codes = [stock.stock_code for stock in stocks[:max_stocks]]
+    if not stock_codes:
+        payload["status"] = "error"
+        payload["message"] = "no stock codes to sync; provide --stock-codes or enable universe-capable provider"
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        return 1
+
+    operation_counts = {"history": 0, "quote": 0, "financial": 0}
+    for stock_code in stock_codes:
+        if "history" in checks:
+            _sync_one_operation(agent, store, payload, operation="history", stock_code=stock_code, days=days, counts=operation_counts)
+        if "quote" in checks:
+            _sync_one_operation(agent, store, payload, operation="quote", stock_code=stock_code, days=days, counts=operation_counts)
+        if "financial" in checks:
+            _sync_one_operation(agent, store, payload, operation="financial", stock_code=stock_code, days=days, counts=operation_counts)
+
+    payload["stored"] = {"stocks": len(stock_codes), **operation_counts}
+    payload["local_stats"] = store.stats()
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().print_info("本地市场数据同步", json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    return 0 if any(value > 0 for value in operation_counts.values()) or any(item.get("operation") == "universe" and item.get("status") == "ok" for item in payload["items"]) else 1
 
 
 def cmd_datasource_configure_jqdata(args: Any) -> int:
@@ -872,6 +945,69 @@ def _run_datasource_operation(agent: DataAgent, *, operation: str, stock_code: s
         result = agent.get_quote(stock_code)
         return ("ok" if result.price > 0 else "empty", f"price={result.price}")
     return "skipped", "unknown operation"
+
+
+def _sync_one_operation(
+    agent: DataAgent,
+    store: LocalMarketStore,
+    payload: dict[str, Any],
+    *,
+    operation: str,
+    stock_code: str,
+    days: int,
+    counts: dict[str, int],
+) -> None:
+    before = _provider_attempt_count(agent)
+    try:
+        if operation == "history":
+            bars = agent.get_history(stock_code, days=days)
+            source = _latest_success_source(agent, operation="history", attempts_before=before)
+            if bars and source:
+                stored = store.upsert_history(stock_code, bars, source=source)
+                counts["history"] += stored
+                store.record_sync(source=source, operation="history", stock_code=stock_code, status="ok", detail=f"{stored} bars")
+                payload["items"].append({"operation": "history", "stock_code": stock_code, "status": "ok", "source": source, "stored": stored})
+            else:
+                payload["items"].append({"operation": "history", "stock_code": stock_code, "status": "skipped", "detail": "no online provider success"})
+            return
+        if operation == "quote":
+            quote = agent.get_quote(stock_code)
+            source = _latest_success_source(agent, operation="quote", attempts_before=before)
+            if quote.price > 0 and source:
+                stored = store.upsert_quote(quote, source=source)
+                counts["quote"] += stored
+                store.record_sync(source=source, operation="quote", stock_code=stock_code, status="ok", detail=f"price={quote.price}")
+                payload["items"].append({"operation": "quote", "stock_code": stock_code, "status": "ok", "source": source, "stored": stored})
+            else:
+                payload["items"].append({"operation": "quote", "stock_code": stock_code, "status": "skipped", "detail": "no online provider success"})
+            return
+        if operation == "financial":
+            snapshot = agent.get_financial(stock_code)
+            source = _latest_success_source(agent, operation="financial", attempts_before=before)
+            if snapshot.stock_code and source:
+                stored = store.upsert_financial(snapshot, source=source)
+                counts["financial"] += stored
+                store.record_sync(source=source, operation="financial", stock_code=stock_code, status="ok", detail=f"pe={snapshot.pe_ttm}")
+                payload["items"].append({"operation": "financial", "stock_code": stock_code, "status": "ok", "source": source, "stored": stored})
+            else:
+                payload["items"].append({"operation": "financial", "stock_code": stock_code, "status": "skipped", "detail": "no online provider success"})
+            return
+    except Exception as exc:
+        store.record_sync(source="provider_chain", operation=operation, stock_code=stock_code, status="error", detail=str(exc))
+        payload["items"].append({"operation": operation, "stock_code": stock_code, "status": "error", "detail": str(exc)[:300]})
+
+
+def _latest_success_source(agent: DataAgent, *, operation: str, attempts_before: int) -> str:
+    attempts = agent.provider_diagnostics().get("attempts", [])
+    if not isinstance(attempts, list):
+        return ""
+    ignored_sources = {"offline", "cache", "file_cache", "local_market"}
+    for item in reversed([entry for entry in attempts[attempts_before:] if isinstance(entry, dict)]):
+        if item.get("operation") == operation and item.get("status") == "ok":
+            source = str(item.get("source", ""))
+            if source and source not in ignored_sources:
+                return source
+    return ""
 
 
 class _DatasourceSmokeNoopCache:

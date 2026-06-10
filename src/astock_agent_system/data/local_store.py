@@ -1,0 +1,320 @@
+"""SQLite-backed local market data store.
+
+This module supports the Tushare-style "download first, query locally" workflow
+without introducing a new database service. The default database path lives
+under ``data/market_local/`` and is ignored by Git.
+"""
+
+from __future__ import annotations
+
+import sqlite3
+from dataclasses import asdict
+from pathlib import Path
+from typing import Any
+
+from astock_agent_system.config import PROJECT_ROOT
+from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
+
+
+DEFAULT_LOCAL_MARKET_DB = PROJECT_ROOT / "data" / "market_local" / "market.sqlite"
+
+
+class LocalMarketStore:
+    """Persist and query market data in a small SQLite database."""
+
+    def __init__(self, path: str | Path | None = None) -> None:
+        self.path = Path(path or DEFAULT_LOCAL_MARKET_DB)
+
+    def initialize(self) -> None:
+        """Create tables and indexes if needed."""
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        with self._connect() as conn:
+            conn.executescript(
+                """
+                CREATE TABLE IF NOT EXISTS stocks (
+                    stock_code TEXT PRIMARY KEY,
+                    stock_name TEXT NOT NULL,
+                    sector TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS bars (
+                    stock_code TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    open REAL NOT NULL,
+                    high REAL NOT NULL,
+                    low REAL NOT NULL,
+                    close REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    amount REAL NOT NULL,
+                    turnover REAL DEFAULT 0,
+                    source TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP,
+                    PRIMARY KEY (stock_code, date)
+                );
+                CREATE INDEX IF NOT EXISTS idx_bars_stock_date ON bars(stock_code, date);
+                CREATE TABLE IF NOT EXISTS quotes (
+                    stock_code TEXT PRIMARY KEY,
+                    stock_name TEXT NOT NULL,
+                    date TEXT NOT NULL,
+                    price REAL NOT NULL,
+                    change_pct REAL NOT NULL,
+                    volume REAL NOT NULL,
+                    amount REAL NOT NULL,
+                    sector TEXT DEFAULT '',
+                    source TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS financials (
+                    stock_code TEXT PRIMARY KEY,
+                    stock_name TEXT NOT NULL,
+                    report_date TEXT NOT NULL,
+                    pe_ttm REAL NOT NULL,
+                    pb REAL NOT NULL,
+                    roe REAL NOT NULL,
+                    debt_ratio REAL NOT NULL,
+                    revenue_growth REAL NOT NULL,
+                    profit_growth REAL NOT NULL,
+                    market_cap REAL NOT NULL,
+                    sector TEXT DEFAULT '',
+                    source TEXT DEFAULT '',
+                    updated_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+                CREATE TABLE IF NOT EXISTS sync_runs (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    source TEXT NOT NULL,
+                    operation TEXT NOT NULL,
+                    stock_code TEXT DEFAULT '',
+                    status TEXT NOT NULL,
+                    detail TEXT DEFAULT '',
+                    created_at TEXT DEFAULT CURRENT_TIMESTAMP
+                );
+                """
+            )
+
+    def exists(self) -> bool:
+        return self.path.exists()
+
+    def upsert_universe(self, stocks: list[StockIdentity]) -> int:
+        if not stocks:
+            return 0
+        self.initialize()
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO stocks(stock_code, stock_name, sector, updated_at)
+                VALUES(:stock_code, :stock_name, :sector, CURRENT_TIMESTAMP)
+                ON CONFLICT(stock_code) DO UPDATE SET
+                    stock_name=excluded.stock_name,
+                    sector=excluded.sector,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                [asdict(item) for item in stocks],
+            )
+        return len(stocks)
+
+    def get_universe(self, limit: int | None = None) -> list[StockIdentity]:
+        if not self.exists():
+            return []
+        sql = "SELECT stock_code, stock_name, sector FROM stocks ORDER BY stock_code"
+        params: tuple[Any, ...] = ()
+        if limit and limit > 0:
+            sql += " LIMIT ?"
+            params = (int(limit),)
+        with self._connect(readonly=True) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        return [StockIdentity(stock_code=row[0], stock_name=row[1], sector=row[2] or "") for row in rows]
+
+    def upsert_history(self, stock_code: str, bars: list[StockBar], *, source: str = "") -> int:
+        if not bars:
+            return 0
+        self.initialize()
+        with self._connect() as conn:
+            conn.executemany(
+                """
+                INSERT INTO bars(stock_code, date, open, high, low, close, volume, amount, turnover, source, updated_at)
+                VALUES(:stock_code, :date, :open, :high, :low, :close, :volume, :amount, :turnover, :source, CURRENT_TIMESTAMP)
+                ON CONFLICT(stock_code, date) DO UPDATE SET
+                    open=excluded.open,
+                    high=excluded.high,
+                    low=excluded.low,
+                    close=excluded.close,
+                    volume=excluded.volume,
+                    amount=excluded.amount,
+                    turnover=excluded.turnover,
+                    source=excluded.source,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                [{**asdict(item), "source": source} for item in bars],
+            )
+        return len(bars)
+
+    def get_history(self, stock_code: str, days: int | None = None) -> list[StockBar]:
+        if not self.exists():
+            return []
+        limit = int(days) if days and days > 0 else 0
+        sql = """
+            SELECT stock_code, date, open, high, low, close, volume, amount, turnover
+            FROM bars
+            WHERE stock_code = ?
+            ORDER BY date DESC
+        """
+        params: tuple[Any, ...] = (str(stock_code),)
+        if limit:
+            sql += " LIMIT ?"
+            params = (str(stock_code), limit)
+        with self._connect(readonly=True) as conn:
+            rows = conn.execute(sql, params).fetchall()
+        bars = [
+            StockBar(
+                stock_code=row[0],
+                date=row[1],
+                open=float(row[2]),
+                high=float(row[3]),
+                low=float(row[4]),
+                close=float(row[5]),
+                volume=float(row[6]),
+                amount=float(row[7]),
+                turnover=float(row[8] or 0.0),
+            )
+            for row in rows
+        ]
+        return sorted(bars, key=lambda item: item.date)
+
+    def upsert_quote(self, quote: StockQuote, *, source: str = "") -> int:
+        self.initialize()
+        payload = {**asdict(quote), "source": source}
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO quotes(stock_code, stock_name, date, price, change_pct, volume, amount, sector, source, updated_at)
+                VALUES(:stock_code, :stock_name, :date, :price, :change_pct, :volume, :amount, :sector, :source, CURRENT_TIMESTAMP)
+                ON CONFLICT(stock_code) DO UPDATE SET
+                    stock_name=excluded.stock_name,
+                    date=excluded.date,
+                    price=excluded.price,
+                    change_pct=excluded.change_pct,
+                    volume=excluded.volume,
+                    amount=excluded.amount,
+                    sector=excluded.sector,
+                    source=excluded.source,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                payload,
+            )
+        return 1
+
+    def get_quote(self, stock_code: str) -> StockQuote | None:
+        if not self.exists():
+            return None
+        with self._connect(readonly=True) as conn:
+            row = conn.execute(
+                """
+                SELECT stock_code, stock_name, date, price, change_pct, volume, amount, sector
+                FROM quotes WHERE stock_code = ?
+                """,
+                (str(stock_code),),
+            ).fetchone()
+        if row is None:
+            return None
+        return StockQuote(
+            stock_code=row[0],
+            stock_name=row[1],
+            date=row[2],
+            price=float(row[3]),
+            change_pct=float(row[4]),
+            volume=float(row[5]),
+            amount=float(row[6]),
+            sector=row[7] or "",
+        )
+
+    def upsert_financial(self, snapshot: FinancialSnapshot, *, source: str = "") -> int:
+        self.initialize()
+        payload = {**asdict(snapshot), "source": source}
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO financials(
+                    stock_code, stock_name, report_date, pe_ttm, pb, roe, debt_ratio,
+                    revenue_growth, profit_growth, market_cap, sector, source, updated_at
+                )
+                VALUES(
+                    :stock_code, :stock_name, :report_date, :pe_ttm, :pb, :roe, :debt_ratio,
+                    :revenue_growth, :profit_growth, :market_cap, :sector, :source, CURRENT_TIMESTAMP
+                )
+                ON CONFLICT(stock_code) DO UPDATE SET
+                    stock_name=excluded.stock_name,
+                    report_date=excluded.report_date,
+                    pe_ttm=excluded.pe_ttm,
+                    pb=excluded.pb,
+                    roe=excluded.roe,
+                    debt_ratio=excluded.debt_ratio,
+                    revenue_growth=excluded.revenue_growth,
+                    profit_growth=excluded.profit_growth,
+                    market_cap=excluded.market_cap,
+                    sector=excluded.sector,
+                    source=excluded.source,
+                    updated_at=CURRENT_TIMESTAMP
+                """,
+                payload,
+            )
+        return 1
+
+    def get_financial(self, stock_code: str) -> FinancialSnapshot | None:
+        if not self.exists():
+            return None
+        with self._connect(readonly=True) as conn:
+            row = conn.execute(
+                """
+                SELECT stock_code, stock_name, report_date, pe_ttm, pb, roe, debt_ratio,
+                       revenue_growth, profit_growth, market_cap, sector
+                FROM financials WHERE stock_code = ?
+                """,
+                (str(stock_code),),
+            ).fetchone()
+        if row is None:
+            return None
+        return FinancialSnapshot(
+            stock_code=row[0],
+            stock_name=row[1],
+            report_date=row[2],
+            pe_ttm=float(row[3]),
+            pb=float(row[4]),
+            roe=float(row[5]),
+            debt_ratio=float(row[6]),
+            revenue_growth=float(row[7]),
+            profit_growth=float(row[8]),
+            market_cap=float(row[9]),
+            sector=row[10] or "",
+        )
+
+    def record_sync(self, *, source: str, operation: str, stock_code: str = "", status: str, detail: str = "") -> None:
+        self.initialize()
+        with self._connect() as conn:
+            conn.execute(
+                """
+                INSERT INTO sync_runs(source, operation, stock_code, status, detail, created_at)
+                VALUES(?, ?, ?, ?, ?, CURRENT_TIMESTAMP)
+                """,
+                (source, operation, stock_code, status, detail[:500]),
+            )
+
+    def stats(self) -> dict[str, Any]:
+        if not self.exists():
+            return {"path": str(self.path), "exists": False, "stocks": 0, "bars": 0, "quotes": 0, "financials": 0}
+        with self._connect(readonly=True) as conn:
+            return {
+                "path": str(self.path),
+                "exists": True,
+                "stocks": int(conn.execute("SELECT COUNT(*) FROM stocks").fetchone()[0]),
+                "bars": int(conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0]),
+                "quotes": int(conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]),
+                "financials": int(conn.execute("SELECT COUNT(*) FROM financials").fetchone()[0]),
+                "sync_runs": int(conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0]),
+            }
+
+    def _connect(self, readonly: bool = False) -> sqlite3.Connection:
+        if readonly:
+            uri = f"file:{self.path.as_posix()}?mode=ro"
+            return sqlite3.connect(uri, uri=True)
+        self.path.parent.mkdir(parents=True, exist_ok=True)
+        return sqlite3.connect(self.path)
