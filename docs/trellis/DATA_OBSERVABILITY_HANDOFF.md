@@ -15,6 +15,19 @@
 
 ## 本轮代码行为变化
 
+### 0. 计划完成度审计
+
+用户提出的四个核心问题，本轮审计结论如下：
+
+| 问题 | 当前完成度 | 说明 |
+| --- | --- | --- |
+| 可观察性严重不足 | 部分完成，本轮继续补齐默认展示 | `MasterAgent` 已发出客观数据事件；本轮将 `analysis_complete` 默认渲染升级为“分析总览”，直接展示公司/行情、K 线 ASCII 图、技术指标、财务估值、舆情摘要和 Agent 协作链，而不是只输出评分/BUY 结论。 |
+| 一次就结束，无法持续运行 | 已有 CLI 参数，仍需持续看板增强 | `agent start --continuous --interval-minutes N` 已存在，可持续运行直到 Ctrl+C；后续还应补累计收益、下一轮时间、持仓等循环看板。 |
+| 学习记录质量低 | 未完全完成 | 当前学习仍记录本轮模拟盘结果；“真实 7 日后 outcome 回填”和低质量样本过滤仍需拆成单独任务，不应把即时模拟盈亏当成真实学习闭环。 |
+| 数据获取策略不明确 | 部分完成 | 已有 `data/market_cache` 轻量缓存和 provider 诊断；Tushare 官方推荐的批量“撸数据”路线仍需独立实现 SQLite/Parquet 本地库同步任务。 |
+
+因此，旧计划没有完全放弃，但只能算“基础事件 + 缓存 + 诊断完成，默认用户可读看板和本地化数据仍在推进”。本 handoff 用于避免后续再次把“有字段/有事件”误报成“用户已能看懂”。
+
 ### 1. Agent 协作链路可观察性
 
 `MasterAgent` 已开始向事件总线发射更细粒度事件：
@@ -35,6 +48,13 @@
 ### 2. CLI 渲染增强
 
 `cli_enhanced.py` 接入 `cli_data_viz.py` 中的文本/ASCII 渲染能力，目标是在终端中直接看到客观数据，而不是只看到评分。
+
+本轮补齐默认可见的分析总览：
+
+- `data_fetch_complete` 展示公司/行情、K 线 ASCII 图、技术指标和财务表；
+- `agent_chain_step` 默认展示相关 K 线/财务/舆情证据，不再只在 `--verbose` 下展示 K 线；
+- `analysis_complete` 新增完整“分析总览”，把公司信息、时间序列、财务估值、舆情摘要、技术/基本面/舆情/辩论/风控链路和最终决策集中展示；
+- `decision_made` 继续展示最终决策的客观依据，作为执行前的摘要。
 
 计划展示块包括：
 
@@ -59,6 +79,21 @@
 
 本轮增加 iFinD / 同花顺 QuantAPI HTTP provider 的配置入口和 provider 注册。真实 token 只允许来自本地环境变量或 `data/runtime/settings.override.json`，不提交到仓库。
 
+iFinD 官方资料核验要点：
+
+- 官方函数体系包括 `THS_BD` 基础数据、`THS_DS` 序列数据、`THS_DR` 专题报表、`THS_RQ` 实时行情等；
+- SDK 路线需要 Windows/Linux 环境包或 `iFinDAPI`，HTTP 接口无需本地 SDK 初始化；
+- 指标名和权限依赖账号侧授权，应通过超级命令或官方网页生成取数命令；
+- 当前仓库优先使用 HTTP provider 骨架，不把桌面 SDK 强绑定进 CLI；如账号字段权限不足，provider 应失败并让 `DataAgent` 降级到下一源。
+
+安全配置方式：
+
+```powershell
+python -m astock_agent_system.cli datasource configure-ifind
+```
+
+该命令使用隐藏输入写入 Git 忽略的 `data/runtime/settings.override.json`。不要把 token 写进命令行、文档或提交。
+
 ### 4. 本地资料处理
 
 `docs/misc/*.pdf` 仅作为本地参考资料，不纳入 Git 提交。`.gitignore` 已忽略该路径下 PDF，避免把第三方手册或可能含账号信息的文件提交。
@@ -69,6 +104,7 @@
 - 当前系统仍是模拟盘/纸面交易，不允许静默接入真实下单。
 - 数据源 smoke 不能把缓存或离线兜底误报为 provider 成功；应明确输出 `ok/error/skipped` 和原因。
 - Tushare MCP 可作为后续研究方向，但当前代码主链仍以本地 provider adapter 和缓存为准。
+- 用户如果在对话中粘贴了真实 access token / refresh token，开发者也不得复述、提交或通过 shell 参数写入；只能提示用户用隐藏输入命令或本地 `.env` 保存。
 
 ## 推荐验证命令
 
@@ -79,6 +115,7 @@ python -m astock_agent_system.cli config
 python -m astock_agent_system.cli datasource status --format json
 python -m astock_agent_system.cli datasource test --sources baostock,akshare,jqdata,ifind --stock-code 600519 --days 5 --checks history --format json
 python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --no-learning --timeout-seconds 180
+python -m astock_agent_system.cli agent start --continuous --interval-minutes 60 --max-count 3 --days 24 --fresh-start --timeout-seconds 300
 
 .\start.bat -Mode delivery-check
 ```

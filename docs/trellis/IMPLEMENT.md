@@ -19,6 +19,8 @@
 - 本轮继续排查“所有数据源都有问题”的在线诊断：Baostock 股票池会返回指数/非正常行，现已按 `type/status` 和交易所前缀过滤，避免 `sh.000003` 被归一化为无效 A 股 `000003` 后拖垮后续筛选；Tushare 频率超限、AkShare 远端断连/超时会触发本轮 source cooldown，避免一轮运行里重复打同一坏源；`datasource status` 增加 `dependency_module/dependency_installed`，区分缺依赖、缺凭证和公网源空返回。
 - 已把 `yfinance`、`jqdatasdk`、`adata` 纳入 `.[market]`/`.[all]` 可选依赖；JQData 已声明 `financial` 保守占位能力，并新增 `datasource configure-jqdata`，通过隐藏输入把本地凭证写入 Git 忽略的 `data/runtime/settings.override.json`，不在命令、文档或提交中回显真实账号密码。
 - 本轮主验证路径已改为本地默认模型在线运行，不再以 `--model rule-baseline` 或 `--offline` 作为通过标准：`python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60` 已使用本地 `gpt-5.5` 配置跑通，输出决策、学习记录、收益摘要并正常退出。
+- 本轮继续审计用户提出的“可观察性计划是否完成”：基础事件、缓存和数据源诊断已落地，但原先默认输出仍偏评分/结论；现在 `analysis_complete` 会默认输出公司/行情、K线 ASCII 图、技术指标、财务估值、舆情摘要、Agent 协作链和最终决策，`agent_chain_step` 也默认显示相关客观数据，不再只在 `--verbose` 下展示关键 K线。
+- 本轮 iFinD / 同花顺接入采用安全方式：`configure-ifind` 使用隐藏输入写入 Git 忽略的运行态配置；真实 access token / refresh token 不得写入命令、文档、提交或日志。官方资料显示 iFinD 同时有 SDK 函数（`THS_BD`/`THS_DS`/`THS_DR`/`THS_RQ`）与 HTTP 路线，当前代码优先走 HTTP provider 骨架，字段权限不足时降级到下一 provider。
 - 已验证 `tests/test_data_agent.py` 15 passed；Baostock `history/quote/financial` 对 `600519` 通过；yfinance `history/quote` 对 `600519` 通过且 `financial` 明确 skipped；JQData 未配置本地凭证时明确 skipped/missing credentials；AData 2.9.5 已安装但当前公开接口对 `600519` 返回空表，保留为手动参考源；AkShare 当前网络下仍可能 remote disconnect/timeout，但会按诊断返回并 cooldown，不再阻塞。
 
 ### 本轮新增的可复现实测
@@ -28,6 +30,7 @@
 - `python -m astock_agent_system.cli datasource test --sources jqdata --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：未配置凭证时 skipped/missing credentials。
 - `python -m astock_agent_system.cli datasource test --sources akshare --stock-code 600519 --days 5 --checks history,quote,financial --timeout-seconds 12 --format json`：当前网络下 history 断连后整源进入 source cooldown，quote/financial 跳过，不再重复打同一坏源。
 - 下一步应继续把 `MasterAgent`、各分析 Agent 和 `DataAgent` 内部步骤做成更细粒度事件，并把前台 CLI 运行事件复用到后端 API/WebSocket。
+- 仍未完成且不要误报为已完成：Tushare 批量“撸数据”到 SQLite/Parquet、本地优先读取、真实 7 日后 outcome 回填、低质量学习样本过滤、连续运行累计收益/持仓/下一轮时间看板。
 
 - `apps/tui/config_wizard.py` 的初始化向导改为更接近 coding-agent TUI 的交互：数据模式单选、provider chain checkbox 多选、默认 LLM 模型从后端模型列表 fuzzy 选择；比赛模型移出初始化配置，改为运行前通过 `/models select`、`/models set` 或 `/start --models` 选择。
 - 配置向导现在会先读取 `/api/config` 的脱敏当前配置并动态展示：非密钥字段回填已保存值，密钥字段只显示“已配置/未配置”；已配置密钥留空会保留旧值，且只对 provider chain 中被选中的数据源继续询问对应凭证。

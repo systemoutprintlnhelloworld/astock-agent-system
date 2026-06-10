@@ -14,6 +14,7 @@
 | 理解系统架构和模块 | [docs/DEVELOPER_GUIDE.md](docs/DEVELOPER_GUIDE.md) | 30 分钟 |
 | 使用/验证 TUI 终端长程运行入口 | [docs/tui/MANUAL_TEST.md](docs/tui/MANUAL_TEST.md) + [docs/tui/TUI_UX_REDESIGN_PLAN.md](docs/tui/TUI_UX_REDESIGN_PLAN.md) + [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) | 15 分钟 |
 | 配置和诊断多数据源降级 | [docs/technical/DATA_PROVIDERS.md](docs/technical/DATA_PROVIDERS.md) | 10 分钟 |
+| 检查 CLI 数据/Agent 可观察性计划完成度 | [docs/trellis/DATA_OBSERVABILITY_HANDOFF.md](docs/trellis/DATA_OBSERVABILITY_HANDOFF.md) | 10 分钟 |
 | 维护 Agent 指令与持续学习 | [docs/technical/AGENT_MD_LEARNING.md](docs/technical/AGENT_MD_LEARNING.md) | 15 分钟 |
 | 了解当前开发进度 | [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) | 10 分钟 |
 | 让下一位 AI 接手继续开发 | [docs/trellis/HANDOFF.md](docs/trellis/HANDOFF.md) | 10 分钟 |
@@ -54,6 +55,7 @@
 5. [docs/trellis-plan.md](docs/trellis-plan.md) - 持久化开发计划和后续方向
 6. [docs/DELIVERY_SUMMARY.md](docs/DELIVERY_SUMMARY.md) - 当前交付状态和验证结果
 7. [docs/tui/TUI_REFACTOR_SUMMARY.md](docs/tui/TUI_REFACTOR_SUMMARY.md) - TUI 交互、命令面板、运行观测和配置向导实现状态
+8. [docs/trellis/DATA_OBSERVABILITY_HANDOFF.md](docs/trellis/DATA_OBSERVABILITY_HANDOFF.md) - CLI 数据可观察性计划完成度、iFinD 安全接入和剩余缺口
 
 **关键命令**：
 ```powershell

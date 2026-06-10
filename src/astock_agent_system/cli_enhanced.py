@@ -585,6 +585,11 @@ class RichEventRenderer:
         if decision:
             suffix = f" action={decision.get('action', '')} confidence={_percent(decision.get('confidence', 0.0))}"
         self._print(f"[green]分析完成[/green] {event.payload.get('message', '')}{suffix}")
+        objective = event.payload.get("objective_data", {}) if isinstance(event.payload.get("objective_data"), dict) else {}
+        agent_chain = event.payload.get("agent_chain", {}) if isinstance(event.payload.get("agent_chain"), dict) else {}
+        overview = _render_analysis_overview(report, objective, agent_chain)
+        if overview:
+            self.print_info(f"分析总览 {event.payload.get('stock_code', '')}", overview)
 
     def _render_decision(self, event: AgentEvent) -> None:
         decision = event.payload.get("decision", {}) if isinstance(event.payload.get("decision"), dict) else event.payload
@@ -632,6 +637,85 @@ def _render_run_header(renderer: RichEventRenderer, settings: Any, *, models: li
         f"学习进度: {learning.get('progress', 0)}/{learning.get('threshold', 30)}",
     ]
     renderer.print_info("CLI 流式智能体", "\n".join(lines))
+
+
+def _render_analysis_overview(report: dict[str, Any], objective: dict[str, Any], agent_chain: dict[str, Any]) -> str:
+    """Render the full evidence board for one analyzed stock."""
+    stock = _dict_or_empty(objective.get("stock")) or _dict_or_empty(report.get("stock"))
+    quote = _dict_or_empty(objective.get("quote")) or _dict_or_empty(report.get("quote"))
+    financial = _dict_or_empty(objective.get("financial")) or _dict_or_empty(report.get("financial"))
+    bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
+    news = objective.get("news") if "news" in objective else None
+    if news is None:
+        sentiment = _dict_or_empty(report.get("sentiment"))
+        metadata = _dict_or_empty(sentiment.get("metadata"))
+        news = metadata.get("news") or metadata.get("news_items") or metadata.get("articles") or sentiment.get("reasons")
+
+    sections: list[str] = []
+    if stock or quote or financial:
+        sections.extend(["【公司与行情】", render_company_info(stock, quote, financial)])
+    if bars:
+        sections.extend(["", "【时间序列 / K线】", render_kline_ascii(bars), "", "【技术指标】", render_technical_indicators(bars)])
+    if financial:
+        sections.extend(["", "【财务与估值】", render_financial_table(financial)])
+    if news:
+        sections.extend(["", "【舆情 / 新闻】", render_news_list(news)])
+
+    chain_lines = _render_agent_chain_summary(report, agent_chain)
+    if chain_lines:
+        sections.extend(["", "【Agent 协作链】", *chain_lines])
+
+    decision = _dict_or_empty(report.get("decision"))
+    if decision:
+        sections.extend(
+            [
+                "",
+                "【最终决策】",
+                f"动作: {decision.get('action', '')}  置信度: {_percent(decision.get('confidence', 0.0))}  仓位: {_percent(decision.get('position_size', 0.0))}",
+                f"理由: {decision.get('rationale', decision.get('reason', ''))}",
+            ]
+        )
+    return "\n".join(str(item) for item in sections if str(item).strip())
+
+
+def _render_agent_chain_summary(report: dict[str, Any], agent_chain: dict[str, Any]) -> list[str]:
+    """Render concise per-agent scores and reasons from the current report."""
+    chain = agent_chain if isinstance(agent_chain, dict) else {}
+    fallback_map = {
+        "technical": report.get("technical"),
+        "fundamental": report.get("fundamental"),
+        "sentiment": report.get("sentiment"),
+        "debate": report.get("debate"),
+        "risk": report.get("risk"),
+    }
+    labels = [
+        ("technical", "技术分析"),
+        ("fundamental", "基本面分析"),
+        ("sentiment", "舆情分析"),
+        ("debate", "多Agent辩论"),
+        ("risk", "风控评估"),
+    ]
+    lines: list[str] = []
+    for key, title in labels:
+        result = _dict_or_empty(chain.get(key)) or _dict_or_empty(fallback_map.get(key))
+        if not result:
+            continue
+        score = result.get("score", result.get("risk_score", 0.0))
+        label = result.get("label", result.get("recommendation", ""))
+        lines.append(f"- {title}: {label}  评分={_percent(score)}")
+        reasons = result.get("reasons") or []
+        if isinstance(reasons, list):
+            for reason in reasons[:2]:
+                lines.append(f"  + {reason}")
+        risks = result.get("risks") or []
+        if isinstance(risks, list):
+            for risk in risks[:1]:
+                lines.append(f"  - {risk}")
+    return lines
+
+
+def _dict_or_empty(value: Any) -> dict[str, Any]:
+    return value if isinstance(value, dict) else {}
 
 
 def _emit_datasource_snapshot(emitter: AgentEventEmitter, settings: Any) -> None:
