@@ -7,6 +7,7 @@ import getpass
 import json
 import queue
 import threading
+import time
 from importlib.util import find_spec
 from typing import Any
 
@@ -17,6 +18,14 @@ from astock_agent_system.agent_learning import (
     trigger_learning_if_ready,
 )
 from astock_agent_system.agent_memory import AgentMemoryStore
+from astock_agent_system.cli_data_viz import (
+    render_analysis_result,
+    render_company_info,
+    render_financial_table,
+    render_kline_ascii,
+    render_news_list,
+    render_technical_indicators,
+)
 from astock_agent_system.config import load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
@@ -37,21 +46,40 @@ def cmd_agent_start(args: Any) -> int:
     _render_run_header(renderer, settings, models=models, offline=bool(getattr(args, "offline", False)))
     _emit_datasource_snapshot(emitter, settings)
     timeout_seconds = float(getattr(args, "timeout_seconds", 900.0) or 900.0)
-    orchestrator = MultiAgentOrchestrator(settings=settings, event_emitter=emitter)
+    interval_seconds = max(0.0, float(getattr(args, "interval_minutes", 60.0) or 60.0) * 60.0)
+    continuous = bool(getattr(args, "continuous", False))
+    max_rounds = int(getattr(args, "max_rounds", 0) or 0)
+    round_index = 0
+    last_payload: dict[str, Any] | None = None
     try:
-        payload = _run_with_timeout(
-            lambda: orchestrator.run_competition(
-                models=models or None,
-                max_count=int(getattr(args, "max_count", 3)),
-                history_days=int(getattr(args, "days", 24)),
-                initial_capital=getattr(args, "initial_capital", None),
-                persist=not bool(getattr(args, "no_persist", False)),
-                continue_from_storage=not bool(getattr(args, "fresh_start", False)),
-                collect_learning=not bool(getattr(args, "no_learning", False)),
-            ),
-            timeout_seconds=timeout_seconds,
-            label="agent run",
-        )
+        while True:
+            round_index += 1
+            if continuous:
+                renderer.print_info("连续运行", f"第 {round_index} 轮开始；按 Ctrl+C 可安全停止。")
+            orchestrator = MultiAgentOrchestrator(settings=settings, event_emitter=emitter)
+            payload = _run_with_timeout(
+                lambda: orchestrator.run_competition(
+                    models=models or None,
+                    max_count=int(getattr(args, "max_count", 3)),
+                    history_days=int(getattr(args, "days", 24)),
+                    initial_capital=getattr(args, "initial_capital", None),
+                    persist=not bool(getattr(args, "no_persist", False)),
+                    continue_from_storage=not bool(getattr(args, "fresh_start", False)) or round_index > 1,
+                    collect_learning=not bool(getattr(args, "no_learning", False)),
+                ),
+                timeout_seconds=timeout_seconds,
+                label="agent run",
+            )
+            last_payload = payload
+            _emit_post_run_visibility(emitter, settings, payload)
+            renderer.render_result_summary(payload)
+            if not continuous or payload.get("status") != "ok":
+                break
+            if max_rounds > 0 and round_index >= max_rounds:
+                renderer.print_info("连续运行", f"已完成 --max-rounds={max_rounds}，自动停止。")
+                break
+            renderer.print_info("连续运行", f"第 {round_index} 轮完成，等待 {interval_seconds / 60:.1f} 分钟后进入下一轮。")
+            time.sleep(interval_seconds)
     except KeyboardInterrupt:
         emitter.emit("run_error", message="收到 Ctrl+C，当前前台运行已停止")
         return 130
@@ -62,9 +90,7 @@ def cmd_agent_start(args: Any) -> int:
         emitter.emit("run_error", message=f"运行失败: {exc}")
         return 1
 
-    _emit_post_run_visibility(emitter, settings, payload)
-    renderer.render_result_summary(payload)
-    return 0 if payload.get("status") == "ok" else 1
+    return 0 if (last_payload or {}).get("status") == "ok" else 1
 
 
 def cmd_agent_benchmark(args: Any) -> int:
@@ -240,6 +266,43 @@ def cmd_datasource_configure_jqdata(args: Any) -> int:
     return 0
 
 
+def cmd_datasource_configure_ifind(args: Any) -> int:
+    """Persist iFinD tokens through hidden prompts in the ignored runtime config."""
+    access_token = getpass.getpass("iFinD access token: ").strip()
+    refresh_token = getpass.getpass("iFinD refresh token (optional): ").strip()
+    if not access_token:
+        print(json.dumps({"status": "error", "message": "access token is required"}, ensure_ascii=False, indent=2))
+        return 1
+    provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
+    if not provider_chain:
+        settings = load_settings(getattr(args, "config", None))
+        provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
+    normalized_chain = []
+    for item in provider_chain + ["ifind"]:
+        source = normalize_provider_name(item)
+        if source and source not in normalized_chain:
+            normalized_chain.append(source)
+    path = save_runtime_overrides(
+        {
+            "data": {
+                "ifind_access_token": access_token,
+                "ifind_refresh_token": refresh_token,
+                "provider_chain": normalized_chain,
+            }
+        }
+    )
+    payload = {
+        "status": "ok",
+        "message": "iFinD tokens saved to ignored runtime config",
+        "runtime_config_path": str(path),
+        "provider_chain": normalized_chain,
+        "has_ifind_access_token": True,
+        "has_ifind_refresh_token": bool(refresh_token),
+    }
+    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    return 0
+
+
 class RichEventRenderer:
     """Rich-backed event renderer with a plain-text fallback."""
 
@@ -263,6 +326,13 @@ class RichEventRenderer:
             "run_start": self._render_run_start,
             "run_complete": self._render_run_complete,
             "run_error": self._render_error,
+            "screening_start": self._render_workflow_event,
+            "screening_complete": self._render_screening_complete,
+            "analysis_start": self._render_workflow_event,
+            "analysis_complete": self._render_analysis_complete,
+            "data_fetch_start": self._render_workflow_event,
+            "data_fetch_complete": self._render_data_fetch_complete,
+            "agent_chain_step": self._render_agent_chain_step,
             "agent_start": self._render_agent_start,
             "agent_complete": self._render_agent_complete,
             "decision_made": self._render_decision,
@@ -441,12 +511,90 @@ class RichEventRenderer:
             f"权益={event.payload.get('equity', '')}, 收益={_percent(event.payload.get('total_return', 0.0))}"
         )
 
+    def _render_workflow_event(self, event: AgentEvent) -> None:
+        label = {
+            "screening_start": "筛选",
+            "analysis_start": "分析",
+            "data_fetch_start": "数据",
+        }.get(event.type, "流程")
+        self._print(f"[blue]{label}[/blue] {event.payload.get('message', '')}")
+
+    def _render_screening_complete(self, event: AgentEvent) -> None:
+        candidates = event.payload.get("candidates", []) if isinstance(event.payload.get("candidates"), list) else []
+        scores = event.payload.get("candidate_scores", {}) if isinstance(event.payload.get("candidate_scores"), dict) else {}
+        lines = [event.payload.get("message", "完成股票池筛选")]
+        if candidates:
+            lines.append("")
+            lines.append("入选股票:")
+            for item in candidates[:10]:
+                if not isinstance(item, dict):
+                    continue
+                code = item.get("stock_code", "")
+                score = scores.get(code, "")
+                score_text = f" score={_float_text(score)}" if score != "" else ""
+                lines.append(f"- {code} {item.get('stock_name', '')} {item.get('sector', '')}{score_text}".strip())
+        self.print_info("股票池筛选", "\n".join(lines))
+
+    def _render_data_fetch_complete(self, event: AgentEvent) -> None:
+        objective = event.payload.get("objective_data", {}) if isinstance(event.payload.get("objective_data"), dict) else {}
+        stock = objective.get("stock", {}) if isinstance(objective.get("stock"), dict) else {}
+        quote = objective.get("quote", {}) if isinstance(objective.get("quote"), dict) else {}
+        financial = objective.get("financial", {}) if isinstance(objective.get("financial"), dict) else {}
+        bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
+        if not objective:
+            self._print(f"[blue]数据[/blue] {event.payload.get('message', '')}")
+            return
+        lines = [event.payload.get("message", "完成数据获取"), "", render_company_info(stock, quote, financial)]
+        if bars:
+            lines.extend(["", render_kline_ascii(bars), "", render_technical_indicators(bars)])
+        if financial:
+            lines.extend(["", render_financial_table(financial)])
+        self.print_info("客观数据快照", "\n".join(item for item in lines if item))
+
+    def _render_agent_chain_step(self, event: AgentEvent) -> None:
+        step = str(event.payload.get("chain_step", ""))
+        title = _chain_step_title(step)
+        result = event.payload.get("result", {}) if isinstance(event.payload.get("result"), dict) else {}
+        if result:
+            self._print(
+                f"[cyan]{title}[/cyan] {event.payload.get('stock_code', '')} "
+                f"{result.get('label', '')} score={_percent(result.get('score', 0.0))}"
+            )
+        else:
+            self._print(f"[cyan]{title}[/cyan] {event.payload.get('message', '')}")
+        if result:
+            objective = event.payload.get("objective_data", {}) if isinstance(event.payload.get("objective_data"), dict) else {}
+            details = [render_analysis_result(title, result)]
+            bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
+            if bars:
+                details.extend(["", render_technical_indicators(bars)])
+                if self.verbose:
+                    details.extend(["", render_kline_ascii(bars)])
+            financial = objective.get("financial") if isinstance(objective.get("financial"), dict) else None
+            if financial:
+                details.extend(["", render_financial_table(financial)])
+            news = objective.get("news") if "news" in objective else None
+            if news:
+                details.extend(["", render_news_list(news)])
+            self.print_info(f"{title} 明细", "\n".join(details).strip())
+
+    def _render_analysis_complete(self, event: AgentEvent) -> None:
+        report = event.payload.get("report", {}) if isinstance(event.payload.get("report"), dict) else {}
+        decision = report.get("decision", {}) if isinstance(report.get("decision"), dict) else {}
+        suffix = ""
+        if decision:
+            suffix = f" action={decision.get('action', '')} confidence={_percent(decision.get('confidence', 0.0))}"
+        self._print(f"[green]分析完成[/green] {event.payload.get('message', '')}{suffix}")
+
     def _render_decision(self, event: AgentEvent) -> None:
         decision = event.payload.get("decision", {}) if isinstance(event.payload.get("decision"), dict) else event.payload
         self._print(
             f"[yellow]决策[/yellow] {decision.get('stock_code', '')} "
             f"{decision.get('action', '')} 置信度={_percent(decision.get('confidence', 0.0))}"
         )
+        body = _render_decision_evidence(decision)
+        if body:
+            self.print_info(f"决策客观依据 {decision.get('stock_code', '')}", body)
 
     def _render_trade(self, event: AgentEvent) -> None:
         self._print(

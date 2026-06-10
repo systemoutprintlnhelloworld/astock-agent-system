@@ -29,6 +29,11 @@ PROVIDER_ALIASES = {
     "bao_stock": "baostock",
     "bao-stock": "baostock",
     "joinquant": "jqdata",
+    "ifind": "ifind",
+    "i_find": "ifind",
+    "ifind_http": "ifind",
+    "ths_quantapi": "ifind",
+    "10jqka": "ifind",
     "ths": "ths_skill",
     "tonghuashun": "ths_skill",
     "同花顺": "ths_skill",
@@ -122,6 +127,19 @@ PROVIDER_CATALOG: dict[str, dict[str, Any]] = {
         "default_chain": False,
         "suitability": "适合有聚宽账号时补充A股研究数据。",
         "limitations": ["需要本地 JQDATA_USERNAME/JQDATA_PASSWORD；授权和额度由用户账号决定。"],
+    },
+    "ifind": {
+        "display_name": "iFinD / 同花顺 QuantAPI",
+        "class_name": "IfindProvider",
+        "dependency_module": "requests",
+        "capabilities": ["history", "quote"],
+        "credential_fields": ["ifind_access_token"],
+        "default_chain": False,
+        "suitability": "适合已有同花顺 QuantAPI HTTP 权限时补充A股历史行情和报价。",
+        "limitations": [
+            "需要本地 IFIND_ACCESS_TOKEN；refresh token 仅用于本地更新，不写入仓库。",
+            "HTTP 指标权限由账号决定，当前适配器先覆盖 history/quote，财务和全市场股票池仍建议用 Tushare/JQData/Baostock/AkShare。",
+        ],
     },
     "ths_skill": {
         "display_name": "同花顺 Skill / 数据能力",
@@ -574,6 +592,11 @@ class DataAgent:
             return provider_class(
                 username=self.settings.data.jqdata_username,
                 password=self.settings.data.jqdata_password,
+            )
+        if source == "ifind":
+            return provider_class(
+                access_token=self.settings.data.ifind_access_token,
+                refresh_token=self.settings.data.ifind_refresh_token,
             )
         return provider_class()
 

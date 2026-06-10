@@ -219,7 +219,14 @@ class MultiAgentOrchestrator:
                 previous_equity=previous_equity,
             )
 
-        report = MasterAgent(settings=settings, data_agent=self.data_agent).run_daily(max_count=max_count, history_days=history_days)
+        report = MasterAgent(
+            settings=settings,
+            data_agent=self.data_agent,
+            event_emitter=self.event_emitter,
+            run_id=run_id,
+            agent_id=agent_id,
+            model=llm_model,
+        ).run_daily(max_count=max_count, history_days=history_days)
 
         latest_prices: dict[str, float] = {}
         decisions: list[dict[str, Any]] = []
@@ -559,6 +566,7 @@ def _decision_row(
     override: dict[str, Any],
 ) -> dict[str, Any]:
     decision = report.decision
+    explanation_data = decision.explanation_data if decision and isinstance(decision.explanation_data, dict) else {}
     return {
         "agent_id": agent_id,
         "llm_model": llm_model,
@@ -576,6 +584,9 @@ def _decision_row(
         "risk_score": report.risk.score if report.risk else 0.0,
         "rule_action": decision.action if decision else "HOLD",
         "llm_review": override,
+        "objective_data": explanation_data.get("objective_data", {}),
+        "agent_chain": explanation_data.get("agent_chain", {}),
+        "explanation_data": explanation_data,
     }
 
 

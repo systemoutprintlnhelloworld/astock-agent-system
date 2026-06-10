@@ -28,6 +28,8 @@ RUNTIME_ENV_FIELD_MAP = {
     ("data", "alpha_vantage_api_key"): "ALPHA_VANTAGE_API_KEY",
     ("data", "jqdata_username"): "JQDATA_USERNAME",
     ("data", "jqdata_password"): "JQDATA_PASSWORD",
+    ("data", "ifind_access_token"): "IFIND_ACCESS_TOKEN",
+    ("data", "ifind_refresh_token"): "IFIND_REFRESH_TOKEN",
     ("portfolio", "initial_capital"): "INITIAL_CAPITAL",
     ("risk", "max_position_per_stock"): "MAX_POSITION_PER_STOCK",
     ("risk", "max_total_position"): "MAX_TOTAL_POSITION",
@@ -197,6 +199,8 @@ class DataSettings:
     alpha_vantage_api_key: str = ""
     jqdata_username: str = ""
     jqdata_password: str = ""
+    ifind_access_token: str = ""
+    ifind_refresh_token: str = ""
 
 
 @dataclass(slots=True)
@@ -308,6 +312,8 @@ def load_settings(config_path: str | None = None) -> Settings:
         alpha_vantage_api_key=_env_or_default("ALPHA_VANTAGE_API_KEY", str(data_raw.get("alpha_vantage_api_key", ""))),
         jqdata_username=_env_or_default("JQDATA_USERNAME", str(data_raw.get("jqdata_username", ""))),
         jqdata_password=_env_or_default("JQDATA_PASSWORD", str(data_raw.get("jqdata_password", ""))),
+        ifind_access_token=_env_or_default("IFIND_ACCESS_TOKEN", str(data_raw.get("ifind_access_token", ""))),
+        ifind_refresh_token=_env_or_default("IFIND_REFRESH_TOKEN", str(data_raw.get("ifind_refresh_token", ""))),
     )
     portfolio = PortfolioSettings(
         initial_capital=_to_float(_env_or_default("INITIAL_CAPITAL"), float(portfolio_raw.get("initial_capital", 100000))),

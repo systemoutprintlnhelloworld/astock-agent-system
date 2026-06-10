@@ -27,6 +27,7 @@ logs/
 reports/
 outputs/
 data/market_cache/
+docs/misc/*.pdf
 data/runtime/
 config/agents/learning/*.json
 config/agents/learning/*.jsonl

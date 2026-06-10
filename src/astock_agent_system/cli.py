@@ -26,6 +26,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_start,
     cmd_agent_status,
     cmd_agent_stop,
+    cmd_datasource_configure_ifind,
     cmd_datasource_configure_jqdata,
     cmd_datasource_status,
     cmd_datasource_test,
@@ -447,6 +448,9 @@ def build_parser() -> argparse.ArgumentParser:
     agent_start_parser.add_argument("--no-persist", action="store_true", help="Do not write leaderboard/trades to MongoDB")
     agent_start_parser.add_argument("--no-learning", action="store_true", help="Do not record learning experiences for this run")
     agent_start_parser.add_argument("--timeout-seconds", type=float, default=900.0, help="Hard timeout for one foreground agent run")
+    agent_start_parser.add_argument("--continuous", action="store_true", help="Keep running rounds until Ctrl+C or --max-rounds is reached")
+    agent_start_parser.add_argument("--interval-minutes", type=float, default=60.0, help="Minutes to wait between continuous rounds")
+    agent_start_parser.add_argument("--max-rounds", type=int, default=0, help="Maximum continuous rounds; 0 means run until Ctrl+C")
     agent_start_parser.add_argument("--verbose", action="store_true", help="Print verbose stream events")
     agent_start_parser.add_argument("--debug", action="store_true", help="Print raw JSON events")
     agent_start_parser.set_defaults(func=cmd_agent_start)
@@ -539,6 +543,17 @@ def build_parser() -> argparse.ArgumentParser:
         help="Optional comma-separated provider chain to save; jqdata is appended when absent",
     )
     datasource_jqdata_parser.set_defaults(func=cmd_datasource_configure_jqdata)
+
+    datasource_ifind_parser = datasource_subparsers.add_parser(
+        "configure-ifind",
+        help="Save iFinD/同花顺 QuantAPI tokens through hidden prompts into ignored runtime config",
+    )
+    datasource_ifind_parser.add_argument(
+        "--provider-chain",
+        default="",
+        help="Optional comma-separated provider chain to save; ifind is appended when absent",
+    )
+    datasource_ifind_parser.set_defaults(func=cmd_datasource_configure_ifind)
     return parser
 
 
