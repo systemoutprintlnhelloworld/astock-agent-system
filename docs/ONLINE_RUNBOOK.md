@@ -59,6 +59,7 @@ STOP_LOSS_INTERVAL_MINUTES=5
 
 - `LLM_BASE_URL` 通常要带 `/v1`。
 - `DATA_PROVIDER_CHAIN` 控制在线数据源降级顺序；离线样例始终是最后兜底。
+- 在线 provider 返回的 history/quote/financial 会写入本地文件缓存 `data/market_cache/`（Git 忽略），下次同类请求会先读缓存再调用外部 API，以降低 Tushare 等数据源频率压力。
 - `.env` 不要提交到 GitHub。
 - CLI `config` 只显示是否存在 key，不显示完整 key。
 - JQData 也可不用手写 `.env`，通过 `python -m astock_agent_system.cli datasource configure-jqdata` 隐藏输入后保存到 Git 忽略的 `data/runtime/settings.override.json`。
@@ -128,6 +129,27 @@ python -m astock_agent_system.cli bench --models "gpt-5.4-mini" --limit 1
 
 ## 6. 在线数据 smoke
 
+### 6.1 Provider chain 与本地缓存关系
+
+在线模式的数据读取顺序是：
+
+1. 进程内内存缓存（同一轮运行内避免重复取同一股票）。
+2. 本地文件缓存 `data/market_cache/`。
+3. 配置的 provider chain，例如 `tushare -> baostock -> akshare`。
+4. 离线样例兜底。
+
+缓存 TTL：
+
+| 数据类型 | 默认 TTL | 说明 |
+| --- | --- | --- |
+| history | 7 天 | 用于历史 K 线，减少重复调用 Tushare 历史行情接口。 |
+| quote | 5 分钟 | 用于当前报价，保持短周期新鲜度。 |
+| financial | 1 天 | 用于估值/财务快照，日内无需反复拉取。 |
+
+该缓存不是替代实时接口，而是外部 API 的本地加速层；缓存过期后会重新走 provider chain。缓存文件属于运行时数据，不应提交到 Git。
+
+### 6.2 在线 smoke 命令
+
 在线筛选候选股票：
 
 ```powershell
@@ -172,6 +194,16 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 ```
 
 该接口只返回能力、缺失凭证和最近尝试结果，不返回真实 token、API key 或密码。更多说明见 [数据源 Provider 接入说明](technical/DATA_PROVIDERS.md)。
+
+`datasource test` 是逐源 smoke 命令，运行时会绕过共享文件缓存 `data/market_cache/`，避免缓存命中把失败 provider 误判为成功；它只用来判断当前 provider 自身是否真实可用。
+
+## 6.3 CLI 客观数据可观察性
+
+为了避免只看到“评分”和“BUY/REJECT”结论，CLI 现在开始提供面向终端的客观数据渲染基础：
+
+- `cli_data_viz.py` 可渲染 ASCII K 线、MA/RSI 等技术指标、财务指标表、公司/报价快照和新闻/舆情摘要。
+- `TradeDecision.explanation_data` 会记录本次决策建议展示哪些证据块，例如 `kline`、`financial`、`sentiment`、`risk`。
+- 当前批次已完成数据结构和缓存基础；完整把这些图表接入 `agent start` 的实时流式输出仍在后续 CLI 可观察性任务中继续完成。
 
 ## 7. 在线自动投资 smoke
 

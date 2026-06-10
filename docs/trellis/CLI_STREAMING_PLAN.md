@@ -52,6 +52,26 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 - 修复 `decision_made` 事件 payload 与事件 envelope 的 `agent_id` 字段冲突，离线 `agent start` 已能展示决策、交易和收益摘要。
 - 后端事件协议新增学习/记忆/数据源事件类型；新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`。
 
+### 当前增强批次：客观数据可观察性与本地行情缓存
+
+本批次开始解决“CLI 只展示内部评分、缺少用户可复核的客观数据”的问题：
+
+- 新增 `src/astock_agent_system/cli_data_viz.py`，提供纯文本/ASCII 形式的 K 线、技术指标、财务指标、公司/报价快照和新闻/舆情摘要渲染函数，后续可被 Rich CLI 或普通终端共同复用。
+- `TradeDecision` 新增 `explanation_data` 字段；`PortfolioManager` 会根据技术面、基本面、舆情、辩论和风控结果，为每次决策选择应展示的客观数据块，例如 `kline`、`technical_indicators`、`financial`、`sentiment`、`risk`、`agent_chain`。
+- 新增 `src/astock_agent_system/data/cache.py` 的 `MarketDataCache`。缓存目录为 Git 忽略的 `data/market_cache/`，用于减少重复调用 Tushare/Baostock/AkShare 等在线 provider。
+- `DataAgent` 已接入文件缓存：内存缓存未命中后优先读取 `data/market_cache/`；在线 provider 成功返回 history/quote/financial 后写入文件缓存。
+- CLI 事件枚举新增 `screening_start`、`screening_complete`、`analysis_start`、`analysis_complete`、`data_fetch_start`、`data_fetch_complete`、`agent_chain_step`，用于后续在命令行显示 `DataAgent -> TechnicalAnalyst -> FundamentalAnalyst -> SentimentAnalyst -> DebateRoom -> RiskManager -> PortfolioManager` 的完整协作链。
+
+缓存 TTL 当前约定：
+
+| 数据类型 | TTL | 说明 |
+| --- | --- | --- |
+| history | 7 天 | 历史 K 线变化慢，优先减少重复调用 Tushare 历史接口。 |
+| quote | 5 分钟 | 保持实时/准实时行情的新鲜度。 |
+| financial | 1 天 | 财务和估值数据日内变化较少。 |
+
+注意：本批次只是把客观数据渲染、解释计划和文件缓存基础打通；细粒度事件在 `MasterAgent`/`MultiAgentOrchestrator` 中的完整渲染和持续运行模式仍需继续完成后续任务。
+
 推荐验证命令：
 
 ```powershell

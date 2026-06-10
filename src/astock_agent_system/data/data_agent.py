@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+import hashlib
 import json
 import importlib.util
 import logging
@@ -12,6 +13,7 @@ from pathlib import Path
 from typing import Any
 
 from astock_agent_system.config import PROJECT_ROOT, Settings, load_settings
+from astock_agent_system.data.cache import MarketDataCache
 from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
 
 logger = logging.getLogger(__name__)
@@ -211,6 +213,18 @@ class DataAgent:
         self._history_cache: dict[tuple[str, int], list[StockBar]] = {}
         self._financial_cache: dict[str, FinancialSnapshot] = {}
         self._quote_cache: dict[str, StockQuote] = {}
+        self._market_cache = MarketDataCache(root=self._market_cache_root())
+
+    def _market_cache_root(self) -> Path:
+        """Scope persistent cache by data mode and provider chain."""
+        chain = ",".join(self._configured_provider_chain())
+        raw_key = f"mode={self.settings.data.mode};chain={chain}"
+        digest = hashlib.sha256(raw_key.encode("utf-8")).hexdigest()[:12]
+        return PROJECT_ROOT / "data" / "market_cache" / digest
+
+    def _persistent_cache_enabled(self) -> bool:
+        """Return whether file-based provider cache should be used."""
+        return self.settings.data.mode != "offline" and not os.getenv("PYTEST_CURRENT_TEST")
 
     def _get_tushare_provider(self) -> Any | None:
         """Lazy load Tushare provider if token is available."""
@@ -289,6 +303,11 @@ class DataAgent:
             bars = self._history_cache[cache_key]
             self._record_provider_attempt("cache", "history", "ok", f"{stock_code}: {len(bars)} bars")
             return list(bars)
+        cached_bars = self._market_cache.get_history(str(stock_code), int(days)) if self._persistent_cache_enabled() else None
+        if cached_bars:
+            self._record_provider_attempt("file_cache", "history", "ok", f"{stock_code}: {len(cached_bars)} bars")
+            self._history_cache[cache_key] = list(cached_bars)
+            return list(cached_bars)
         
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("history"):
@@ -303,6 +322,8 @@ class DataAgent:
                         self._record_provider_attempt(source, "history", "ok", f"{stock_code}: {len(bars)} bars")
                         logger.info("Fetched %s bars for %s from %s", len(bars), stock_code, source)
                         self._history_cache[cache_key] = list(bars)
+                        if self._persistent_cache_enabled():
+                            self._market_cache.set_history(str(stock_code), int(days), list(bars))
                         return bars
                     self._record_provider_attempt(source, "history", "empty", stock_code)
                 except Exception as exc:
@@ -328,6 +349,11 @@ class DataAgent:
         if stock_key in self._financial_cache:
             self._record_provider_attempt("cache", "financial", "ok", stock_key)
             return self._financial_cache[stock_key]
+        cached_snapshot = self._market_cache.get_financial(stock_key) if self._persistent_cache_enabled() else None
+        if cached_snapshot is not None:
+            self._record_provider_attempt("file_cache", "financial", "ok", stock_key)
+            self._financial_cache[stock_key] = cached_snapshot
+            return cached_snapshot
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("financial"):
                 try:
@@ -338,6 +364,8 @@ class DataAgent:
                     )
                     self._record_provider_attempt(source, "financial", "ok", stock_code)
                     self._financial_cache[stock_key] = snapshot
+                    if self._persistent_cache_enabled():
+                        self._market_cache.set_financial(stock_key, snapshot)
                     return snapshot
                 except Exception as exc:
                     self._record_provider_attempt(source, "financial", "error", f"{stock_code}: {exc}")
@@ -369,6 +397,11 @@ class DataAgent:
         if stock_key in self._quote_cache:
             self._record_provider_attempt("cache", "quote", "ok", stock_key)
             return self._quote_cache[stock_key]
+        cached_quote = self._market_cache.get_quote(stock_key) if self._persistent_cache_enabled() else None
+        if cached_quote is not None:
+            self._record_provider_attempt("file_cache", "quote", "ok", stock_key)
+            self._quote_cache[stock_key] = cached_quote
+            return cached_quote
         if self.settings.data.mode != "offline":
             for source, provider in self._iter_online_providers("quote"):
                 try:
@@ -379,6 +412,8 @@ class DataAgent:
                     )
                     self._record_provider_attempt(source, "quote", "ok", stock_code)
                     self._quote_cache[stock_key] = quote
+                    if self._persistent_cache_enabled():
+                        self._market_cache.set_quote(stock_key, quote)
                     return quote
                 except Exception as exc:
                     self._record_provider_attempt(source, "quote", "error", f"{stock_code}: {exc}")

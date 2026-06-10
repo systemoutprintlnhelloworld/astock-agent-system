@@ -580,6 +580,9 @@ def _test_one_datasource(
     scoped.data.mode = "online"
     scoped.data.provider_chain = [source]
     agent = DataAgent(settings=scoped)
+    # Provider smoke must test the selected source itself. Shared file-cache
+    # hits would otherwise make a broken provider look healthy.
+    agent._market_cache = _DatasourceSmokeNoopCache()  # noqa: SLF001
     check_results: list[dict[str, Any]] = []
     requested_operations = [item for item in checks or ["history"] if item]
     operations = [item for item in requested_operations if item in {"universe", "history", "financial", "quote"}]
@@ -637,6 +640,28 @@ def _run_datasource_operation(agent: DataAgent, *, operation: str, stock_code: s
         result = agent.get_quote(stock_code)
         return ("ok" if result.price > 0 else "empty", f"price={result.price}")
     return "skipped", "unknown operation"
+
+
+class _DatasourceSmokeNoopCache:
+    """Disable persistent market cache only for single-source smoke checks."""
+
+    def get_history(self, stock_code: str, days: int) -> None:
+        return None
+
+    def set_history(self, stock_code: str, days: int, bars: Any) -> None:
+        return None
+
+    def get_quote(self, stock_code: str) -> None:
+        return None
+
+    def set_quote(self, stock_code: str, quote: Any) -> None:
+        return None
+
+    def get_financial(self, stock_code: str) -> None:
+        return None
+
+    def set_financial(self, stock_code: str, snapshot: Any) -> None:
+        return None
 
 
 def _run_with_timeout(func: Any, *, timeout_seconds: float, label: str = "operation") -> Any:

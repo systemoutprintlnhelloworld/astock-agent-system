@@ -116,6 +116,7 @@ class TradeDecision:
     time_horizon: str = "1个月"
     reasons: list[str] = field(default_factory=list)
     risk_notes: list[str] = field(default_factory=list)
+    explanation_data: dict[str, Any] = field(default_factory=dict)
     metadata: dict[str, Any] = field(default_factory=dict)
 
     def to_dict(self) -> dict[str, Any]:
