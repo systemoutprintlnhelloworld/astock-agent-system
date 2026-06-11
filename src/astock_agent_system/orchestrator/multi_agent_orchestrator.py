@@ -328,6 +328,8 @@ class MultiAgentOrchestrator:
         gateway rate-limits/fails, the model account falls back to the rule
         decision so the competition can still run unattended.
         """
+        if getattr(settings.data, "mode", "").lower() == "offline":
+            return {"source": "rule_fallback", "reason": "offline_mode"}
         if llm_model == "rule-baseline" or not settings.llm.api_key or not settings.llm.base_url:
             return {"source": "rule_fallback", "reason": "llm_not_configured"}
 

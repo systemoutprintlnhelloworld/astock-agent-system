@@ -269,6 +269,8 @@ python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-st
 python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 --fresh-start --no-persist --no-learning --timeout-seconds 30
 ```
 
+离线诊断模式会跳过在线 LLM 复核，直接使用规则决策兜底，避免本地仍配置 `LLM_DEFAULT_MODEL` 时因为外部网关重试导致 smoke 命令超时。
+
 ## 7. 在线自动投资 smoke
 
 推荐一键入口：

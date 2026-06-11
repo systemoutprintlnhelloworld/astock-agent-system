@@ -49,6 +49,33 @@ def test_competition_runs_independent_accounts_without_persistence(monkeypatch):
     assert returns == sorted(returns, reverse=True)
 
 
+def test_offline_competition_skips_llm_review_even_with_default_model(monkeypatch):
+    monkeypatch.setenv("DATA_MODE", "offline")
+    monkeypatch.setenv("SMART_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("LLM_API_KEY", "test-api-key")
+    monkeypatch.setenv("LLM_BASE_URL", "https://example.invalid/v1")
+    monkeypatch.setenv("LLM_DEFAULT_MODEL", "gpt-5.5")
+    settings = load_settings()
+
+    payload = MultiAgentOrchestrator(settings=settings).run_competition(
+        models=None,
+        max_count=1,
+        history_days=5,
+        trade_date="2026-01-05",
+        persist=False,
+        continue_from_storage=False,
+        collect_learning=False,
+    )
+
+    agent = payload["agents"][0]
+    assert agent["llm_model"] == "gpt-5.5"
+    assert agent["decisions"]
+    assert all(
+        decision["llm_review"] == {"source": "rule_fallback", "reason": "offline_mode"}
+        for decision in agent["decisions"]
+    )
+
+
 def test_competition_can_continue_from_previous_snapshot(monkeypatch):
     settings = _offline_settings(monkeypatch)
     orchestrator = MultiAgentOrchestrator(settings=settings)
