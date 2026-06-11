@@ -70,6 +70,7 @@ class MasterAgent:
             stock_code=stock_code,
             history_days=history_days,
         )
+        data_attempts_before = _provider_attempt_count(self.data_agent)
         bars = self.data_agent.get_history(stock_code, days=history_days)
         quote = self.data_agent.get_quote(stock_code)
         financial = self.data_agent.get_financial(stock_code)
@@ -82,9 +83,25 @@ class MasterAgent:
             stock_code=stock_code,
             history_count=len(bars),
             objective_data=objective_data,
+            data_sources=_provider_attempts_since(self.data_agent, data_attempts_before),
         )
 
+        self._emit(
+            "technical_analysis_start",
+            stage="technical_analyst",
+            message=f"TechnicalAnalyst 开始分析 {stock_code} K线和技术指标",
+            stock_code=stock_code,
+            objective_data={"bars": objective_data.get("bars", [])},
+        )
         technical = self.technical_analyst.analyze(stock_code, bars)
+        self._emit(
+            "technical_analysis_complete",
+            stage="technical_analyst",
+            message=f"TechnicalAnalyst 完成 {stock_code} 技术分析",
+            stock_code=stock_code,
+            result=technical,
+            objective_data={"bars": objective_data.get("bars", [])},
+        )
         self._emit_chain_step(
             "technical_analyst",
             stock_code,
@@ -92,7 +109,22 @@ class MasterAgent:
             result=technical,
             objective_data={"bars": objective_data.get("bars", [])},
         )
+        self._emit(
+            "fundamental_analysis_start",
+            stage="fundamental_analyst",
+            message=f"FundamentalAnalyst 开始分析 {stock_code} 财务与估值",
+            stock_code=stock_code,
+            objective_data={"financial": objective_data.get("financial")},
+        )
         fundamental = self.fundamental_analyst.analyze(financial)
+        self._emit(
+            "fundamental_analysis_complete",
+            stage="fundamental_analyst",
+            message=f"FundamentalAnalyst 完成 {stock_code} 基本面分析",
+            stock_code=stock_code,
+            result=fundamental,
+            objective_data={"financial": objective_data.get("financial")},
+        )
         self._emit_chain_step(
             "fundamental_analyst",
             stock_code,
@@ -100,8 +132,22 @@ class MasterAgent:
             result=fundamental,
             objective_data={"financial": objective_data.get("financial")},
         )
+        self._emit(
+            "sentiment_analysis_start",
+            stage="sentiment_analyst",
+            message=f"SentimentAnalyst 开始分析 {stock_code} 新闻和舆情",
+            stock_code=stock_code,
+        )
         sentiment = self.sentiment_analyst.analyze(stock_code, stock_name=quote.stock_name, sector=quote.sector)
         objective_data["news"] = _extract_news(sentiment)
+        self._emit(
+            "sentiment_analysis_complete",
+            stage="sentiment_analyst",
+            message=f"SentimentAnalyst 完成 {stock_code} 舆情分析",
+            stock_code=stock_code,
+            result=sentiment,
+            objective_data={"news": objective_data.get("news", [])},
+        )
         self._emit_chain_step(
             "sentiment_analyst",
             stock_code,
@@ -109,8 +155,34 @@ class MasterAgent:
             result=sentiment,
             objective_data={"news": objective_data.get("news", [])},
         )
+        self._emit(
+            "debate_start",
+            stage="debate_room",
+            message=f"DebateRoom 开始汇总 {stock_code} 多Agent观点",
+            stock_code=stock_code,
+            agent_inputs={
+                "technical": _to_dict(technical),
+                "fundamental": _to_dict(fundamental),
+                "sentiment": _to_dict(sentiment),
+            },
+        )
         debate = self.debate_room.analyze(stock_code, technical, fundamental, sentiment)
+        self._emit(
+            "debate_complete",
+            stage="debate_room",
+            message=f"DebateRoom 完成 {stock_code} 多Agent辩论",
+            stock_code=stock_code,
+            result=debate,
+        )
         self._emit_chain_step("debate_room", stock_code, "多Agent辩论完成", result=debate)
+        self._emit(
+            "risk_analysis_start",
+            stage="risk_manager",
+            message=f"RiskManager 开始评估 {stock_code} 仓位、止损和组合风险",
+            stock_code=stock_code,
+            quote=quote,
+            current_total_position=current_total_position,
+        )
         risk = self.risk_manager.analyze(
             stock_code,
             quote,
@@ -119,7 +191,29 @@ class MasterAgent:
             sentiment,
             current_total_position=current_total_position,
         )
+        self._emit(
+            "risk_analysis_complete",
+            stage="risk_manager",
+            message=f"RiskManager 完成 {stock_code} 风控评估",
+            stock_code=stock_code,
+            result=risk,
+            quote=quote,
+        )
         self._emit_chain_step("risk_manager", stock_code, "风控评估完成", result=risk, quote=quote)
+        agent_scores = {
+            "technical": round(technical.score, 4),
+            "fundamental": round(fundamental.score, 4),
+            "sentiment": round(sentiment.score, 4),
+            "debate": round(debate.score, 4),
+            "risk": round(risk.score, 4),
+        }
+        self._emit(
+            "portfolio_decision_start",
+            stage="portfolio_manager",
+            message=f"PortfolioManager 开始生成 {stock_code} 最终模拟盘决策",
+            stock_code=stock_code,
+            agent_scores=agent_scores,
+        )
         decision = self.portfolio_manager.decide(stock_code, quote, technical, fundamental, sentiment, debate, risk)
         agent_chain = {
             "technical": _to_dict(technical),
@@ -133,6 +227,15 @@ class MasterAgent:
             "objective_data": objective_data,
             "agent_chain": agent_chain,
         }
+        self._emit(
+            "portfolio_decision_complete",
+            stage="portfolio_manager",
+            message=f"PortfolioManager 完成 {stock_code} 决策：{decision.action}",
+            stock_code=stock_code,
+            decision=decision,
+            explanation_data=decision.explanation_data,
+            agent_scores=agent_scores,
+        )
         self._emit_chain_step(
             "portfolio_manager",
             stock_code,
@@ -253,3 +356,15 @@ def _extract_news(sentiment: Any) -> list[Any]:
             return _to_dict(value)
     reasons = getattr(sentiment, "reasons", []) or []
     return list(reasons)
+
+
+def _provider_attempt_count(data_agent: DataAgent) -> int:
+    attempts = data_agent.provider_diagnostics().get("attempts", [])
+    return len(attempts) if isinstance(attempts, list) else 0
+
+
+def _provider_attempts_since(data_agent: DataAgent, start_index: int) -> list[Any]:
+    attempts = data_agent.provider_diagnostics().get("attempts", [])
+    if not isinstance(attempts, list):
+        return []
+    return _to_dict(attempts[start_index:])

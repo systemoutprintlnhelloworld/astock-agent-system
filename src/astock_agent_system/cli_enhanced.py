@@ -8,6 +8,7 @@ import json
 import queue
 import threading
 import time
+from dataclasses import asdict, is_dataclass
 from importlib.util import find_spec
 from typing import Any
 
@@ -382,6 +383,7 @@ class RichEventRenderer:
     def __init__(self, verbose: bool = False, debug: bool = False) -> None:
         self.verbose = verbose
         self.debug = debug
+        self._rendered_structured_steps: set[tuple[str, str]] = set()
         try:
             from rich.console import Console
 
@@ -405,6 +407,18 @@ class RichEventRenderer:
             "analysis_complete": self._render_analysis_complete,
             "data_fetch_start": self._render_workflow_event,
             "data_fetch_complete": self._render_data_fetch_complete,
+            "technical_analysis_start": self._render_agent_phase_start,
+            "technical_analysis_complete": self._render_agent_phase_complete,
+            "fundamental_analysis_start": self._render_agent_phase_start,
+            "fundamental_analysis_complete": self._render_agent_phase_complete,
+            "sentiment_analysis_start": self._render_agent_phase_start,
+            "sentiment_analysis_complete": self._render_agent_phase_complete,
+            "debate_start": self._render_agent_phase_start,
+            "debate_complete": self._render_agent_phase_complete,
+            "risk_analysis_start": self._render_agent_phase_start,
+            "risk_analysis_complete": self._render_agent_phase_complete,
+            "portfolio_decision_start": self._render_agent_phase_start,
+            "portfolio_decision_complete": self._render_portfolio_decision_complete,
             "agent_chain_step": self._render_agent_chain_step,
             "agent_start": self._render_agent_start,
             "agent_complete": self._render_agent_complete,
@@ -592,6 +606,36 @@ class RichEventRenderer:
         }.get(event.type, "流程")
         self._print(f"[blue]{label}[/blue] {event.payload.get('message', '')}")
 
+    def _render_agent_phase_start(self, event: AgentEvent) -> None:
+        title = _phase_title(event)
+        self._print(f"[blue]{title}[/blue] {event.payload.get('message', '')}")
+
+    def _render_agent_phase_complete(self, event: AgentEvent) -> None:
+        title = _phase_title(event)
+        stock_code = str(event.payload.get("stock_code", ""))
+        result = _as_dict(event.payload.get("result"))
+        if result:
+            self._print(f"[cyan]{title}[/cyan] {stock_code} {result.get('label', '')} score={_percent(result.get('score', 0.0))}")
+        else:
+            self._print(f"[cyan]{title}[/cyan] {event.payload.get('message', '')}")
+        details = _render_phase_details(title, result, event.payload.get("objective_data", {}))
+        if details:
+            self.print_info(f"{title} 明细", details)
+        self._rendered_structured_steps.add(_event_step_key(event))
+
+    def _render_portfolio_decision_complete(self, event: AgentEvent) -> None:
+        title = _phase_title(event)
+        decision = _as_dict(event.payload.get("decision"))
+        stock_code = str(event.payload.get("stock_code", decision.get("stock_code", "")))
+        self._print(
+            f"[yellow]{title}[/yellow] {stock_code} {decision.get('action', '')} "
+            f"置信度={_percent(decision.get('confidence', 0.0))} 仓位={_percent(decision.get('position_size', 0.0))}"
+        )
+        body = _render_decision_evidence(decision)
+        if body:
+            self.print_info(f"决策客观依据 {stock_code}", body)
+        self._rendered_structured_steps.add(_event_step_key(event))
+
     def _render_screening_complete(self, event: AgentEvent) -> None:
         candidates = event.payload.get("candidates", []) if isinstance(event.payload.get("candidates"), list) else []
         scores = event.payload.get("candidate_scores", {}) if isinstance(event.payload.get("candidate_scores"), dict) else {}
@@ -618,6 +662,15 @@ class RichEventRenderer:
             self._print(f"[blue]数据[/blue] {event.payload.get('message', '')}")
             return
         lines = [event.payload.get("message", "完成数据获取"), "", render_company_info(stock, quote, financial)]
+        data_sources = event.payload.get("data_sources", []) if isinstance(event.payload.get("data_sources"), list) else []
+        if data_sources:
+            lines.extend(["", "数据源调用链:"])
+            for item in data_sources[-8:]:
+                if isinstance(item, dict):
+                    lines.append(
+                        f"- {item.get('operation', '')}: {item.get('source', '')} "
+                        f"{item.get('status', '')} {item.get('detail', item.get('reason', ''))}"
+                    )
         if bars:
             lines.extend(["", render_kline_ascii(bars), "", render_technical_indicators(bars)])
         if financial:
@@ -627,7 +680,9 @@ class RichEventRenderer:
     def _render_agent_chain_step(self, event: AgentEvent) -> None:
         step = str(event.payload.get("chain_step", ""))
         title = _chain_step_title(step)
-        result = event.payload.get("result", {}) if isinstance(event.payload.get("result"), dict) else {}
+        if _event_step_key(event) in self._rendered_structured_steps and not self.verbose:
+            return
+        result = _as_dict(event.payload.get("result"))
         if result:
             self._print(
                 f"[cyan]{title}[/cyan] {event.payload.get('stock_code', '')} "
@@ -636,20 +691,9 @@ class RichEventRenderer:
         else:
             self._print(f"[cyan]{title}[/cyan] {event.payload.get('message', '')}")
         if result:
-            objective = event.payload.get("objective_data", {}) if isinstance(event.payload.get("objective_data"), dict) else {}
-            details = [render_analysis_result(title, result)]
-            bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
-            if bars:
-                details.extend(["", render_technical_indicators(bars)])
-                if self.verbose:
-                    details.extend(["", render_kline_ascii(bars)])
-            financial = objective.get("financial") if isinstance(objective.get("financial"), dict) else None
-            if financial:
-                details.extend(["", render_financial_table(financial)])
-            news = objective.get("news") if "news" in objective else None
-            if news:
-                details.extend(["", render_news_list(news)])
-            self.print_info(f"{title} 明细", "\n".join(details).strip())
+            details = _render_phase_details(title, result, event.payload.get("objective_data", {}), include_kline=self.verbose)
+            if details:
+                self.print_info(f"{title} 明细", details)
 
     def _render_analysis_complete(self, event: AgentEvent) -> None:
         report = event.payload.get("report", {}) if isinstance(event.payload.get("report"), dict) else {}
@@ -665,7 +709,7 @@ class RichEventRenderer:
             self.print_info(f"分析总览 {event.payload.get('stock_code', '')}", overview)
 
     def _render_decision(self, event: AgentEvent) -> None:
-        decision = event.payload.get("decision", {}) if isinstance(event.payload.get("decision"), dict) else event.payload
+        decision = _as_dict(event.payload.get("decision")) or _as_dict(event.payload)
         self._print(
             f"[yellow]决策[/yellow] {decision.get('stock_code', '')} "
             f"{decision.get('action', '')} 置信度={_percent(decision.get('confidence', 0.0))}"
@@ -712,6 +756,69 @@ def _render_run_header(renderer: RichEventRenderer, settings: Any, *, models: li
     renderer.print_info("CLI 流式智能体", "\n".join(lines))
 
 
+_EVENT_STEP_MAP = {
+    "technical_analysis_start": "technical_analyst",
+    "technical_analysis_complete": "technical_analyst",
+    "fundamental_analysis_start": "fundamental_analyst",
+    "fundamental_analysis_complete": "fundamental_analyst",
+    "sentiment_analysis_start": "sentiment_analyst",
+    "sentiment_analysis_complete": "sentiment_analyst",
+    "debate_start": "debate_room",
+    "debate_complete": "debate_room",
+    "risk_analysis_start": "risk_manager",
+    "risk_analysis_complete": "risk_manager",
+    "portfolio_decision_start": "portfolio_manager",
+    "portfolio_decision_complete": "portfolio_manager",
+}
+
+
+def _phase_title(event: AgentEvent) -> str:
+    return _chain_step_title(_EVENT_STEP_MAP.get(event.type, event.stage or str(event.payload.get("chain_step", ""))))
+
+
+def _chain_step_title(step: str) -> str:
+    titles = {
+        "technical": "技术分析 (TechnicalAnalyst)",
+        "technical_analyst": "技术分析 (TechnicalAnalyst)",
+        "fundamental": "基本面分析 (FundamentalAnalyst)",
+        "fundamental_analyst": "基本面分析 (FundamentalAnalyst)",
+        "sentiment": "舆情分析 (SentimentAnalyst)",
+        "sentiment_analyst": "舆情分析 (SentimentAnalyst)",
+        "debate": "多Agent辩论 (DebateRoom)",
+        "debate_room": "多Agent辩论 (DebateRoom)",
+        "risk": "风控评估 (RiskManager)",
+        "risk_manager": "风控评估 (RiskManager)",
+        "portfolio": "最终决策 (PortfolioManager)",
+        "portfolio_manager": "最终决策 (PortfolioManager)",
+    }
+    return titles.get(step, step or "Agent 步骤")
+
+
+def _event_step_key(event: AgentEvent) -> tuple[str, str]:
+    stock_code = str(event.payload.get("stock_code", ""))
+    step = str(event.payload.get("chain_step") or _EVENT_STEP_MAP.get(event.type, event.stage or ""))
+    return stock_code, step
+
+
+def _render_phase_details(title: str, result: dict[str, Any], objective_data: Any, *, include_kline: bool = False) -> str:
+    objective = _as_dict(objective_data)
+    details: list[str] = []
+    if result:
+        details.append(render_analysis_result(title, result))
+    bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
+    if bars:
+        details.extend(["", render_technical_indicators(bars)])
+        if include_kline:
+            details.extend(["", render_kline_ascii(bars)])
+    financial = _as_dict(objective.get("financial"))
+    if financial:
+        details.extend(["", render_financial_table(financial)])
+    news = objective.get("news") if "news" in objective else None
+    if news:
+        details.extend(["", render_news_list(news)])
+    return "\n".join(item for item in details if str(item).strip()).strip()
+
+
 def _render_analysis_overview(report: dict[str, Any], objective: dict[str, Any], agent_chain: dict[str, Any]) -> str:
     """Render the full evidence board for one analyzed stock."""
     stock = _dict_or_empty(objective.get("stock")) or _dict_or_empty(report.get("stock"))
@@ -740,15 +847,66 @@ def _render_analysis_overview(report: dict[str, Any], objective: dict[str, Any],
 
     decision = _dict_or_empty(report.get("decision"))
     if decision:
+        reasons = decision.get("reasons") if isinstance(decision.get("reasons"), list) else []
+        reason_text = decision.get("rationale") or decision.get("reason") or "；".join(str(item) for item in reasons[:3])
         sections.extend(
             [
                 "",
                 "【最终决策】",
                 f"动作: {decision.get('action', '')}  置信度: {_percent(decision.get('confidence', 0.0))}  仓位: {_percent(decision.get('position_size', 0.0))}",
-                f"理由: {decision.get('rationale', decision.get('reason', ''))}",
+                f"理由: {reason_text}",
             ]
         )
     return "\n".join(str(item) for item in sections if str(item).strip())
+
+
+def _render_decision_evidence(decision: dict[str, Any]) -> str:
+    """Render the evidence blocks requested by PortfolioManager."""
+    explanation = _as_dict(decision.get("explanation_data"))
+    objective = _as_dict(explanation.get("objective_data"))
+    requested_sections = set(explanation.get("sections", [])) if isinstance(explanation.get("sections"), list) else set()
+    lines: list[str] = []
+    highlights = explanation.get("highlights", []) if isinstance(explanation.get("highlights"), list) else []
+    if highlights:
+        lines.append("【Agent建议展示的数据】")
+        lines.extend(f"- {item}" for item in highlights[:5])
+    reasons = decision.get("reasons", []) if isinstance(decision.get("reasons"), list) else []
+    if reasons:
+        lines.extend(["", "【决策理由】"])
+        lines.extend(f"- {item}" for item in reasons[:5])
+    risk_notes = decision.get("risk_notes", []) if isinstance(decision.get("risk_notes"), list) else []
+    if risk_notes:
+        lines.extend(["", "【风险提示】"])
+        lines.extend(f"- {item}" for item in risk_notes[:4])
+
+    stock = _as_dict(objective.get("stock"))
+    quote = _as_dict(objective.get("quote"))
+    financial = _as_dict(objective.get("financial"))
+    bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
+    news = objective.get("news") if "news" in objective else None
+
+    if ("company" in requested_sections or "quote" in requested_sections) and (stock or quote or financial):
+        lines.extend(["", "【公司与行情】", render_company_info(stock, quote, financial)])
+    if "kline" in requested_sections and bars:
+        lines.extend(["", "【K线】", render_kline_ascii(bars)])
+    if "technical_indicators" in requested_sections and bars:
+        lines.extend(["", "【技术指标】", render_technical_indicators(bars)])
+    if "financial" in requested_sections and financial:
+        lines.extend(["", "【财务与估值】", render_financial_table(financial)])
+    if "sentiment" in requested_sections and news:
+        lines.extend(["", "【舆情 / 新闻】", render_news_list(news)])
+
+    agent_scores = explanation.get("agent_scores", {}) if isinstance(explanation.get("agent_scores"), dict) else {}
+    if agent_scores:
+        lines.extend(["", "【Agent 分数】"])
+        for key, score in agent_scores.items():
+            lines.append(f"- {key}: {_percent(score)}")
+    agent_chain = explanation.get("agent_chain", {}) if isinstance(explanation.get("agent_chain"), dict) else {}
+    if "agent_chain" in requested_sections and agent_chain:
+        chain_lines = _render_agent_chain_summary({}, agent_chain)
+        if chain_lines:
+            lines.extend(["", "【Agent 协作链】", *chain_lines])
+    return "\n".join(str(item) for item in lines if str(item).strip()).strip()
 
 
 def _render_agent_chain_summary(report: dict[str, Any], agent_chain: dict[str, Any]) -> list[str]:
@@ -789,6 +947,19 @@ def _render_agent_chain_summary(report: dict[str, Any], agent_chain: dict[str, A
 
 def _dict_or_empty(value: Any) -> dict[str, Any]:
     return value if isinstance(value, dict) else {}
+
+
+def _as_dict(value: Any) -> dict[str, Any]:
+    if isinstance(value, dict):
+        return value
+    if value is None:
+        return {}
+    to_dict = getattr(value, "to_dict", None)
+    if callable(to_dict):
+        return dict(to_dict())
+    if is_dataclass(value):
+        return asdict(value)
+    return {}
 
 
 def _emit_datasource_snapshot(emitter: AgentEventEmitter, settings: Any) -> None:

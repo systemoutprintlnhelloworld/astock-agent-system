@@ -255,7 +255,20 @@ python -m astock_agent_system.cli datasource sync-local --sources baostock --max
 
 - `cli_data_viz.py` 可渲染 ASCII K 线、MA/RSI 等技术指标、财务指标表、公司/报价快照和新闻/舆情摘要。
 - `TradeDecision.explanation_data` 会记录本次决策建议展示哪些证据块，例如 `kline`、`financial`、`sentiment`、`risk`。
-- `agent start` 的默认流式输出已展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；后续仍需继续补新闻/公告 provider、连续运行累计收益/持仓/下一轮时间看板。
+- `MasterAgent` 会发射更细粒度的协作事件：`technical_analysis_*`、`fundamental_analysis_*`、`sentiment_analysis_*`、`debate_*`、`risk_analysis_*`、`portfolio_decision_*`，终端可以直接看到 `DataAgent -> TechnicalAnalyst -> FundamentalAnalyst -> SentimentAnalyst -> DebateRoom -> RiskManager -> PortfolioManager` 的执行链。
+- `agent start` 的默认流式输出已展示公司/行情、ASCII K 线、技术指标、财务估值、数据源调用链、Agent 明细和 PortfolioManager 建议展示的证据块；后续仍需继续补新闻/公告 provider、连续运行累计收益/持仓/下一轮时间看板。
+
+推荐用本地默认在线模型运行一轮可观察性 smoke：
+
+```powershell
+python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 120
+```
+
+若只是确认渲染链路、不消耗在线模型或外部行情额度，可以临时使用诊断模式：
+
+```powershell
+python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 --fresh-start --no-persist --no-learning --timeout-seconds 30
+```
 
 ## 7. 在线自动投资 smoke
 

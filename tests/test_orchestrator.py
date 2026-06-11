@@ -1,7 +1,9 @@
 from __future__ import annotations
 
 from astock_agent_system.cli import build_parser
+from astock_agent_system.agents.master_agent import MasterAgent
 from astock_agent_system.config import load_settings
+from astock_agent_system.events import AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 
 
@@ -159,3 +161,38 @@ def test_compete_cli_parser_wires_command_options():
     assert args.initial_capital == 100000
     assert args.fresh_start is True
     assert args.no_persist is True
+
+
+def test_master_agent_emits_fine_grained_observability_events(monkeypatch):
+    settings = _offline_settings(monkeypatch)
+    emitter = AgentEventEmitter()
+    events = []
+    emitter.subscribe(events.append)
+
+    report = MasterAgent(settings=settings, event_emitter=emitter).analyze_stock("600036", history_days=5)
+
+    event_types = [event.type for event in events]
+    assert report.decision is not None
+    assert report.decision.explanation_data.get("objective_data", {}).get("bars")
+    assert "data_fetch_start" in event_types
+    assert "data_fetch_complete" in event_types
+    assert "technical_analysis_start" in event_types
+    assert "technical_analysis_complete" in event_types
+    assert "fundamental_analysis_start" in event_types
+    assert "fundamental_analysis_complete" in event_types
+    assert "sentiment_analysis_start" in event_types
+    assert "sentiment_analysis_complete" in event_types
+    assert "debate_start" in event_types
+    assert "debate_complete" in event_types
+    assert "risk_analysis_start" in event_types
+    assert "risk_analysis_complete" in event_types
+    assert "portfolio_decision_start" in event_types
+    assert "portfolio_decision_complete" in event_types
+
+    data_event = next(event for event in events if event.type == "data_fetch_complete")
+    assert data_event.payload["history_count"] == 5
+    assert isinstance(data_event.payload.get("data_sources"), list)
+
+    decision_event = next(event for event in events if event.type == "portfolio_decision_complete")
+    assert decision_event.payload["agent_scores"]["technical"] == round(report.technical.score, 4)
+    assert "objective_data" in decision_event.payload["explanation_data"]

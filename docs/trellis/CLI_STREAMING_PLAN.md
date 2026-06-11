@@ -60,7 +60,9 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 - `TradeDecision` 新增 `explanation_data` 字段；`PortfolioManager` 会根据技术面、基本面、舆情、辩论和风控结果，为每次决策选择应展示的客观数据块，例如 `kline`、`technical_indicators`、`financial`、`sentiment`、`risk`、`agent_chain`。
 - 新增 `src/astock_agent_system/data/cache.py` 的 `MarketDataCache`。缓存目录为 Git 忽略的 `data/market_cache/`，用于减少重复调用 Tushare/Baostock/AkShare 等在线 provider。
 - `DataAgent` 已接入文件缓存：内存缓存未命中后优先读取 `data/market_cache/`；在线 provider 成功返回 history/quote/financial 后写入文件缓存。
-- CLI 事件枚举新增 `screening_start`、`screening_complete`、`analysis_start`、`analysis_complete`、`data_fetch_start`、`data_fetch_complete`、`agent_chain_step`，用于后续在命令行显示 `DataAgent -> TechnicalAnalyst -> FundamentalAnalyst -> SentimentAnalyst -> DebateRoom -> RiskManager -> PortfolioManager` 的完整协作链。
+- CLI 事件枚举新增 `screening_start`、`screening_complete`、`analysis_start`、`analysis_complete`、`data_fetch_start`、`data_fetch_complete`、`agent_chain_step`，并补齐 `technical_analysis_*`、`fundamental_analysis_*`、`sentiment_analysis_*`、`debate_*`、`risk_analysis_*`、`portfolio_decision_*`，用于在命令行显示 `DataAgent -> TechnicalAnalyst -> FundamentalAnalyst -> SentimentAnalyst -> DebateRoom -> RiskManager -> PortfolioManager` 的完整协作链。
+- `MasterAgent.analyze_stock` 现在会在每个 Agent 开始/完成时发射结构化事件，`data_fetch_complete` 还会携带本轮 provider/cache 调用链，`portfolio_decision_complete` 会携带 `explanation_data` 和各 Agent 分数。
+- `RichEventRenderer` 已直接处理上述细粒度事件：技术面输出指标，基本面输出财务表，舆情输出新闻/摘要，最终决策输出 PortfolioManager 建议展示的证据块、风险提示和 Agent 分数。
 
 缓存 TTL 当前约定：
 
@@ -70,7 +72,7 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 | quote | 5 分钟 | 保持实时/准实时行情的新鲜度。 |
 | financial | 1 天 | 财务和估值数据日内变化较少。 |
 
-注意：本批次只是把客观数据渲染、解释计划和文件缓存基础打通；细粒度事件在 `MasterAgent`/`MultiAgentOrchestrator` 中的完整渲染和持续运行模式仍需继续完成后续任务。
+注意：本批次已把客观数据渲染、解释计划、文件缓存、`MasterAgent` 细粒度协作事件和 CLI 默认渲染链路打通；新闻/公告 provider、连续运行累计收益/持仓/下一轮时间看板仍需后续任务。
 
 推荐验证命令：
 
@@ -80,7 +82,8 @@ python -m astock_agent_system.cli agent learning suggestions
 python -m astock_agent_system.cli agent memory --agent-id agent-rule-baseline --format json
 python -m astock_agent_system.cli datasource status --format json
 python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --stock-code 600519 --days 5 --checks history --format json
-python -m astock_agent_system.cli agent start --model rule-baseline --offline --max-count 1 --days 12 --fresh-start --no-persist --no-learning
+python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 120
+python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 --fresh-start --no-persist --no-learning --timeout-seconds 30
 ```
 
 本地最新 smoke 结论：Tushare history 可用；Baostock 在当前环境缺少 `baostock` 包；AkShare 在当前网络下返回空/远端断连；`ths_skill` 为手工/参考能力，未注册行情 adapter。在线运行应把这些状态显示为可诊断结果，而不是静默声明全部可用。
@@ -95,19 +98,29 @@ python -m astock_agent_system.cli agent start --model rule-baseline --offline --
 - ✅ 新增学习、记忆和数据源事件类型
 - ✅ 在竞赛运行中发射 run/agent/learning 事件
 
-**待完成**：
-- ⏳ 更细粒度的各 Agent 内部步骤事件（筛选、技术分析、基本面、舆情、风控）
-- ⏳ 数据源真实降级过程的持久化事件历史
+**本轮补齐**：
+- ✅ `MasterAgent` 已发射更细粒度的各 Agent 内部步骤事件：技术分析、基本面分析、舆情分析、多 Agent 辩论、风控评估和组合决策均有 start/complete 事件。
+- ✅ `data_fetch_complete` 已携带本轮 `DataAgent` provider/cache 调用链，CLI 可直接展示 history/quote/financial 来自缓存、本地库、在线 provider 还是离线兜底。
+- ✅ `portfolio_decision_complete` 已携带 `TradeDecision.explanation_data`、各 Agent 分数和客观数据证据块，便于终端输出解释“为什么买/卖/拒绝”。
 
-### Phase 2-8: 后续阶段
+**仍待完成**：
+- ⏳ 数据源真实降级过程的长期持久化事件历史。
+- ⏳ 连续运行累计收益、持仓变化、下一轮时间和最近错误看板。
+- ⏳ 新闻/公告 provider 与新闻缓存入库。
 
-由于当前对话即将结束，建议下一位AI接手时按以下优先级继续：
+### Phase 2-8: 当前完成度与后续阶段
 
-1. **Phase 2: CLI命令骨架** - 扩展`cli.py`，添加`agent`子命令组
-2. **Phase 3: Rich流式渲染** - 用Rich美化输出，支持颜色、动画、进度条
-3. **Phase 4-5: 状态查询和Benchmark**
-4. **Phase 6-7: 配置共享和API化**
-5. **Phase 8: 分支合并到main**
+- **Phase 2: CLI 命令骨架**：已完成 `agent`、`datasource`、`learning`、`memory`、交互式默认入口等核心命令。
+- **Phase 3: Rich 流式渲染**：已完成 Rich 优先/纯文本 fallback，并接入客观数据、细粒度 Agent 事件和最终决策证据块。
+- **Phase 4-5: 状态查询和 Benchmark**：已完成 `agent status/history/benchmark` 与模型/账户收益摘要。
+- **Phase 6-7: 配置共享和 API 化**：已通过运行态配置、FastAPI datasource/agent 接口和 WebSocket 事件协议部分完成。
+- **Phase 8: 分支合并到 main**：仍需在 tauri-rewrite 稳定、用户确认后执行。
+
+下一轮优先级建议：
+
+1. 给连续运行模式补累计收益、持仓、下一轮时间、最近错误和数据源健康看板。
+2. 把 CLI 已验证的细粒度事件同步到 FastAPI/WebSocket，让 TUI/GUI 不再只看聚合结果。
+3. 接入新闻/公告 provider 与缓存/本地库，补齐舆情客观数据来源。
 
 ## 当前代码位置
 
@@ -122,32 +135,23 @@ python -m astock_agent_system.cli agent start --model rule-baseline --offline --
 
 ## 下一步建议
 
-由于开发过程发现完整实现需要较多工作量，建议采用**渐进式策略**：
+现在不需要再创建临时 `cli_streaming.py` 验证入口；主入口已经是：
 
-### 选项A：继续完整实现（推荐用于充足时间）
+```powershell
+python -m astock_agent_system.cli
+```
 
-按Phase 1-8完整实施，最终得到功能完整的CLI工具和API。
+自动化/排障可继续使用：
 
-### 选项B：MVP快速验证（推荐用于快速测试）
+```powershell
+python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 120
+```
 
-简化方案，快速验证核心思路：
+只验证终端渲染链路时，可临时使用诊断模式，但不要把它作为在线主验证路径：
 
-1. 创建最小CLI命令：
-   ```python
-   # src/astock_agent_system/cli_streaming.py
-   def cmd_agent_start_simple():
-       emitter = AgentEventEmitter()
-       emitter.subscribe(ConsoleSubscriber(verbose=True))
-       orchestrator = MultiAgentOrchestrator(event_emitter=emitter)
-       orchestrator.run_competition(models=["rule-baseline"], max_count=1)
-   ```
-
-2. 运行验证：
-   ```bash
-   python -m astock_agent_system.cli_streaming
-   ```
-
-3. 看到事件流输出后，再决定是否继续完整实现
+```powershell
+python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 --fresh-start --no-persist --no-learning --timeout-seconds 30
+```
 
 ## 技术要点
 
@@ -157,10 +161,22 @@ python -m astock_agent_system.cli agent start --model rule-baseline --offline --
 EventType = Literal[
     "run_start", "run_complete", "run_error",
     "stage_start", "stage_complete",
+    "screening_start", "screening_complete",
+    "analysis_start", "analysis_complete",
+    "data_fetch_start", "data_fetch_complete",
+    "technical_analysis_start", "technical_analysis_complete",
+    "fundamental_analysis_start", "fundamental_analysis_complete",
+    "sentiment_analysis_start", "sentiment_analysis_complete",
+    "debate_start", "debate_complete",
+    "risk_analysis_start", "risk_analysis_complete",
+    "portfolio_decision_start", "portfolio_decision_complete",
+    "agent_chain_step",
     "agent_start", "agent_step", "agent_complete", "agent_error",
     "decision_made", "trade_executed", "metric_updated",
     "llm_request", "llm_response",
-    "data_fetched", "progress_update",
+    "data_fetched", "data_source_switched", "progress_update",
+    "learning_experience_recorded", "learning_analysis_triggered",
+    "learning_suggestion_generated", "memory_case_retrieved",
 ]
 ```
 
@@ -196,6 +212,6 @@ EventType = Literal[
 ## 状态总结
 
 - **当前分支**：`tauri-rewrite`
-- **Phase 1进度**：事件系统基础框架完成，待集成到更多执行点
-- **下一优先级**：创建MVP验证或继续Phase 2 CLI命令骨架
-- **预计工作量**：完整实现约20-24小时，MVP验证约2-4小时
+- **Phase 1进度**：事件系统、客观数据渲染、解释计划、文件缓存、细粒度 Agent 协作事件已打通。
+- **下一优先级**：连续运行看板、新闻/公告 provider、事件 API/WebSocket 复用。
+- **预计工作量**：连续运行看板约 4-8 小时；新闻/公告 provider 与本地库约 8-16 小时；API/WebSocket 复用约 4-8 小时。
