@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 import argparse
+import getpass
 import json
 
 from astock_agent_system.agents import (
@@ -28,11 +29,12 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_stop,
     cmd_datasource_configure_ifind,
     cmd_datasource_configure_jqdata,
+    cmd_datasource_configure_tushare,
     cmd_datasource_status,
     cmd_datasource_sync_local,
     cmd_datasource_test,
 )
-from astock_agent_system.config import load_settings, save_runtime_overrides
+from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.notification import build_notifier
@@ -55,6 +57,8 @@ def _cmd_config(args: argparse.Namespace) -> int:
             "has_alpha_vantage_api_key": bool(settings.data.alpha_vantage_api_key),
             "has_jqdata_username": bool(settings.data.jqdata_username),
             "has_jqdata_password": bool(settings.data.jqdata_password),
+            "has_ifind_access_token": bool(settings.data.ifind_access_token),
+            "has_ifind_refresh_token": bool(settings.data.ifind_refresh_token),
         },
         "initial_capital": settings.portfolio.initial_capital,
         "risk": {
@@ -405,6 +409,74 @@ def _cmd_interactive_configure(args: argparse.Namespace) -> int:
     return 0
 
 
+def _run_llm_self_check(settings: object, *, model: str, profile: str) -> dict[str, object]:
+    client = LLMClient(settings)  # type: ignore[arg-type]
+    try:
+        models_payload = client.list_models_safe()
+        result = client.chat_json(
+            [
+                {"role": "system", "content": "你是 AStock 配置自检助手。必须只输出 JSON。"},
+                {
+                    "role": "user",
+                    "content": '请只输出 {"status":"ok","answer":"一句话说明A股是什么"}，不要输出 Markdown。',
+                },
+            ],
+            model=model,
+            temperature=0.0,
+            profile=profile,
+        )
+        return {
+            "status": "ok" if result.json_parseable else "warning",
+            "model": result.model,
+            "profile": result.profile,
+            "models": models_payload,
+            "answer": result.parsed.get("answer", result.content[:120]),
+        }
+    except Exception as exc:  # pragma: no cover - depends on user's gateway
+        return {"status": "error", "message": str(exc)[:500]}
+
+
+def _cmd_interactive_llm_config(config: str | None) -> int:
+    settings = load_settings(config)
+    print("\nLLM 是主工作流的一等配置；API Key 使用隐藏输入，只有自检通过才写入本地忽略配置。")
+    profile = _prompt_default("请求协议/Provider 通道（openai/codex/anthropic/claude_code/auto）", settings.llm.request_profile or "auto")
+    base_url = _prompt_default("LLM Base URL", settings.llm.base_url or "")
+    api_key = getpass.getpass("LLM API Key（隐藏输入，留空表示沿用当前配置）: ").strip()
+    list_first = _prompt_yes_no("先拉取模型列表辅助选择吗", True)
+    runtime_api_key = api_key or settings.llm.api_key
+    settings.llm.request_profile = profile
+    settings.llm.base_url = base_url
+    settings.llm.api_key = runtime_api_key
+    if list_first:
+        models_payload = LLMClient(settings).list_models_safe()
+        model_list = models_payload.get("models", []) if isinstance(models_payload, dict) else []
+        if model_list:
+            print("\n可用模型（前 20 个）:")
+            for index, item in enumerate(model_list[:20], 1):
+                print(f"  {index}) {item}")
+        else:
+            print(f"\n模型列表不可用: {models_payload.get('reason', models_payload.get('status', 'unknown')) if isinstance(models_payload, dict) else 'unknown'}")
+    default_model = _prompt_default("默认模型", settings.llm.default_model or "")
+    settings.llm.default_model = default_model
+    self_check = _run_llm_self_check(settings, model=default_model, profile=profile)
+    if self_check.get("status") == "error":
+        print("LLM 自检失败，已拒绝写入本地配置。")
+        print(json.dumps({"status": "error", "self_check": self_check}, ensure_ascii=False, indent=2, default=str))
+        return 1
+    payload: dict[str, object] = {
+        "llm": {
+            "base_url": base_url,
+            "request_profile": profile,
+            "default_model": default_model,
+        }
+    }
+    if api_key:
+        payload["llm"]["api_key"] = api_key  # type: ignore[index]
+    path = save_runtime_overrides(payload)
+    print(json.dumps({"status": "ok", "runtime_config_path": str(path), "self_check": self_check}, ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
 def _make_agent_start_args(
     config: str | None,
     *,
@@ -444,12 +516,14 @@ def _make_agent_start_args(
 
 
 def _run_interactive_quickstart(config: str | None) -> int:
-    print("\n快速向导会按顺序完成：非密钥配置 -> 数据源自检 -> 可选同步本地库 -> 可选启动一次智能体。")
+    print("\n快速向导会按顺序完成：LLM 自检 -> 非密钥配置 -> 数据源自检 -> 本地库同步 -> 可选启动一次智能体。")
+    if _prompt_yes_no("先配置并自检 LLM 吗", True):
+        _cmd_interactive_llm_config(config)
     if _prompt_yes_no("先调整非密钥运行配置吗", True):
         _cmd_interactive_configure(_interactive_args(config))
     if _prompt_yes_no("现在做一次数据源快速自检吗", True):
         _run_interactive_datasource_test(config)
-    if _prompt_yes_no("要先小批量同步本地市场库（撸数据）吗", False):
+    if _prompt_yes_no("要先同步本地市场库（撸数据）吗", False):
         _run_interactive_sync_local(config)
     if _prompt_yes_no("现在启动一次智能体工作流吗（使用本地默认模型，不强制 offline）", False):
         return _run_interactive_agent(config, continuous=False)
@@ -491,16 +565,21 @@ def _run_interactive_agent(config: str | None, *, continuous: bool) -> int:
 def _run_interactive_sync_local(config: str | None) -> int:
     settings = load_settings(config)
     sources = _prompt_default("同步数据源（空/回车使用配置链）", ",".join(settings.data.provider_chain or []))
+    sync_mode = _prompt_default("同步模式 quick/full/incremental/specified", "incremental")
     stock_codes = _prompt_default("指定股票代码（逗号分隔，留空则先拉股票池）", "")
-    max_stocks = _prompt_int("最多同步股票数", 20)
+    default_max = 20 if sync_mode == "quick" else 0
+    max_stocks = _prompt_int("最多同步股票数（0 表示按股票池全量；A股全市场约 3595 只）", default_max)
     days = _prompt_int("每只股票历史天数", 120)
     checks = _prompt_default("同步项", "universe,history,quote,financial")
+    provider_strategy = _prompt_default("Provider 策略 fill-gaps/all-providers", "fill-gaps")
     return cmd_datasource_sync_local(
         _interactive_args(
             config,
             sources=sources,
             stock_codes=stock_codes,
             max_stocks=max_stocks,
+            sync_mode=sync_mode,
+            provider_strategy=provider_strategy,
             days=days,
             checks=checks,
             db_path="",
@@ -521,11 +600,13 @@ def _render_interactive_menu(config: str | None) -> None:
     print(f"当前默认模型: {default_model}")
     print(f"默认候选数/历史天数: {settings.scheduler.max_count}/{settings.scheduler.history_days}")
     print("-" * 72)
-    print("0) 快速向导：配置 -> 自检 -> 可选同步 -> 可选运行")
-    print("1) 配置向导：运行配置 / JQData / iFinD / 脱敏配置")
-    print("2) 数据源诊断：状态 / smoke / 本地 SQLite 同步")
-    print("3) 运行工作流：单轮 / 连续运行 / Agent 状态 / 停止说明")
-    print("4) 学习中心：学习状态 / 建议 / 触发分析 / 历史 / 记忆")
+    print("0) 快速向导：重新初始化并运行一次测试")
+    print("1) LLM 配置与诊断：Provider/Base URL/Key/模型列表/自检")
+    print("2) 数据源配置与诊断：Tushare/JQData/iFinD/矩阵自检")
+    print("3) 本地数据同步：全市场/增量/指定股票 SQLite 撸数据")
+    print("4) 运行工作流：LLM 智能体单轮 / 连续运行 / Agent 状态")
+    print("5) 学习中心：学习状态 / 建议 / 触发分析 / 历史 / 记忆")
+    print("6) 运行日志 / 历史回放：查看最近 JSONL 与摘要")
     print("h) 显示高级长命令帮助")
     print("q) 退出")
 
@@ -548,29 +629,29 @@ def _render_submenu(title: str, items: list[str]) -> None:
     print("q) 退出")
 
 
-def _interactive_config_wizard(config: str | None) -> bool:
+def _interactive_llm_diagnostics(config: str | None) -> bool:
     while True:
         _render_submenu(
-            "配置向导",
+            "LLM 配置与诊断",
             [
-                "1) 调整非密钥运行配置（online/provider_chain/default_model/max_count/days）",
-                "2) 配置 JQData 凭证（隐藏输入，保存到 Git 忽略的本地配置）",
-                "3) 配置 iFinD/同花顺凭证（隐藏输入，保存到 Git 忽略的本地配置）",
-                "4) 查看当前脱敏有效配置",
+                "1) 配置/重新配置 LLM Provider、Base URL、Key、默认模型并自检",
+                "2) 使用当前配置执行一次 LLM 自检",
+                "3) 查看当前脱敏 LLM 配置",
             ],
         )
-        choice = input("配置向导> ").strip().lower()
+        choice = input("LLM 配置与诊断> ").strip().lower()
         if _is_exit_choice(choice):
             return True
         if _is_back_choice(choice):
             return False
         if choice == "1":
-            _cmd_interactive_configure(_interactive_args(config))
+            _cmd_interactive_llm_config(config)
         elif choice == "2":
-            cmd_datasource_configure_jqdata(_interactive_args(config))
+            settings = load_settings(config)
+            model = _prompt_default("自检模型", settings.llm.default_model or "")
+            profile = _prompt_default("请求协议/Provider 通道", settings.llm.request_profile or "auto")
+            print(json.dumps(_run_llm_self_check(settings, model=model, profile=profile), ensure_ascii=False, indent=2, default=str))
         elif choice == "3":
-            cmd_datasource_configure_ifind(_interactive_args(config))
-        elif choice == "4":
             _cmd_config(_interactive_args(config))
         else:
             print("未知选项，请输入菜单编号、b 或 q。")
@@ -579,15 +660,17 @@ def _interactive_config_wizard(config: str | None) -> bool:
 def _interactive_datasource_diagnostics(config: str | None) -> bool:
     while True:
         _render_submenu(
-            "数据源诊断",
+            "数据源配置与诊断",
             [
                 "1) 查看数据源状态",
                 "2) 数据源快速自检",
-                "3) 同步本地市场数据（撸数据，小批量写入 SQLite）",
-                "4) 查看当前脱敏配置和 Agent 状态",
+                "3) 配置 Tushare token（隐藏输入，自检通过才保存）",
+                "4) 配置 JQData 凭证（隐藏输入，自检通过才保存）",
+                "5) 配置 iFinD/同花顺 token（隐藏输入，矩阵自检通过才保存）",
+                "6) 查看当前脱敏配置和 Agent 状态",
             ],
         )
-        choice = input("数据源诊断> ").strip().lower()
+        choice = input("数据源配置与诊断> ").strip().lower()
         if _is_exit_choice(choice):
             return True
         if _is_back_choice(choice):
@@ -597,12 +680,38 @@ def _interactive_datasource_diagnostics(config: str | None) -> bool:
         elif choice == "2":
             _run_interactive_datasource_test(config)
         elif choice == "3":
-            _run_interactive_sync_local(config)
+            cmd_datasource_configure_tushare(_interactive_args(config))
         elif choice == "4":
+            cmd_datasource_configure_jqdata(_interactive_args(config))
+        elif choice == "5":
+            cmd_datasource_configure_ifind(_interactive_args(config))
+        elif choice == "6":
             print("\n[有效配置]")
             _cmd_config(_interactive_args(config))
             print("\n[Agent 状态]")
             cmd_agent_status(_interactive_args(config, model="", agent_id="", limit=10, format="text"))
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
+
+
+def _interactive_sync_center(config: str | None) -> bool:
+    while True:
+        _render_submenu(
+            "本地数据同步",
+            [
+                "1) 同步本地市场数据（SQLite，默认 fill-gaps 补齐策略）",
+                "2) 查看数据源状态",
+            ],
+        )
+        choice = input("本地数据同步> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        if choice == "1":
+            _run_interactive_sync_local(config)
+        elif choice == "2":
+            cmd_datasource_status(_interactive_args(config, format="text"))
         else:
             print("未知选项，请输入菜单编号、b 或 q。")
 
@@ -672,6 +781,53 @@ def _interactive_learning_center(config: str | None) -> bool:
             print("未知选项，请输入菜单编号、b 或 q。")
 
 
+def _interactive_run_logs(config: str | None) -> bool:
+    del config
+    while True:
+        _render_submenu(
+            "运行日志 / 历史回放",
+            [
+                "1) 查看最近 10 个运行摘要文件",
+                "2) 查看运行日志目录",
+            ],
+        )
+        choice = input("运行日志> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        run_dir = PROJECT_ROOT / "data" / "runtime" / "runs"
+        if choice == "1":
+            if not run_dir.exists():
+                print(f"暂无运行日志目录：{run_dir}")
+                continue
+            summaries = sorted(run_dir.glob("*.summary.json"), key=lambda item: item.stat().st_mtime, reverse=True)[:10]
+            if not summaries:
+                print("暂无运行摘要。")
+                continue
+            rows = []
+            for item in summaries:
+                try:
+                    payload = json.loads(item.read_text(encoding="utf-8"))
+                except (OSError, json.JSONDecodeError):
+                    payload = {}
+                rows.append(
+                    [
+                        item.name,
+                        payload.get("status", "unknown"),
+                        payload.get("model_count", 0),
+                        payload.get("event_count", 0),
+                        payload.get("error_count", 0),
+                    ]
+                )
+            for row in rows:
+                print(f"{row[0]} | 状态={row[1]} | 模型={row[2]} | 事件={row[3]} | 错误={row[4]}")
+        elif choice == "2":
+            print(f"运行日志目录：{run_dir}")
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
+
+
 def _cmd_interactive(args: argparse.Namespace) -> int:
     config = getattr(args, "config", None)
     print("欢迎进入 AStock CLI。长命令仍保留给自动化；日常测试从这个菜单开始。")
@@ -685,7 +841,7 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             if choice == "0":
                 _run_interactive_quickstart(config)
             elif choice == "1":
-                if _interactive_config_wizard(config):
+                if _interactive_llm_diagnostics(config):
                     print("已退出交互式工作流。")
                     return 0
             elif choice == "2":
@@ -693,11 +849,19 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
                     print("已退出交互式工作流。")
                     return 0
             elif choice == "3":
-                if _interactive_run_workflow(config):
+                if _interactive_sync_center(config):
                     print("已退出交互式工作流。")
                     return 0
             elif choice == "4":
+                if _interactive_run_workflow(config):
+                    print("已退出交互式工作流。")
+                    return 0
+            elif choice == "5":
                 if _interactive_learning_center(config):
+                    print("已退出交互式工作流。")
+                    return 0
+            elif choice == "6":
+                if _interactive_run_logs(config):
                     print("已退出交互式工作流。")
                     return 0
             elif choice in {"h", "help", "?"}:

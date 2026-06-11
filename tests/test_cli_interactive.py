@@ -12,16 +12,18 @@ def test_cli_without_command_opens_interactive_menu_and_quits(monkeypatch, capsy
     assert exit_code == 0
     assert "AStock 交互式工作流控制台" in output
     assert "python -m astock_agent_system.cli" in output
-    assert "配置向导" in output
-    assert "数据源诊断" in output
+    assert "LLM 配置与诊断" in output
+    assert "数据源配置与诊断" in output
+    assert "本地数据同步" in output
     assert "运行工作流" in output
     assert "学习中心" in output
+    assert "运行日志 / 历史回放" in output
     assert "已退出交互式工作流" in output
 
 
 def test_cli_interactive_agent_run_uses_default_online_model(monkeypatch) -> None:  # noqa: ANN001
     inputs = iter([
-        "3",  # 进入运行工作流二级页面
+        "4",  # 进入运行工作流二级页面
         "1",  # 启动一次智能体工作流
         "",  # max_count default
         "",  # days default

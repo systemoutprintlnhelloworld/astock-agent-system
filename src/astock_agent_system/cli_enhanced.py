@@ -9,6 +9,7 @@ import queue
 import threading
 import time
 from dataclasses import asdict, is_dataclass
+from datetime import datetime
 from importlib.util import find_spec
 from typing import Any
 
@@ -27,12 +28,169 @@ from astock_agent_system.cli_data_viz import (
     render_news_list,
     render_technical_indicators,
 )
-from astock_agent_system.config import load_settings, save_runtime_overrides
+from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
+
+
+_SECRET_FIELD_HINTS = (
+    "api_key",
+    "access_token",
+    "refresh_token",
+    "token",
+    "password",
+    "secret",
+    "authorization",
+    "webhook",
+    "smtp",
+)
+
+
+def _redact_string_for_run_log(value: str) -> str:
+    """Avoid persisting obvious bearer/key-like values in user-shareable run logs."""
+
+    text = value
+    for marker in ("Bearer ", "Token ", "access_token=", "refresh_token=", "api_key=", "password="):
+        if marker in text:
+            head, _, tail = text.partition(marker)
+            token, sep, rest = tail.partition(" ")
+            text = f"{head}{marker}***REDACTED***{sep}{rest}" if token else text
+    return text
+
+
+def _redact_for_run_log(value: Any) -> Any:
+    """Recursively redact secrets before writing persistent run logs."""
+
+    if isinstance(value, dict):
+        redacted: dict[Any, Any] = {}
+        for key, item in value.items():
+            key_text = str(key).lower()
+            if any(hint in key_text for hint in _SECRET_FIELD_HINTS):
+                redacted[key] = "***REDACTED***" if item else ""
+            else:
+                redacted[key] = _redact_for_run_log(item)
+        return redacted
+    if isinstance(value, list):
+        return [_redact_for_run_log(item) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_for_run_log(item) for item in value]
+    if isinstance(value, str):
+        return _redact_string_for_run_log(value)
+    return value
+
+
+def _compact_error(message: Any, *, retry: str | int | None = None) -> dict[str, Any]:
+    """Classify noisy exceptions into a short Chinese reason plus stable error code."""
+
+    text = _redact_string_for_run_log(str(message or "").strip())
+    lower = text.lower()
+    code = "E-RUN-ERROR"
+    reason = text[:160] if text else "未知错误"
+    if "mongo" in lower or "serverselectiontimeout" in lower:
+        code = "E-MONGO-CONNECT"
+        reason = "MongoDB 未连接或不可达；可用 --no-persist/菜单调试选项先跑通工作流"
+    elif "timeout" in lower or "timed out" in lower or "exceeded" in lower or "超时" in text:
+        code = "E-TIMEOUT"
+        reason = "运行或外部请求超时；请缩小候选数/延长超时后重试"
+    elif "429" in lower or "rate limit" in lower or "too many" in lower or "频率" in text or "限流" in text:
+        code = "E-RATE-LIMIT"
+        reason = "外部服务限流；请降低并发/等待冷却后重试"
+    elif "401" in lower or "403" in lower or "unauthorized" in lower or "forbidden" in lower:
+        code = "E-AUTH"
+        reason = "鉴权失败或权限不足；请重新做凭证自检"
+    elif "ifind" in lower or "同花顺" in text:
+        code = "E-IFIND"
+        reason = "iFinD/同花顺数据源请求失败；请查看矩阵诊断中的格式/权限/空返回"
+    elif "jqdata" in lower or "joinquant" in lower or "聚宽" in text:
+        code = "E-JQDATA"
+        reason = "JQData/聚宽数据源请求失败；请重新做凭证自检"
+    elif "tushare" in lower:
+        code = "E-TUSHARE"
+        reason = "Tushare 数据源请求失败；请检查 token、积分权限和接口频率"
+    elif "llm" in lower or "openai" in lower or "model" in lower or "gateway" in lower:
+        code = "E-LLM"
+        reason = "LLM 网关或模型请求失败；请在 LLM 配置与诊断页面执行自检"
+    return {"code": code, "reason": reason, "retry": str(retry if retry is not None else "0/0"), "raw": text[:500]}
+
+
+def _cell_text(value: Any, *, width: int = 36) -> str:
+    text = "" if value is None else str(value)
+    text = text.replace("\r", " ").replace("\n", " ").strip()
+    if len(text) > width:
+        return text[: max(0, width - 1)] + "…"
+    return text
+
+
+def _format_table(headers: list[str], rows: list[list[Any]], *, max_width: int = 36) -> str:
+    """Render small human-facing terminal tables without depending on terminal state."""
+
+    if not rows:
+        return "(无数据)"
+    string_rows = [[_cell_text(item, width=max_width) for item in row] for row in rows]
+    cols = len(headers)
+    widths = []
+    for idx in range(cols):
+        values = [headers[idx]] + [row[idx] if idx < len(row) else "" for row in string_rows]
+        widths.append(min(max(len(str(item)) for item in values), max_width))
+
+    def line(items: list[Any]) -> str:
+        parts = []
+        for idx in range(cols):
+            item = _cell_text(items[idx] if idx < len(items) else "", width=widths[idx])
+            parts.append(item.ljust(widths[idx]))
+        return " | ".join(parts).rstrip()
+
+    sep = "-+-".join("-" * width for width in widths)
+    return "\n".join([line(headers), sep, *[line(row) for row in string_rows]])
+
+
+class RunLogRecorder:
+    """Write compact, redacted run events for later debugging/handoff."""
+
+    def __init__(self, settings: Any, *, models: list[str]) -> None:
+        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        model_part = "-".join(models or [getattr(settings.llm, "default_model", "default") or "default"])
+        safe_model = "".join(ch if ch.isalnum() or ch in {"-", "_"} else "-" for ch in model_part)[:80]
+        self.root = PROJECT_ROOT / "data" / "runtime" / "runs"
+        self.root.mkdir(parents=True, exist_ok=True)
+        self.path = self.root / f"{stamp}_{safe_model}.jsonl"
+        self.summary_path = self.root / f"{stamp}_{safe_model}.summary.json"
+        self.event_count = 0
+        self.errors: list[dict[str, Any]] = []
+        self.trades: list[dict[str, Any]] = []
+        self._closed = False
+
+    def __call__(self, event: AgentEvent) -> None:
+        if self._closed:
+            return
+        payload = _redact_for_run_log(event.to_dict())
+        self.event_count += 1
+        if event.type == "run_error":
+            self.errors.append(_compact_error(event.payload.get("message", "")))
+        if event.type == "trade_executed":
+            self.trades.append(_redact_for_run_log(event.payload))
+        with self.path.open("a", encoding="utf-8") as file:
+            file.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
+
+    def write_summary(self, payload: dict[str, Any] | None = None) -> None:
+        summary = {
+            "status": (payload or {}).get("status", "unknown"),
+            "run_date": (payload or {}).get("run_date", ""),
+            "model_count": (payload or {}).get("model_count", 0),
+            "event_count": self.event_count,
+            "error_count": len(self.errors),
+            "trade_count": len(self.trades),
+            "log_path": str(self.path),
+            "errors": self.errors[-20:],
+            "rankings": (payload or {}).get("rankings", []),
+        }
+        self.summary_path.write_text(json.dumps(_redact_for_run_log(summary), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
+
+    def close(self) -> None:
+        self._closed = True
 
 
 def cmd_agent_start(args: Any) -> int:
@@ -44,6 +202,8 @@ def cmd_agent_start(args: Any) -> int:
     emitter = AgentEventEmitter()
     renderer = RichEventRenderer(verbose=bool(getattr(args, "verbose", False)), debug=bool(getattr(args, "debug", False)))
     emitter.subscribe(renderer)
+    run_log = RunLogRecorder(settings, models=models)
+    emitter.subscribe(run_log)
 
     _render_run_header(renderer, settings, models=models, offline=bool(getattr(args, "offline", False)))
     _emit_datasource_snapshot(emitter, settings)
@@ -84,14 +244,26 @@ def cmd_agent_start(args: Any) -> int:
             time.sleep(interval_seconds)
     except KeyboardInterrupt:
         emitter.emit("run_error", message="收到 Ctrl+C，当前前台运行已停止")
+        run_log.write_summary(last_payload)
+        renderer.print_info("运行日志", f"完整事件日志: {run_log.path}\n摘要: {run_log.summary_path}")
+        run_log.close()
         return 130
     except TimeoutError as exc:
         emitter.emit("run_error", message=str(exc))
+        run_log.write_summary(last_payload)
+        renderer.print_info("运行日志", f"完整事件日志: {run_log.path}\n摘要: {run_log.summary_path}")
+        run_log.close()
         return 124
     except Exception as exc:
         emitter.emit("run_error", message=f"运行失败: {exc}")
+        run_log.write_summary(last_payload)
+        renderer.print_info("运行日志", f"完整事件日志: {run_log.path}\n摘要: {run_log.summary_path}")
+        run_log.close()
         return 1
 
+    run_log.write_summary(last_payload)
+    renderer.print_info("运行日志", f"完整事件日志: {run_log.path}\n摘要: {run_log.summary_path}")
+    run_log.close()
     return 0 if (last_payload or {}).get("status") == "ok" else 1
 
 
@@ -204,23 +376,32 @@ def cmd_datasource_test(args: Any) -> int:
     sources = [normalize_provider_name(item) for item in requested]
     checks = _parse_models(getattr(args, "checks", "history")) or ["history"]
     timeout_seconds = float(getattr(args, "timeout_seconds", 15.0) or 15.0)
+    items = []
+    for source in sources:
+        item = _test_one_datasource(
+            settings,
+            source=source,
+            stock_code=getattr(args, "stock_code", "600519"),
+            days=int(getattr(args, "days", 5)),
+            checks=checks,
+            include_universe=bool(getattr(args, "include_universe", False)),
+            timeout_seconds=timeout_seconds,
+        )
+        if source == "ifind" and item.get("status") != "skipped":
+            item["matrix"] = _test_ifind_matrix(
+                settings,
+                stock_code=getattr(args, "stock_code", "600519"),
+                days=int(getattr(args, "days", 5)),
+                checks=checks,
+                timeout_seconds=max(3.0, min(timeout_seconds, 8.0)),
+            )
+        items.append(item)
     payload = {
         "status": "ok",
         "stock_code": getattr(args, "stock_code", "600519"),
         "days": int(getattr(args, "days", 5)),
         "checks": checks,
-        "items": [
-            _test_one_datasource(
-                settings,
-                source=source,
-                stock_code=getattr(args, "stock_code", "600519"),
-                days=int(getattr(args, "days", 5)),
-                checks=checks,
-                include_universe=bool(getattr(args, "include_universe", False)),
-                timeout_seconds=timeout_seconds,
-            )
-            for source in sources
-        ],
+        "items": items,
     }
     if getattr(args, "format", "text") == "json":
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
@@ -230,13 +411,21 @@ def cmd_datasource_test(args: Any) -> int:
 
 
 def cmd_datasource_sync_local(args: Any) -> int:
-    """Sync provider-chain market data into the local SQLite store."""
+    """Build or update the local A-share SQLite market database."""
     settings = load_settings(args.config)
     sources = _parse_models(str(getattr(args, "sources", "") or ""))
     if sources:
         settings.data.provider_chain = [normalize_provider_name(item) for item in sources]
-    max_stocks = max(1, int(getattr(args, "max_stocks", 20) or 20))
-    settings.data.dynamic_universe_limit = max_stocks
+    sync_mode = str(getattr(args, "sync_mode", "incremental") or "incremental").strip().lower()
+    if sync_mode not in {"quick", "full", "incremental", "specified"}:
+        sync_mode = "incremental"
+    provider_strategy = str(getattr(args, "provider_strategy", "fill-gaps") or "fill-gaps").strip().lower()
+    if provider_strategy not in {"fill-gaps", "all-providers"}:
+        provider_strategy = "fill-gaps"
+    max_stocks = max(0, int(getattr(args, "max_stocks", 0) or 0))
+    if sync_mode == "quick" and max_stocks == 0:
+        max_stocks = 20
+    settings.data.dynamic_universe_limit = max_stocks if max_stocks > 0 else None
     checks = _parse_models(str(getattr(args, "checks", "universe,history,quote,financial") or ""))
     if not checks:
         checks = ["universe", "history", "quote", "financial"]
@@ -252,7 +441,11 @@ def cmd_datasource_sync_local(args: Any) -> int:
         "provider_chain": list(settings.data.provider_chain),
         "checks": checks,
         "days": days,
+        "sync_mode": sync_mode,
+        "provider_strategy": provider_strategy,
         "max_stocks": max_stocks,
+        "universe_total": 0,
+        "selected_count": 0,
         "items": [],
     }
 
@@ -262,21 +455,28 @@ def cmd_datasource_sync_local(args: Any) -> int:
             before = _provider_attempt_count(agent)
             universe = agent.get_universe()
             source = _latest_success_source(agent, operation="universe", attempts_before=before)
+            payload["universe_total"] = len(universe)
             if source:
-                stored = store.upsert_universe(universe[:max_stocks])
+                universe_to_store = universe[:max_stocks] if max_stocks > 0 else universe
+                stored = store.upsert_universe(universe_to_store)
                 store.record_sync(source=source, operation="universe", status="ok", detail=f"{stored} stocks")
                 payload["items"].append({"operation": "universe", "status": "ok", "source": source, "stored": stored})
             else:
                 payload["items"].append({"operation": "universe", "status": "skipped", "detail": "no online provider success"})
-            stocks = universe[:max_stocks]
+            stocks = universe
         except Exception as exc:
-            store.record_sync(source="provider_chain", operation="universe", status="error", detail=str(exc))
-            payload["items"].append({"operation": "universe", "status": "error", "detail": str(exc)[:300]})
+            detail = _redact_string_for_run_log(str(exc))
+            store.record_sync(source="provider_chain", operation="universe", status="error", detail=detail)
+            payload["items"].append({"operation": "universe", "status": "error", "detail": detail[:300]})
 
     if requested_codes:
-        stock_codes = requested_codes[:max_stocks]
+        sync_mode = "specified"
+        stock_codes = requested_codes[:max_stocks] if max_stocks > 0 else requested_codes
     else:
-        stock_codes = [stock.stock_code for stock in stocks[:max_stocks]]
+        all_codes = [stock.stock_code for stock in stocks]
+        stock_codes = all_codes[:max_stocks] if max_stocks > 0 else all_codes
+    payload["sync_mode"] = sync_mode
+    payload["selected_count"] = len(stock_codes)
     if not stock_codes:
         payload["status"] = "error"
         payload["message"] = "no stock codes to sync; provide --stock-codes or enable universe-capable provider"
@@ -286,23 +486,24 @@ def cmd_datasource_sync_local(args: Any) -> int:
     operation_counts = {"history": 0, "quote": 0, "financial": 0}
     for stock_code in stock_codes:
         if "history" in checks:
-            _sync_one_operation(agent, store, payload, operation="history", stock_code=stock_code, days=days, counts=operation_counts)
+            _sync_one_operation_with_strategy(settings, agent, store, payload, operation="history", stock_code=stock_code, days=days, counts=operation_counts, provider_strategy=provider_strategy)
         if "quote" in checks:
-            _sync_one_operation(agent, store, payload, operation="quote", stock_code=stock_code, days=days, counts=operation_counts)
+            _sync_one_operation_with_strategy(settings, agent, store, payload, operation="quote", stock_code=stock_code, days=days, counts=operation_counts, provider_strategy=provider_strategy)
         if "financial" in checks:
-            _sync_one_operation(agent, store, payload, operation="financial", stock_code=stock_code, days=days, counts=operation_counts)
+            _sync_one_operation_with_strategy(settings, agent, store, payload, operation="financial", stock_code=stock_code, days=days, counts=operation_counts, provider_strategy=provider_strategy)
 
     payload["stored"] = {"stocks": len(stock_codes), **operation_counts}
     payload["local_stats"] = store.stats()
+    payload["provider_participation"] = _provider_participation(payload["items"])
     if getattr(args, "format", "text") == "json":
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
     else:
-        RichEventRenderer().print_info("本地市场数据同步", json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+        RichEventRenderer().render_sync_local(payload)
     return 0 if any(value > 0 for value in operation_counts.values()) or any(item.get("operation") == "universe" and item.get("status") == "ok" for item in payload["items"]) else 1
 
 
 def cmd_datasource_configure_jqdata(args: Any) -> int:
-    """Persist JQData credentials through hidden prompts in the ignored runtime config."""
+    """Persist JQData credentials after a real provider preflight."""
     username = str(getattr(args, "username", "") or "").strip()
     if not username:
         username = input("JQData username: ").strip()
@@ -311,9 +512,24 @@ def cmd_datasource_configure_jqdata(args: Any) -> int:
         print(json.dumps({"status": "error", "message": "username and password are required"}, ensure_ascii=False, indent=2))
         return 1
     provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
+    settings = load_settings(getattr(args, "config", None))
     if not provider_chain:
-        settings = load_settings(getattr(args, "config", None))
         provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
+    scoped = copy.deepcopy(settings)
+    scoped.data.jqdata_username = username
+    scoped.data.jqdata_password = password
+    scoped.data.provider_chain = ["jqdata"]
+    preflight = _test_one_datasource(scoped, source="jqdata", stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=12.0)
+    if preflight.get("status") != "ok":
+        payload = {
+            "status": "error",
+            "message": "JQData 自检失败，已拒绝写入本地配置",
+            "provider": "jqdata",
+            "checks": preflight.get("checks", []),
+            "error": _compact_error(preflight.get("message", "JQData preflight failed")),
+        }
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+        return 1
     normalized_chain = []
     for item in provider_chain + ["jqdata"]:
         source = normalize_provider_name(item)
@@ -335,22 +551,40 @@ def cmd_datasource_configure_jqdata(args: Any) -> int:
         "provider_chain": normalized_chain,
         "has_jqdata_username": True,
         "has_jqdata_password": True,
+        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", [])},
     }
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
     return 0
 
 
 def cmd_datasource_configure_ifind(args: Any) -> int:
-    """Persist iFinD tokens through hidden prompts in the ignored runtime config."""
+    """Persist iFinD tokens after a real QuantAPI preflight."""
     access_token = getpass.getpass("iFinD access token: ").strip()
     refresh_token = getpass.getpass("iFinD refresh token (optional): ").strip()
     if not access_token:
         print(json.dumps({"status": "error", "message": "access token is required"}, ensure_ascii=False, indent=2))
         return 1
     provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
+    settings = load_settings(getattr(args, "config", None))
     if not provider_chain:
-        settings = load_settings(getattr(args, "config", None))
         provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
+    scoped = copy.deepcopy(settings)
+    scoped.data.ifind_access_token = access_token
+    scoped.data.ifind_refresh_token = refresh_token
+    scoped.data.provider_chain = ["ifind"]
+    preflight = _test_one_datasource(scoped, source="ifind", stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=12.0)
+    matrix = _test_ifind_matrix(scoped, stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=6.0)
+    if preflight.get("status") != "ok":
+        payload = {
+            "status": "error",
+            "message": "iFinD 自检失败，已拒绝写入本地配置",
+            "provider": "ifind",
+            "checks": preflight.get("checks", []),
+            "matrix": matrix,
+            "error": _compact_error(preflight.get("message", "iFinD preflight failed")),
+        }
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+        return 1
     normalized_chain = []
     for item in provider_chain + ["ifind"]:
         source = normalize_provider_name(item)
@@ -372,8 +606,51 @@ def cmd_datasource_configure_ifind(args: Any) -> int:
         "provider_chain": normalized_chain,
         "has_ifind_access_token": True,
         "has_ifind_refresh_token": bool(refresh_token),
+        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", []), "matrix": matrix},
     }
-    print(json.dumps(payload, ensure_ascii=False, indent=2))
+    print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    return 0
+
+
+def cmd_datasource_configure_tushare(args: Any) -> int:
+    """Persist Tushare token only after a real preflight succeeds."""
+    token = getpass.getpass("Tushare token: ").strip()
+    if not token:
+        print(json.dumps({"status": "error", "message": "token is required"}, ensure_ascii=False, indent=2))
+        return 1
+    provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
+    settings = load_settings(getattr(args, "config", None))
+    if not provider_chain:
+        provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
+    scoped = copy.deepcopy(settings)
+    scoped.data.tushare_token = token
+    scoped.data.provider_chain = ["tushare"]
+    preflight = _test_one_datasource(scoped, source="tushare", stock_code="600519", days=5, checks=["history", "quote", "financial"], timeout_seconds=12.0)
+    if preflight.get("status") != "ok":
+        payload = {
+            "status": "error",
+            "message": "Tushare 自检失败，已拒绝写入本地配置",
+            "provider": "tushare",
+            "checks": preflight.get("checks", []),
+            "error": _compact_error(preflight.get("message", "Tushare preflight failed")),
+        }
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+        return 1
+    normalized_chain = []
+    for item in provider_chain + ["tushare"]:
+        source = normalize_provider_name(item)
+        if source and source not in normalized_chain:
+            normalized_chain.append(source)
+    path = save_runtime_overrides({"data": {"tushare_token": token, "provider_chain": normalized_chain}})
+    payload = {
+        "status": "ok",
+        "message": "Tushare token saved to ignored runtime config",
+        "runtime_config_path": str(path),
+        "provider_chain": normalized_chain,
+        "has_tushare_token": True,
+        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", [])},
+    }
+    print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
     return 0
 
 
@@ -479,11 +756,16 @@ class RichEventRenderer:
 
     def render_learning_status(self, payload: dict[str, Any], title: str = "学习状态") -> None:
         lines = [
-            f"累计经验: {payload.get('total_experiences', 0)}",
-            f"进度: {payload.get('progress', 0)}/{payload.get('threshold', 30)}",
-            f"是否可分析: {'是' if payload.get('ready') else '否'}",
-            f"成功率: {_percent(payload.get('success_rate', 0.0))}",
-            f"平均收益: {_float_text(payload.get('average_return_pct', 0.0))}%",
+            _format_table(
+                ["指标", "值"],
+                [
+                    ["累计经验", payload.get("total_experiences", 0)],
+                    ["进度", f"{payload.get('progress', 0)}/{payload.get('threshold', 30)}"],
+                    ["是否可分析", "是" if payload.get("ready") else "否"],
+                    ["成功率", _percent(payload.get("success_rate", 0.0))],
+                    ["平均收益", f"{_float_text(payload.get('average_return_pct', 0.0))}%"],
+                ],
+            )
         ]
         suggestions = payload.get("suggestions", [])
         if suggestions:
@@ -496,19 +778,22 @@ class RichEventRenderer:
         if not suggestions:
             self.print_info("学习建议", "暂无建议。运行 agent learning trigger --force 可强制分析当前经验。")
             return
-        lines = [f"分析时间: {payload.get('analyzed_at', '')}", f"建议数: {len(suggestions)}", ""]
+        rows = []
         for index, item in enumerate(suggestions, 1):
-            lines.extend(
+            rows.append(
                 [
-                    f"建议 #{index}: {item.get('agent_id', '')} / {item.get('section', '')}",
-                    f"  指标: {item.get('metric', '')}",
-                    f"  当前值: {item.get('current_value', '')}",
-                    f"  建议值: {item.get('suggested_value', '')}",
-                    f"  置信度: {_percent(item.get('confidence', 0.0))}",
-                    f"  原因: {item.get('reason', '')}",
-                    "",
+                    index,
+                    item.get("agent_id", ""),
+                    item.get("section", ""),
+                    item.get("metric", ""),
+                    item.get("current_value", ""),
+                    item.get("suggested_value", ""),
+                    _percent(item.get("confidence", 0.0)),
+                    item.get("reason", ""),
                 ]
             )
+        lines = [f"分析时间: {payload.get('analyzed_at', '')}", f"建议数: {len(suggestions)}", ""]
+        lines.append(_format_table(["#", "Agent", "段落", "指标", "当前", "建议", "置信度", "原因"], rows, max_width=24))
         self.print_info("学习建议", "\n".join(lines).strip())
 
     def render_memory(self, payload: dict[str, Any]) -> None:
@@ -535,27 +820,131 @@ class RichEventRenderer:
         providers = payload.get("providers", [])
         if isinstance(providers, list) and providers:
             lines.append("")
-            lines.append("Provider 详情:")
+            rows = []
             for item in providers:
                 if isinstance(item, dict):
-                    lines.append(
-                        f"- {item.get('name', '')}: configured={item.get('configured', '')}, "
-                        f"available={item.get('available', '')}, reason={item.get('reason', '')}"
+                    rows.append(
+                        [
+                            item.get("name", ""),
+                            item.get("configured", ""),
+                            item.get("available", ""),
+                            item.get("reason", ""),
+                        ]
                     )
+            lines.append(_format_table(["Provider", "已配置", "可用", "原因"], rows, max_width=32))
         self.print_info("数据源状态", "\n".join(lines))
 
     def render_datasource_tests(self, payload: dict[str, Any]) -> None:
         items = payload.get("items", []) if isinstance(payload, dict) else []
         lines = [f"测试股票: {payload.get('stock_code', '')}", f"历史窗口: {payload.get('days', '')} 天", ""]
+        provider_rows = []
+        check_rows = []
+        matrix_rows = []
         for item in items:
             if not isinstance(item, dict):
                 continue
-            lines.append(f"- {item.get('source', '')}: {item.get('status', '')}")
-            lines.append(f"  原因/结果: {item.get('message', '')}")
+            compact = _compact_error(item.get("message", "")) if item.get("status") == "error" else {}
+            provider_rows.append(
+                [
+                    item.get("source", ""),
+                    item.get("status", ""),
+                    compact.get("code", ""),
+                    compact.get("reason", item.get("message", "")),
+                ]
+            )
             for check in item.get("checks", []) if isinstance(item.get("checks"), list) else []:
                 if isinstance(check, dict):
-                    lines.append(f"  - {check.get('operation', '')}: {check.get('status', '')} {check.get('detail', '')}")
+                    compact_check = _compact_error(check.get("detail", "")) if check.get("status") == "error" else {}
+                    check_rows.append(
+                        [
+                            item.get("source", ""),
+                            check.get("operation", ""),
+                            check.get("status", ""),
+                            compact_check.get("code", ""),
+                            compact_check.get("reason", check.get("detail", "")),
+                        ]
+                    )
+            for matrix_item in item.get("matrix", []) if isinstance(item.get("matrix"), list) else []:
+                if isinstance(matrix_item, dict):
+                    matrix_rows.append(
+                        [
+                            matrix_item.get("stock_code", ""),
+                            matrix_item.get("symbol", ""),
+                            matrix_item.get("operation", ""),
+                            matrix_item.get("status", ""),
+                            matrix_item.get("detail", matrix_item.get("message", "")),
+                        ]
+                    )
+        lines.append("Provider 总览")
+        lines.append(_format_table(["数据源", "状态", "错误码", "中文原因/结果"], provider_rows, max_width=30))
+        if check_rows:
+            lines.extend(["", "检查项明细", _format_table(["数据源", "检查项", "状态", "错误码", "结果"], check_rows, max_width=28)])
+        if matrix_rows:
+            lines.extend(["", "iFinD 多格式矩阵", _format_table(["股票", "格式", "检查项", "状态", "结果"], matrix_rows, max_width=26)])
         self.print_info("数据源 smoke 测试", "\n".join(lines).strip())
+
+    def render_sync_local(self, payload: dict[str, Any]) -> None:
+        items = payload.get("items", []) if isinstance(payload, dict) else []
+        lines = [
+            f"状态: {payload.get('status', '')}",
+            f"本地库: {payload.get('db_path', '')}",
+            f"同步模式: {payload.get('sync_mode', '')}    策略: {payload.get('provider_strategy', '')}",
+            f"目标股票数: {payload.get('selected_count', payload.get('max_stocks', ''))} / 股票池: {payload.get('universe_total', '')}",
+            f"历史窗口: {payload.get('days', '')} 天",
+            "",
+        ]
+        stored = payload.get("stored", {}) if isinstance(payload.get("stored"), dict) else {}
+        stats = payload.get("local_stats", {}) if isinstance(payload.get("local_stats"), dict) else {}
+        lines.append("写入汇总")
+        lines.append(
+            _format_table(
+                ["项目", "本轮写入", "本地总量"],
+                [
+                    ["股票", stored.get("stocks", 0), stats.get("stocks", 0)],
+                    ["K线", stored.get("history", 0), stats.get("bars", 0)],
+                    ["行情", stored.get("quote", 0), stats.get("quotes", 0)],
+                    ["财务", stored.get("financial", 0), stats.get("financials", 0)],
+                ],
+            )
+        )
+        participation = payload.get("provider_participation", [])
+        if isinstance(participation, list) and participation:
+            lines.extend(["", "Provider 参与表"])
+            lines.append(
+                _format_table(
+                    ["Provider", "操作", "状态", "次数", "写入"],
+                    [
+                        [
+                            item.get("source", ""),
+                            item.get("operation", ""),
+                            item.get("status", ""),
+                            item.get("count", 0),
+                            item.get("stored", 0),
+                        ]
+                        for item in participation
+                        if isinstance(item, dict)
+                    ],
+                )
+            )
+        errors = [item for item in items if isinstance(item, dict) and item.get("status") == "error"]
+        if errors:
+            lines.extend(["", "压缩错误（最多 8 条）"])
+            lines.append(
+                _format_table(
+                    ["股票", "操作", "错误码", "中文原因"],
+                    [
+                        [
+                            item.get("stock_code", ""),
+                            item.get("operation", ""),
+                            _compact_error(item.get("detail", item.get("message", ""))).get("code", ""),
+                            _compact_error(item.get("detail", item.get("message", ""))).get("reason", ""),
+                        ]
+                        for item in errors[:8]
+                    ],
+                    max_width=30,
+                )
+            )
+        self.print_info("本地市场数据同步", "\n".join(lines).strip())
 
     def render_result_summary(self, payload: dict[str, Any]) -> None:
         agents = payload.get("agents", []) if isinstance(payload.get("agents"), list) else []
@@ -564,11 +953,13 @@ class RichEventRenderer:
         if rankings:
             lines.append("")
             lines.append("收益排行:")
+            rows = []
             for item in rankings:
                 if isinstance(item, dict):
                     model = item.get("llm_model", item.get("model", ""))
                     ret = item.get("total_return", item.get("return", 0.0))
-                    lines.append(f"- #{item.get('rank', '')} {model}: {_percent(ret)}")
+                    rows.append([item.get("rank", ""), model, _percent(ret), _float_text(item.get("cash", "")), _float_text(item.get("equity", ""))])
+            lines.append(_format_table(["排名", "模型", "收益", "现金", "权益"], rows, max_width=28))
         insights = _benchmark_insights(payload)
         if insights:
             lines.append("")
@@ -577,7 +968,18 @@ class RichEventRenderer:
         if isinstance(learning, dict):
             lines.append("")
             lines.append("学习结果:")
-            lines.append(json.dumps(learning, ensure_ascii=False, default=str)[:600])
+            lines.append(
+                _format_table(
+                    ["指标", "值"],
+                    [
+                        ["状态", learning.get("status", "")],
+                        ["本轮经验", learning.get("experiences_recorded", learning.get("experience_count", ""))],
+                        ["建议数", len(learning.get("suggestions", []) or []) if isinstance(learning.get("suggestions", []), list) else ""],
+                        ["原因", learning.get("reason", learning.get("message", ""))],
+                    ],
+                    max_width=34,
+                )
+            )
         self.print_info("运行完成", "\n".join(lines))
 
     def _render_run_start(self, event: AgentEvent) -> None:
@@ -587,7 +989,8 @@ class RichEventRenderer:
         self.print_info("运行事件", event.payload.get("message", "运行完成"))
 
     def _render_error(self, event: AgentEvent) -> None:
-        self._print(f"[red]错误: {event.payload.get('message', '')}[/red]")
+        compact = _compact_error(event.payload.get("message", ""), retry=event.payload.get("retry", "0/0"))
+        self._print(f"[red]{compact.get('code')}[/red] {compact.get('reason')} retry={compact.get('retry')}")
 
     def _render_agent_start(self, event: AgentEvent) -> None:
         self._print(f"[cyan]启动智能体[/cyan] {event.model or event.agent_id}: {event.payload.get('message', '')}")
@@ -1116,6 +1519,121 @@ def _run_datasource_operation(agent: DataAgent, *, operation: str, stock_code: s
         result = agent.get_quote(stock_code)
         return ("ok" if result.price > 0 else "empty", f"price={result.price}")
     return "skipped", "unknown operation"
+
+
+def _ifind_symbol_candidates(stock_code: str) -> list[str]:
+    raw = str(stock_code or "").strip().upper()
+    if not raw:
+        raw = "600519"
+    code = raw
+    for prefix in ("SH", "SZ", "BJ"):
+        if code.startswith(prefix) and len(code) > 2:
+            code = code[2:]
+    if "." in code:
+        code = code.split(".", 1)[0]
+    market = "SH" if code.startswith("6") else "SZ" if code.startswith(("0", "3")) else "BJ" if code.startswith(("4", "8")) else ""
+    candidates = [raw, code]
+    if market:
+        candidates.extend([f"{code}.{market}", f"{market}{code}"])
+        if market == "SH":
+            candidates.append(f"{code}.SS")
+        elif market == "SZ":
+            candidates.extend([f"{code}.SZ", f"{code}.XSHE"])
+    unique: list[str] = []
+    for item in candidates:
+        if item and item not in unique:
+            unique.append(item)
+    return unique[:5]
+
+
+def _test_ifind_matrix(
+    settings: Any,
+    *,
+    stock_code: str,
+    days: int,
+    checks: list[str] | None = None,
+    timeout_seconds: float = 8.0,
+) -> list[dict[str, Any]]:
+    operations = [item for item in checks or ["history", "quote"] if item in {"history", "quote"}]
+    if not operations:
+        operations = ["history", "quote"]
+    stock_codes = []
+    for item in [stock_code, "600519", "000001", "600036"]:
+        code = str(item or "").strip()
+        if code and code not in stock_codes:
+            stock_codes.append(code)
+    rows: list[dict[str, Any]] = []
+    for code in stock_codes[:3]:
+        for symbol in _ifind_symbol_candidates(code)[:4]:
+            for operation in operations:
+                result = _test_one_datasource(
+                    settings,
+                    source="ifind",
+                    stock_code=symbol,
+                    days=days,
+                    checks=[operation],
+                    include_universe=False,
+                    timeout_seconds=timeout_seconds,
+                )
+                checks_result = result.get("checks", []) if isinstance(result.get("checks"), list) else []
+                first = checks_result[0] if checks_result and isinstance(checks_result[0], dict) else {}
+                rows.append(
+                    {
+                        "stock_code": code,
+                        "symbol": symbol,
+                        "operation": operation,
+                        "status": first.get("status", result.get("status", "error")),
+                        "detail": first.get("detail", result.get("message", "")),
+                    }
+                )
+    return rows
+
+
+def _sync_one_operation_with_strategy(
+    settings: Any,
+    agent: DataAgent,
+    store: LocalMarketStore,
+    payload: dict[str, Any],
+    *,
+    operation: str,
+    stock_code: str,
+    days: int,
+    counts: dict[str, int],
+    provider_strategy: str,
+) -> None:
+    if provider_strategy != "all-providers":
+        _sync_one_operation(agent, store, payload, operation=operation, stock_code=stock_code, days=days, counts=counts)
+        return
+    for source in getattr(settings.data, "provider_chain", []) or []:
+        source = normalize_provider_name(source)
+        if not provider_supports(source, operation):
+            payload["items"].append(
+                {"operation": operation, "stock_code": stock_code, "status": "skipped", "source": source, "detail": "capability not supported"}
+            )
+            continue
+        scoped = copy.deepcopy(settings)
+        scoped.data.mode = "online"
+        scoped.data.provider_chain = [source]
+        scoped_agent = DataAgent(settings=scoped, use_local_store=False, local_store_path=store.path)
+        _sync_one_operation(scoped_agent, store, payload, operation=operation, stock_code=stock_code, days=days, counts=counts)
+
+
+def _provider_participation(items: list[dict[str, Any]]) -> list[dict[str, Any]]:
+    grouped: dict[tuple[str, str, str], dict[str, Any]] = {}
+    for item in items:
+        if not isinstance(item, dict):
+            continue
+        source = str(item.get("source") or "provider_chain")
+        operation = str(item.get("operation") or "")
+        status = str(item.get("status") or "")
+        key = (source, operation, status)
+        row = grouped.setdefault(key, {"source": source, "operation": operation, "status": status, "count": 0, "stored": 0})
+        row["count"] += 1
+        try:
+            row["stored"] += int(item.get("stored", 0) or 0)
+        except (TypeError, ValueError):
+            pass
+    return sorted(grouped.values(), key=lambda row: (row.get("source", ""), row.get("operation", ""), row.get("status", "")))
 
 
 def _sync_one_operation(

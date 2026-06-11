@@ -4,7 +4,7 @@ import getpass
 import json
 from types import SimpleNamespace
 
-from astock_agent_system import config as config_module
+from astock_agent_system import cli_enhanced, config as config_module
 from astock_agent_system.cli_enhanced import cmd_datasource_configure_jqdata
 from astock_agent_system.config import load_settings
 
@@ -150,6 +150,11 @@ def test_datasource_configure_jqdata_persists_runtime_credentials(monkeypatch, t
     monkeypatch.setattr(config_module, "RUNTIME_CONFIG_PATH", runtime_path)
     monkeypatch.setattr("builtins.input", lambda prompt="": "jq-user")
     monkeypatch.setattr(getpass, "getpass", lambda prompt="": "jq-pass")
+    monkeypatch.setattr(
+        cli_enhanced,
+        "_test_one_datasource",
+        lambda *args, **kwargs: {"status": "ok", "checks": [{"name": "history", "status": "ok"}]},
+    )
 
     exit_code = cmd_datasource_configure_jqdata(
         SimpleNamespace(config=None, username="", provider_chain="tushare,baostock")
@@ -162,3 +167,4 @@ def test_datasource_configure_jqdata_persists_runtime_credentials(monkeypatch, t
     assert settings.data.jqdata_username == "jq-user"
     assert settings.data.jqdata_password == "jq-pass"
     assert settings.data.provider_chain == ["tushare", "baostock", "jqdata"]
+    assert payload["preflight"]["status"] == "ok"
