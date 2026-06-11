@@ -31,7 +31,7 @@
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
 - TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、已保存配置动态回填、密钥状态脱敏展示、按已选数据源跳过无关凭证、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
 - CLI 客观数据与本地同步：`agent start` 默认展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；`datasource configure-ifind` 使用隐藏输入保存同花顺 iFinD token 到忽略的运行态配置，`datasource sync-local` 用于先批量同步本地数据再运行 Agent。
-- CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台，按菜单完成非密钥配置、隐藏凭证配置、数据源自检、本地同步、单轮/连续 Agent 运行和学习状态查看；默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
+- CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台；顶层拆成“配置向导 / 数据源诊断 / 运行工作流 / 学习中心”四个二级页面，并保留快速向导，默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
 
 ## 2. 最短运行路径
 

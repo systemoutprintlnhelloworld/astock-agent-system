@@ -63,6 +63,7 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 - CLI 事件枚举新增 `screening_start`、`screening_complete`、`analysis_start`、`analysis_complete`、`data_fetch_start`、`data_fetch_complete`、`agent_chain_step`，并补齐 `technical_analysis_*`、`fundamental_analysis_*`、`sentiment_analysis_*`、`debate_*`、`risk_analysis_*`、`portfolio_decision_*`，用于在命令行显示 `DataAgent -> TechnicalAnalyst -> FundamentalAnalyst -> SentimentAnalyst -> DebateRoom -> RiskManager -> PortfolioManager` 的完整协作链。
 - `MasterAgent.analyze_stock` 现在会在每个 Agent 开始/完成时发射结构化事件，`data_fetch_complete` 还会携带本轮 provider/cache 调用链，`portfolio_decision_complete` 会携带 `explanation_data` 和各 Agent 分数。
 - `RichEventRenderer` 已直接处理上述细粒度事件：技术面输出指标，基本面输出财务表，舆情输出新闻/摘要，最终决策输出 PortfolioManager 建议展示的证据块、风险提示和 Agent 分数。
+- `python -m astock_agent_system.cli` 交互式入口已从平铺长菜单拆成“配置向导 / 数据源诊断 / 运行工作流 / 学习中心”四个二级页面，保留 `0) 快速向导`，让后台-first 验证不再依赖记忆复杂长命令。
 
 缓存 TTL 当前约定：
 

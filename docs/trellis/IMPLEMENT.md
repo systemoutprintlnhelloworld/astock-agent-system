@@ -11,7 +11,7 @@
 - `src/astock_agent_system/events/emitter.py` 新增学习、记忆和数据源事件类型：`learning_experience_recorded`、`learning_analysis_triggered`、`learning_suggestion_generated`、`memory_case_retrieved`、`data_source_switched`。
 - 新增 `src/astock_agent_system/cli_enhanced.py`，提供 Rich 优先、纯文本 fallback 的流式运行渲染、学习状态/建议、记忆案例和数据源诊断展示。
 - `src/astock_agent_system/cli.py` 新增 `agent start/status/history/stop/benchmark/learning status|suggestions|trigger/memory` 与 `datasource status/test` 命令。
-- `python -m astock_agent_system.cli` 无子命令时不再只打印帮助，而是进入 `AStock 交互式工作流控制台`；菜单覆盖非密钥配置、JQData/iFinD 隐藏凭证配置、数据源自检、本地 SQLite 同步、单轮/连续 Agent 运行和学习状态查看，默认沿用本地 `llm.default_model`，不强制 `rule-baseline` 或 `offline`。
+- `python -m astock_agent_system.cli` 无子命令时不再只打印帮助，而是进入 `AStock 交互式工作流控制台`；顶层菜单拆成“配置向导 / 数据源诊断 / 运行工作流 / 学习中心”四个二级页面，保留 `0) 快速向导`，默认沿用本地 `llm.default_model`，不强制 `rule-baseline` 或 `offline`。
 - `src/astock_agent_system/orchestrator/multi_agent_orchestrator.py` 在竞赛运行中发射 run/agent/learning 事件，并把学习经验记录/建议生成反馈给 CLI。
 - `apps/backend/schemas.py` 扩展 WebSocket 事件枚举，`apps/backend/app.py` 新增 `/api/datasource/status`、`/api/datasource/history`、`/api/agents/{agent_id}/memory/similar`，便于后续 GUI/TUI 复用 CLI 先验证出的可观察内容。
 - 本轮修复在线 provider 失败路径：Tushare `financial` 不再触发 Pandas Series 布尔判断错误，`daily_basic` 限定查询窗口；在线数据源失败后未知股票离线兜底不再抛 `KeyError`；筛选器会跳过空行情/零价格，避免第三方限频或断连导致 CLI 崩溃。

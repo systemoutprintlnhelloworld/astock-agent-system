@@ -448,35 +448,44 @@ def _run_interactive_quickstart(config: str | None) -> int:
     if _prompt_yes_no("先调整非密钥运行配置吗", True):
         _cmd_interactive_configure(_interactive_args(config))
     if _prompt_yes_no("现在做一次数据源快速自检吗", True):
-        stock_code = _prompt_default("测试股票代码", "600519")
-        days = _prompt_int("测试历史天数", 5)
-        checks = _prompt_default("测试项", "history,quote")
-        cmd_datasource_test(
-            _interactive_args(
-                config,
-                sources="",
-                all=False,
-                stock_code=stock_code,
-                days=days,
-                checks=checks,
-                include_universe=False,
-                timeout_seconds=12.0,
-                format="text",
-            )
-        )
+        _run_interactive_datasource_test(config)
     if _prompt_yes_no("要先小批量同步本地市场库（撸数据）吗", False):
         _run_interactive_sync_local(config)
     if _prompt_yes_no("现在启动一次智能体工作流吗（使用本地默认模型，不强制 offline）", False):
-        settings = load_settings(config)
-        return cmd_agent_start(
-            _make_agent_start_args(
-                config,
-                continuous=False,
-                settings_max_count=int(settings.scheduler.max_count or 3),
-                settings_days=int(settings.scheduler.history_days or 24),
-            )
-        )
+        return _run_interactive_agent(config, continuous=False)
     return 0
+
+
+def _run_interactive_datasource_test(config: str | None) -> int:
+    stock_code = _prompt_default("测试股票代码", "600519")
+    days = _prompt_int("历史天数", 5)
+    checks = _prompt_default("检查项", "history,quote")
+    timeout_seconds = _prompt_float("单源超时秒数", 12.0)
+    return cmd_datasource_test(
+        _interactive_args(
+            config,
+            sources="",
+            all=False,
+            stock_code=stock_code,
+            days=days,
+            checks=checks,
+            include_universe=False,
+            timeout_seconds=timeout_seconds,
+            format="text",
+        )
+    )
+
+
+def _run_interactive_agent(config: str | None, *, continuous: bool) -> int:
+    settings = load_settings(config)
+    return cmd_agent_start(
+        _make_agent_start_args(
+            config,
+            continuous=continuous,
+            settings_max_count=int(settings.scheduler.max_count or 3),
+            settings_days=int(settings.scheduler.history_days or 24),
+        )
+    )
 
 
 def _run_interactive_sync_local(config: str | None) -> int:
@@ -513,17 +522,154 @@ def _render_interactive_menu(config: str | None) -> None:
     print(f"默认候选数/历史天数: {settings.scheduler.max_count}/{settings.scheduler.history_days}")
     print("-" * 72)
     print("0) 快速向导：配置 -> 自检 -> 可选同步 -> 可选运行")
-    print("1) 调整非密钥运行配置（online/provider_chain/default_model/max_count/days）")
-    print("2) 配置 JQData 凭证（隐藏输入，保存到 Git 忽略的本地配置）")
-    print("3) 配置 iFinD/同花顺凭证（隐藏输入，保存到 Git 忽略的本地配置）")
-    print("4) 查看当前配置、Agent 状态和数据源状态")
-    print("5) 数据源快速自检")
-    print("6) 同步本地市场数据（撸数据，小批量写入 SQLite）")
-    print("7) 启动一次智能体工作流（使用本地默认模型）")
-    print("8) 连续运行智能体（直到 Ctrl+C 或达到轮数）")
-    print("9) 查看学习状态和建议")
+    print("1) 配置向导：运行配置 / JQData / iFinD / 脱敏配置")
+    print("2) 数据源诊断：状态 / smoke / 本地 SQLite 同步")
+    print("3) 运行工作流：单轮 / 连续运行 / Agent 状态 / 停止说明")
+    print("4) 学习中心：学习状态 / 建议 / 触发分析 / 历史 / 记忆")
     print("h) 显示高级长命令帮助")
     print("q) 退出")
+
+
+def _is_exit_choice(choice: str) -> bool:
+    return choice in {"q", "quit", "exit"}
+
+
+def _is_back_choice(choice: str) -> bool:
+    return choice in {"b", "back", "r", "return", "返回"}
+
+
+def _render_submenu(title: str, items: list[str]) -> None:
+    print("\n" + "-" * 72)
+    print(title)
+    print("-" * 72)
+    for item in items:
+        print(item)
+    print("b) 返回主菜单")
+    print("q) 退出")
+
+
+def _interactive_config_wizard(config: str | None) -> bool:
+    while True:
+        _render_submenu(
+            "配置向导",
+            [
+                "1) 调整非密钥运行配置（online/provider_chain/default_model/max_count/days）",
+                "2) 配置 JQData 凭证（隐藏输入，保存到 Git 忽略的本地配置）",
+                "3) 配置 iFinD/同花顺凭证（隐藏输入，保存到 Git 忽略的本地配置）",
+                "4) 查看当前脱敏有效配置",
+            ],
+        )
+        choice = input("配置向导> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        if choice == "1":
+            _cmd_interactive_configure(_interactive_args(config))
+        elif choice == "2":
+            cmd_datasource_configure_jqdata(_interactive_args(config))
+        elif choice == "3":
+            cmd_datasource_configure_ifind(_interactive_args(config))
+        elif choice == "4":
+            _cmd_config(_interactive_args(config))
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
+
+
+def _interactive_datasource_diagnostics(config: str | None) -> bool:
+    while True:
+        _render_submenu(
+            "数据源诊断",
+            [
+                "1) 查看数据源状态",
+                "2) 数据源快速自检",
+                "3) 同步本地市场数据（撸数据，小批量写入 SQLite）",
+                "4) 查看当前脱敏配置和 Agent 状态",
+            ],
+        )
+        choice = input("数据源诊断> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        if choice == "1":
+            cmd_datasource_status(_interactive_args(config, format="text"))
+        elif choice == "2":
+            _run_interactive_datasource_test(config)
+        elif choice == "3":
+            _run_interactive_sync_local(config)
+        elif choice == "4":
+            print("\n[有效配置]")
+            _cmd_config(_interactive_args(config))
+            print("\n[Agent 状态]")
+            cmd_agent_status(_interactive_args(config, model="", agent_id="", limit=10, format="text"))
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
+
+
+def _interactive_run_workflow(config: str | None) -> bool:
+    while True:
+        _render_submenu(
+            "运行工作流",
+            [
+                "1) 启动一次智能体工作流（使用本地默认模型）",
+                "2) 连续运行智能体（直到 Ctrl+C 或达到轮数）",
+                "3) 查看 Agent 状态",
+                "4) 查看停止说明",
+            ],
+        )
+        choice = input("运行工作流> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        if choice == "1":
+            _run_interactive_agent(config, continuous=False)
+        elif choice == "2":
+            _run_interactive_agent(config, continuous=True)
+        elif choice == "3":
+            cmd_agent_status(_interactive_args(config, model="", agent_id="", limit=10, format="text"))
+        elif choice == "4":
+            cmd_agent_stop(_interactive_args(config, format="text"))
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
+
+
+def _interactive_learning_center(config: str | None) -> bool:
+    while True:
+        _render_submenu(
+            "学习中心",
+            [
+                "1) 查看学习状态",
+                "2) 查看学习建议",
+                "3) 触发学习分析",
+                "4) 查看经验历史",
+                "5) 查看 Agent 记忆案例",
+            ],
+        )
+        choice = input("学习中心> ").strip().lower()
+        if _is_exit_choice(choice):
+            return True
+        if _is_back_choice(choice):
+            return False
+        if choice == "1":
+            cmd_agent_learning_status(_interactive_args(config, format="text"))
+        elif choice == "2":
+            cmd_agent_learning_suggestions(_interactive_args(config, format="text"))
+        elif choice == "3":
+            force = _prompt_yes_no("是否强制触发学习分析", False)
+            cmd_agent_learning_trigger(_interactive_args(config, force=force, format="text"))
+        elif choice == "4":
+            limit = _prompt_int("显示经验条数", 20)
+            cmd_agent_history(_interactive_args(config, model="", limit=limit, format="text"))
+        elif choice == "5":
+            agent_id = _prompt_default("Agent ID", "agent-rule-baseline")
+            limit = _prompt_int("显示记忆案例数", 20)
+            cmd_agent_memory(
+                _interactive_args(config, agent_id=agent_id, limit=limit, similar_to="", outcome="", format="text")
+            )
+        else:
+            print("未知选项，请输入菜单编号、b 或 q。")
 
 
 def _cmd_interactive(args: argparse.Namespace) -> int:
@@ -539,61 +685,21 @@ def _cmd_interactive(args: argparse.Namespace) -> int:
             if choice == "0":
                 _run_interactive_quickstart(config)
             elif choice == "1":
-                _cmd_interactive_configure(_interactive_args(config))
+                if _interactive_config_wizard(config):
+                    print("已退出交互式工作流。")
+                    return 0
             elif choice == "2":
-                cmd_datasource_configure_jqdata(_interactive_args(config))
+                if _interactive_datasource_diagnostics(config):
+                    print("已退出交互式工作流。")
+                    return 0
             elif choice == "3":
-                cmd_datasource_configure_ifind(_interactive_args(config))
+                if _interactive_run_workflow(config):
+                    print("已退出交互式工作流。")
+                    return 0
             elif choice == "4":
-                print("\n[有效配置]")
-                _cmd_config(_interactive_args(config))
-                print("\n[Agent 状态]")
-                cmd_agent_status(_interactive_args(config, model="", agent_id="", limit=10, format="text"))
-                print("\n[数据源状态]")
-                cmd_datasource_status(_interactive_args(config, format="text"))
-            elif choice == "5":
-                stock_code = _prompt_default("测试股票代码", "600519")
-                days = _prompt_int("历史天数", 5)
-                checks = _prompt_default("检查项", "history,quote")
-                timeout_seconds = _prompt_float("单源超时秒数", 12.0)
-                cmd_datasource_test(
-                    _interactive_args(
-                        config,
-                        sources="",
-                        all=False,
-                        stock_code=stock_code,
-                        days=days,
-                        checks=checks,
-                        include_universe=False,
-                        timeout_seconds=timeout_seconds,
-                        format="text",
-                    )
-                )
-            elif choice == "6":
-                _run_interactive_sync_local(config)
-            elif choice == "7":
-                settings = load_settings(config)
-                cmd_agent_start(
-                    _make_agent_start_args(
-                        config,
-                        continuous=False,
-                        settings_max_count=int(settings.scheduler.max_count or 3),
-                        settings_days=int(settings.scheduler.history_days or 24),
-                    )
-                )
-            elif choice == "8":
-                settings = load_settings(config)
-                cmd_agent_start(
-                    _make_agent_start_args(
-                        config,
-                        continuous=True,
-                        settings_max_count=int(settings.scheduler.max_count or 3),
-                        settings_days=int(settings.scheduler.history_days or 24),
-                    )
-                )
-            elif choice == "9":
-                cmd_agent_learning_status(_interactive_args(config, format="text"))
-                cmd_agent_learning_suggestions(_interactive_args(config, format="text"))
+                if _interactive_learning_center(config):
+                    print("已退出交互式工作流。")
+                    return 0
             elif choice in {"h", "help", "?"}:
                 build_parser().print_help()
             else:
