@@ -300,8 +300,9 @@ class LocalMarketStore:
 
     def stats(self) -> dict[str, Any]:
         if not self.exists():
-            return {"path": str(self.path), "exists": False, "stocks": 0, "bars": 0, "quotes": 0, "financials": 0}
+            return {"path": str(self.path), "exists": False, "stocks": 0, "bars": 0, "quotes": 0, "financials": 0, "sync_runs": 0, "latest_sync_at": ""}
         with self._connect(readonly=True) as conn:
+            latest = conn.execute("SELECT created_at FROM sync_runs ORDER BY id DESC LIMIT 1").fetchone()
             return {
                 "path": str(self.path),
                 "exists": True,
@@ -310,7 +311,35 @@ class LocalMarketStore:
                 "quotes": int(conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0]),
                 "financials": int(conn.execute("SELECT COUNT(*) FROM financials").fetchone()[0]),
                 "sync_runs": int(conn.execute("SELECT COUNT(*) FROM sync_runs").fetchone()[0]),
+                "latest_sync_at": str(latest[0]) if latest else "",
             }
+
+    def recent_sync_runs(self, limit: int = 10) -> list[dict[str, Any]]:
+        """Return recent sync audit rows for CLI local-market status."""
+        if not self.exists():
+            return []
+        safe_limit = max(1, min(int(limit or 10), 50))
+        with self._connect(readonly=True) as conn:
+            rows = conn.execute(
+                """
+                SELECT source, operation, stock_code, status, detail, created_at
+                FROM sync_runs
+                ORDER BY id DESC
+                LIMIT ?
+                """,
+                (safe_limit,),
+            ).fetchall()
+        return [
+            {
+                "source": str(row[0]),
+                "operation": str(row[1]),
+                "stock_code": str(row[2] or ""),
+                "status": str(row[3]),
+                "detail": str(row[4] or ""),
+                "created_at": str(row[5]),
+            }
+            for row in rows
+        ]
 
     def _connect(self, readonly: bool = False) -> sqlite3.Connection:
         if readonly:

@@ -23,6 +23,9 @@
 - 本轮继续审计用户提出的“可观察性计划是否完成”：基础事件、缓存和数据源诊断已落地，但原先默认输出仍偏评分/结论；现在 `analysis_complete` 会默认输出公司/行情、K线 ASCII 图、技术指标、财务估值、舆情摘要、Agent 协作链和最终决策，`agent_chain_step` 也默认显示相关客观数据，不再只在 `--verbose` 下展示关键 K线。
 - 本轮 iFinD / 同花顺接入采用安全方式：`configure-ifind` 使用隐藏输入写入 Git 忽略的运行态配置；真实 access token / refresh token 不得写入命令、文档、提交或日志。官方资料显示 iFinD 同时有 SDK 函数（`THS_BD`/`THS_DS`/`THS_DR`/`THS_RQ`）与 HTTP 路线，当前代码优先走 HTTP provider 骨架，字段权限不足时降级到下一 provider。
 - 本轮新增 SQLite 本地市场数据仓库 `src/astock_agent_system/data/local_store.py`，默认写入 Git 忽略的 `data/market_local/market.sqlite`；新增 `datasource sync-local` 命令，可把真实 provider-chain 成功返回的股票池、K 线、报价和财务快照批量写入本地库；`DataAgent` 在线模式读取顺序升级为进程内缓存 -> SQLite 本地库 -> TTL 文件缓存 -> provider chain -> 离线样例兜底。
+- 本轮继续修复交互式 CLI UX：LLM 模型列表现在可输入编号选择，Provider profile / 同步模式 / provider 策略也使用编号选择；“本地数据同步”二级页的第二项改为 `datasource local-status`，直接展示 SQLite 库存量、最近同步时间和最近同步记录，不再误导为 generic 数据源状态。
+- 本轮继续补强运行看板：`agent start` 的运行完成摘要新增账户看板、当前持仓、最近交易、买/卖次数和本轮 PnL；连续运行默认交互间隔改为 15 分钟且会先立即执行第 1 轮，轮间等待改为倒计时提示，避免用户误以为长时间未启动。
+- 本轮继续修复 smart-search 与 iFinD 边界：`smart_search.enabled` 默认改为 true，`.env.example` 也默认启用；smart-search 调用失败时返回 `smart-search-error` 风险说明而不是“未启用”；iFinD 增加 `IFIND_BASE_URL`、常见 A 股代码格式归一化、矩阵成功准入和矩阵失败中文诊断。iWencai SkillHub 记录为研究/公告技能边界，不进入行情 provider chain，也不写入真实 key。
 - 已验证 `tests/test_data_agent.py` 18 passed；新增覆盖 `LocalMarketStore` roundtrip、`DataAgent` 本地优先读取、`datasource sync-local` 写库命令。Baostock `history/quote/financial` 对 `600519` 通过；yfinance `history/quote` 对 `600519` 通过且 `financial` 明确 skipped；JQData 未配置本地凭证时明确 skipped/missing credentials；AData 2.9.5 已安装但当前公开接口对 `600519` 返回空表，保留为手动参考源；AkShare 当前网络下仍可能 remote disconnect/timeout，但会按诊断返回并 cooldown，不再阻塞。
 
 ### 本轮新增的可复现实测

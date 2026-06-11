@@ -148,18 +148,27 @@ class IfindProvider:
 
 
 def _to_ifind_code(stock_code: str) -> str:
-    code = stock_code.strip()
+    code = stock_code.strip().upper()
+    if code.startswith(("SH", "SZ", "BJ")) and len(code) > 2:
+        prefix = code[:2]
+        digits = code[2:]
+        if digits.isdigit():
+            return f"{digits}.{prefix}"
     if "." in code:
         left, right = code.split(".", 1)
         suffix = right.upper()
+        if suffix == "SS":
+            suffix = "SH"
+        if suffix == "XSHE":
+            suffix = "SZ"
         if suffix in {"SH", "SZ", "BJ"}:
             return f"{left}.{suffix}"
         return code
     if code.startswith("6"):
         return f"{code}.SH"
-    if code.startswith(("0", "3")):
+    if code.startswith(("0", "2", "3")):
         return f"{code}.SZ"
-    if code.startswith("8"):
+    if code.startswith(("4", "8")):
         return f"{code}.BJ"
     return code
 

@@ -30,6 +30,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_ifind,
     cmd_datasource_configure_jqdata,
     cmd_datasource_configure_tushare,
+    cmd_datasource_local_status,
     cmd_datasource_status,
     cmd_datasource_sync_local,
     cmd_datasource_test,
@@ -59,6 +60,7 @@ def _cmd_config(args: argparse.Namespace) -> int:
             "has_jqdata_password": bool(settings.data.jqdata_password),
             "has_ifind_access_token": bool(settings.data.ifind_access_token),
             "has_ifind_refresh_token": bool(settings.data.ifind_refresh_token),
+            "ifind_base_url": settings.data.ifind_base_url,
         },
         "initial_capital": settings.portfolio.initial_capital,
         "risk": {
@@ -79,6 +81,10 @@ def _cmd_config(args: argparse.Namespace) -> int:
             "mongo_db": settings.storage.mongo_db,
             "mongo_timeout_ms": settings.storage.mongo_timeout_ms,
             "redis_url": settings.storage.redis_url,
+        },
+        "smart_search": {
+            "enabled": settings.smart_search.enabled,
+            "timeout_seconds": settings.smart_search.timeout_seconds,
         },
         "scheduler": {
             "enabled": settings.scheduler.enabled,
@@ -373,6 +379,33 @@ def _prompt_yes_no(label: str, default: bool = False) -> bool:
         print("请输入 y 或 n。")
 
 
+def _prompt_select(label: str, options: list[str], default: str = "", *, allow_manual: bool = False) -> str:
+    choices = [str(item).strip() for item in options if str(item).strip()]
+    if not choices:
+        return _prompt_default(label, default) if allow_manual else default
+    default_value = default if default in choices else choices[0]
+    default_index = choices.index(default_value) + 1
+    print(f"\n{label}:")
+    for index, item in enumerate(choices, 1):
+        marker = " *" if item == default_value else ""
+        print(f"  {index}) {item}{marker}")
+    manual_hint = "；输入 m 可手动填写" if allow_manual else ""
+    while True:
+        raw = input(f"请选择编号 [默认 {default_index}]{manual_hint}: ").strip().lower()
+        if not raw:
+            return default_value
+        if allow_manual and raw in {"m", "manual", "custom", "自定义", "手动"}:
+            return _prompt_default("手动输入值", default)
+        try:
+            index = int(raw)
+        except ValueError:
+            print("请输入列表编号，或直接回车使用默认值。")
+            continue
+        if 1 <= index <= len(choices):
+            return choices[index - 1]
+        print(f"编号超出范围，请输入 1-{len(choices)}。")
+
+
 def _interactive_args(config: str | None, **kwargs: object) -> argparse.Namespace:
     payload: dict[str, object] = {"config": config}
     payload.update(kwargs)
@@ -439,7 +472,12 @@ def _run_llm_self_check(settings: object, *, model: str, profile: str) -> dict[s
 def _cmd_interactive_llm_config(config: str | None) -> int:
     settings = load_settings(config)
     print("\nLLM 是主工作流的一等配置；API Key 使用隐藏输入，只有自检通过才写入本地忽略配置。")
-    profile = _prompt_default("请求协议/Provider 通道（openai/codex/anthropic/claude_code/auto）", settings.llm.request_profile or "auto")
+    profile = _prompt_select(
+        "请求协议/Provider 通道",
+        ["auto", "openai", "codex", "anthropic", "claude_code"],
+        settings.llm.request_profile or "auto",
+        allow_manual=True,
+    )
     base_url = _prompt_default("LLM Base URL", settings.llm.base_url or "")
     api_key = getpass.getpass("LLM API Key（隐藏输入，留空表示沿用当前配置）: ").strip()
     list_first = _prompt_yes_no("先拉取模型列表辅助选择吗", True)
@@ -447,16 +485,18 @@ def _cmd_interactive_llm_config(config: str | None) -> int:
     settings.llm.request_profile = profile
     settings.llm.base_url = base_url
     settings.llm.api_key = runtime_api_key
+    model_list: list[str] = []
     if list_first:
         models_payload = LLMClient(settings).list_models_safe()
-        model_list = models_payload.get("models", []) if isinstance(models_payload, dict) else []
+        model_list = [str(item) for item in models_payload.get("models", [])] if isinstance(models_payload, dict) else []
         if model_list:
-            print("\n可用模型（前 20 个）:")
-            for index, item in enumerate(model_list[:20], 1):
-                print(f"  {index}) {item}")
+            model_list = model_list[:50]
         else:
             print(f"\n模型列表不可用: {models_payload.get('reason', models_payload.get('status', 'unknown')) if isinstance(models_payload, dict) else 'unknown'}")
-    default_model = _prompt_default("默认模型", settings.llm.default_model or "")
+    if model_list:
+        default_model = _prompt_select("可用模型（输入编号即可，回车选择当前/第一个模型）", model_list, settings.llm.default_model or model_list[0], allow_manual=True)
+    else:
+        default_model = _prompt_default("默认模型", settings.llm.default_model or "")
     settings.llm.default_model = default_model
     self_check = _run_llm_self_check(settings, model=default_model, profile=profile)
     if self_check.get("status") == "error":
@@ -490,7 +530,8 @@ def _make_agent_start_args(
     interval_minutes = 60.0
     max_rounds = 0
     if continuous:
-        interval_minutes = _prompt_float("连续运行间隔分钟", 60.0)
+        print("\n连续运行会先立即执行第 1 轮，之后按下面间隔等待；可输入 1/5/15 做短周期验证。")
+        interval_minutes = _prompt_float("连续运行间隔分钟", 15.0)
         max_rounds = _prompt_int("最多运行轮数（0 表示直到 Ctrl+C）", 0)
     fresh_start = _prompt_yes_no("是否从初始资金重新开始（忽略已保存账户快照）", False)
     no_persist = _prompt_yes_no("是否跳过 MongoDB 持久化（调试时可选）", False)
@@ -565,13 +606,13 @@ def _run_interactive_agent(config: str | None, *, continuous: bool) -> int:
 def _run_interactive_sync_local(config: str | None) -> int:
     settings = load_settings(config)
     sources = _prompt_default("同步数据源（空/回车使用配置链）", ",".join(settings.data.provider_chain or []))
-    sync_mode = _prompt_default("同步模式 quick/full/incremental/specified", "incremental")
+    sync_mode = _prompt_select("同步模式", ["incremental", "quick", "specified", "full"], "incremental")
     stock_codes = _prompt_default("指定股票代码（逗号分隔，留空则先拉股票池）", "")
     default_max = 20 if sync_mode == "quick" else 0
     max_stocks = _prompt_int("最多同步股票数（0 表示按股票池全量；A股全市场约 3595 只）", default_max)
     days = _prompt_int("每只股票历史天数", 120)
     checks = _prompt_default("同步项", "universe,history,quote,financial")
-    provider_strategy = _prompt_default("Provider 策略 fill-gaps/all-providers", "fill-gaps")
+    provider_strategy = _prompt_select("Provider 策略", ["fill-gaps", "all-providers"], "fill-gaps")
     return cmd_datasource_sync_local(
         _interactive_args(
             config,
@@ -700,7 +741,7 @@ def _interactive_sync_center(config: str | None) -> bool:
             "本地数据同步",
             [
                 "1) 同步本地市场数据（SQLite，默认 fill-gaps 补齐策略）",
-                "2) 查看数据源状态",
+                "2) 查看本地市场数据状态（SQLite 库存量/最近同步）",
             ],
         )
         choice = input("本地数据同步> ").strip().lower()
@@ -711,7 +752,7 @@ def _interactive_sync_center(config: str | None) -> bool:
         if choice == "1":
             _run_interactive_sync_local(config)
         elif choice == "2":
-            cmd_datasource_status(_interactive_args(config, format="text"))
+            cmd_datasource_local_status(_interactive_args(config, db_path="", format="text"))
         else:
             print("未知选项，请输入菜单编号、b 或 q。")
 
@@ -1089,6 +1130,18 @@ def build_parser() -> argparse.ArgumentParser:
         help="Comma-separated stock codes; when omitted, sync-local first pulls provider universe",
     )
     datasource_sync_parser.add_argument("--max-stocks", type=int, default=20, help="Maximum stocks to sync in one batch")
+    datasource_sync_parser.add_argument(
+        "--sync-mode",
+        choices=("quick", "full", "incremental", "specified"),
+        default="incremental",
+        help="Sync scope preset; specified is implied when --stock-codes is provided",
+    )
+    datasource_sync_parser.add_argument(
+        "--provider-strategy",
+        choices=("fill-gaps", "all-providers"),
+        default="fill-gaps",
+        help="fill-gaps stops after the first successful provider; all-providers records every provider's participation",
+    )
     datasource_sync_parser.add_argument("--days", type=int, default=120, help="History days to store for each stock")
     datasource_sync_parser.add_argument(
         "--checks",
@@ -1102,6 +1155,18 @@ def build_parser() -> argparse.ArgumentParser:
     )
     datasource_sync_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_sync_parser.set_defaults(func=cmd_datasource_sync_local)
+
+    datasource_local_status_parser = datasource_subparsers.add_parser(
+        "local-status",
+        help="Show local SQLite market database inventory and recent sync runs",
+    )
+    datasource_local_status_parser.add_argument(
+        "--db-path",
+        default="",
+        help="Optional SQLite path; default is data/market_local/market.sqlite and is ignored by Git",
+    )
+    datasource_local_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_local_status_parser.set_defaults(func=cmd_datasource_local_status)
 
     datasource_jqdata_parser = datasource_subparsers.add_parser(
         "configure-jqdata",

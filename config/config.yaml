@@ -6,6 +6,7 @@ data:
     - tushare
     - baostock
     - akshare
+  ifind_base_url: https://quantapi.51ifind.com/api/v1
 
 portfolio:
   initial_capital: 100000
@@ -36,7 +37,7 @@ storage:
   redis_url: redis://localhost:6379/0
 
 smart_search:
-  enabled: false
+  enabled: true
   timeout_seconds: 60
 
 scheduler:
@@ -48,5 +49,4 @@ scheduler:
   max_count: 3
   history_days: 24
   output_dir: reports
-  models:
-    - rule-baseline
+  models: []

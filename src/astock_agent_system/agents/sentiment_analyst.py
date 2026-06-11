@@ -55,6 +55,17 @@ class SentimentAnalyst:
 
         query = f"{stock_name or stock_code} {stock_code} A股 最新新闻 舆情 风险"
         search_payload = self._run_smart_search(query)
+        search_error = str(search_payload.get("error", "")).strip()
+        if search_error:
+            return AnalysisResult(
+                agent_name="SentimentAnalyst",
+                stock_code=stock_code,
+                score=0.50,
+                label="中性",
+                reasons=["smart-search 已默认启用，但本次请求失败，临时使用中性舆情"],
+                risks=[f"smart-search 错误：{search_error[:160]}", "舆情数据缺失，需人工复核"],
+                metadata={"source": "smart-search-error", "query": query, "error": search_error[:500]},
+            )
         text = _summarize_search_payload(search_payload)
         if not text:
             return AnalysisResult(

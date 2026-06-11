@@ -241,7 +241,7 @@ def cmd_agent_start(args: Any) -> int:
                 renderer.print_info("连续运行", f"已完成 --max-rounds={max_rounds}，自动停止。")
                 break
             renderer.print_info("连续运行", f"第 {round_index} 轮完成，等待 {interval_seconds / 60:.1f} 分钟后进入下一轮。")
-            time.sleep(interval_seconds)
+            _sleep_with_countdown(renderer, interval_seconds)
     except KeyboardInterrupt:
         emitter.emit("run_error", message="收到 Ctrl+C，当前前台运行已停止")
         run_log.write_summary(last_payload)
@@ -365,6 +365,26 @@ def cmd_datasource_status(args: Any) -> int:
     return 0
 
 
+def cmd_datasource_local_status(args: Any) -> int:
+    """Show SQLite local market database status and recent sync history."""
+    settings = load_settings(args.config)
+    db_path = str(getattr(args, "db_path", "") or "")
+    store = LocalMarketStore(path=db_path or DEFAULT_LOCAL_MARKET_DB)
+    stats = store.stats()
+    payload: dict[str, Any] = {
+        "status": "ok",
+        "db_path": str(store.path),
+        "local_stats": stats,
+        "recent_sync_runs": store.recent_sync_runs(10),
+        "provider_chain": list(settings.data.provider_chain or []),
+    }
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().render_local_market_status(payload)
+    return 0
+
+
 def cmd_datasource_test(args: Any) -> int:
     """Smoke-test configured data providers without exposing credentials."""
     settings = load_settings(args.config)
@@ -388,13 +408,16 @@ def cmd_datasource_test(args: Any) -> int:
             timeout_seconds=timeout_seconds,
         )
         if source == "ifind" and item.get("status") != "skipped":
-            item["matrix"] = _test_ifind_matrix(
+            matrix = _test_ifind_matrix(
                 settings,
                 stock_code=getattr(args, "stock_code", "600519"),
                 days=int(getattr(args, "days", 5)),
                 checks=checks,
                 timeout_seconds=max(3.0, min(timeout_seconds, 8.0)),
             )
+            item["matrix"] = matrix
+            if not _ifind_matrix_has_success(matrix):
+                item["diagnosis"] = _ifind_failure_diagnosis(item, matrix)
         items.append(item)
     payload = {
         "status": "ok",
@@ -574,13 +597,15 @@ def cmd_datasource_configure_ifind(args: Any) -> int:
     scoped.data.provider_chain = ["ifind"]
     preflight = _test_one_datasource(scoped, source="ifind", stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=12.0)
     matrix = _test_ifind_matrix(scoped, stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=6.0)
-    if preflight.get("status") != "ok":
+    matrix_ok = _ifind_matrix_has_success(matrix)
+    if preflight.get("status") != "ok" and not matrix_ok:
         payload = {
             "status": "error",
             "message": "iFinD 自检失败，已拒绝写入本地配置",
             "provider": "ifind",
             "checks": preflight.get("checks", []),
             "matrix": matrix,
+            "diagnosis": _ifind_failure_diagnosis(preflight, matrix),
             "error": _compact_error(preflight.get("message", "iFinD preflight failed")),
         }
         print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
@@ -606,7 +631,7 @@ def cmd_datasource_configure_ifind(args: Any) -> int:
         "provider_chain": normalized_chain,
         "has_ifind_access_token": True,
         "has_ifind_refresh_token": bool(refresh_token),
-        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", []), "matrix": matrix},
+        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", []), "matrix": matrix, "matrix_ok": matrix_ok},
     }
     print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
     return 0
@@ -840,6 +865,7 @@ class RichEventRenderer:
         provider_rows = []
         check_rows = []
         matrix_rows = []
+        diagnosis_lines = []
         for item in items:
             if not isinstance(item, dict):
                 continue
@@ -875,12 +901,17 @@ class RichEventRenderer:
                             matrix_item.get("detail", matrix_item.get("message", "")),
                         ]
                     )
+            diagnosis = item.get("diagnosis", [])
+            if isinstance(diagnosis, list):
+                diagnosis_lines.extend(str(entry) for entry in diagnosis if str(entry).strip())
         lines.append("Provider 总览")
         lines.append(_format_table(["数据源", "状态", "错误码", "中文原因/结果"], provider_rows, max_width=30))
         if check_rows:
             lines.extend(["", "检查项明细", _format_table(["数据源", "检查项", "状态", "错误码", "结果"], check_rows, max_width=28)])
         if matrix_rows:
             lines.extend(["", "iFinD 多格式矩阵", _format_table(["股票", "格式", "检查项", "状态", "结果"], matrix_rows, max_width=26)])
+        if diagnosis_lines:
+            lines.extend(["", "iFinD 诊断结论", *[f"- {entry}" for entry in diagnosis_lines[:4]]])
         self.print_info("数据源 smoke 测试", "\n".join(lines).strip())
 
     def render_sync_local(self, payload: dict[str, Any]) -> None:
@@ -946,6 +977,51 @@ class RichEventRenderer:
             )
         self.print_info("本地市场数据同步", "\n".join(lines).strip())
 
+    def render_local_market_status(self, payload: dict[str, Any]) -> None:
+        stats = payload.get("local_stats", {}) if isinstance(payload.get("local_stats"), dict) else {}
+        recent = payload.get("recent_sync_runs", []) if isinstance(payload.get("recent_sync_runs"), list) else []
+        lines = [
+            f"本地库: {payload.get('db_path', stats.get('path', ''))}",
+            f"是否存在: {'是' if stats.get('exists') else '否'}",
+            f"最近同步: {stats.get('latest_sync_at', '') or '(暂无同步记录)'}",
+            f"Provider 链: {', '.join(payload.get('provider_chain', []) or [])}",
+            "",
+            "库存统计",
+            _format_table(
+                ["项目", "数量"],
+                [
+                    ["股票", stats.get("stocks", 0)],
+                    ["K线", stats.get("bars", 0)],
+                    ["行情", stats.get("quotes", 0)],
+                    ["财务", stats.get("financials", 0)],
+                    ["同步记录", stats.get("sync_runs", 0)],
+                ],
+            ),
+        ]
+        if recent:
+            lines.extend(["", "最近同步记录（最多 10 条）"])
+            lines.append(
+                _format_table(
+                    ["时间", "Provider", "操作", "股票", "状态", "说明"],
+                    [
+                        [
+                            item.get("created_at", ""),
+                            item.get("source", ""),
+                            item.get("operation", ""),
+                            item.get("stock_code", ""),
+                            item.get("status", ""),
+                            _compact_error(item.get("detail", "")).get("reason", item.get("detail", "")) if item.get("status") == "error" else item.get("detail", ""),
+                        ]
+                        for item in recent
+                        if isinstance(item, dict)
+                    ],
+                    max_width=24,
+                )
+            )
+        else:
+            lines.append("\n最近同步记录: 暂无；请先执行本页面的同步功能。")
+        self.print_info("本地市场数据状态", "\n".join(lines).strip())
+
     def render_result_summary(self, payload: dict[str, Any]) -> None:
         agents = payload.get("agents", []) if isinstance(payload.get("agents"), list) else []
         rankings = payload.get("rankings", []) if isinstance(payload.get("rankings"), list) else []
@@ -960,6 +1036,67 @@ class RichEventRenderer:
                     ret = item.get("total_return", item.get("return", 0.0))
                     rows.append([item.get("rank", ""), model, _percent(ret), _float_text(item.get("cash", "")), _float_text(item.get("equity", ""))])
             lines.append(_format_table(["排名", "模型", "收益", "现金", "权益"], rows, max_width=28))
+        if agents:
+            account_rows = []
+            position_rows = []
+            trade_rows = []
+            for agent in agents:
+                if not isinstance(agent, dict):
+                    continue
+                model = agent.get("llm_model", agent.get("model", ""))
+                positions = agent.get("positions", []) if isinstance(agent.get("positions"), list) else []
+                trades = agent.get("trades", []) if isinstance(agent.get("trades"), list) else []
+                account_rows.append(
+                    [
+                        model,
+                        _float_text(agent.get("equity", "")),
+                        _float_text(agent.get("cash", "")),
+                        _percent(agent.get("total_return", 0.0)),
+                        _float_text(agent.get("daily_pnl", 0.0)),
+                        len(positions),
+                        f"{agent.get('buy_count', 0)}/{agent.get('sell_count', 0)}",
+                        agent.get("total_trades", len(trades)),
+                    ]
+                )
+                for position in positions[:8]:
+                    if not isinstance(position, dict):
+                        continue
+                    position_rows.append(
+                        [
+                            model,
+                            position.get("stock_code", ""),
+                            position.get("shares", ""),
+                            _float_text(position.get("current_price", "")),
+                            _float_text(position.get("market_value", "")),
+                            _percent(position.get("unrealized_return", 0.0)),
+                        ]
+                    )
+                for trade in trades[-8:]:
+                    if not isinstance(trade, dict):
+                        continue
+                    trade_rows.append(
+                        [
+                            model,
+                            trade.get("date", ""),
+                            trade.get("stock_code", ""),
+                            trade.get("side", ""),
+                            _float_text(trade.get("price", "")),
+                            trade.get("shares", ""),
+                            _float_text(trade.get("realized_pnl", 0.0)),
+                        ]
+                    )
+            lines.extend(["", "账户看板:"])
+            lines.append(_format_table(["模型", "权益", "现金", "收益", "本轮PnL", "持仓", "买/卖", "成交"], account_rows, max_width=24))
+            lines.extend(["", "当前持仓:"])
+            if position_rows:
+                lines.append(_format_table(["模型", "股票", "股数", "现价", "市值", "浮盈%"], position_rows, max_width=22))
+            else:
+                lines.append("空仓：本轮没有可展示持仓。")
+            lines.extend(["", "最近交易:"])
+            if trade_rows:
+                lines.append(_format_table(["模型", "日期", "股票", "方向", "价格", "股数", "已实现PnL"], trade_rows, max_width=20))
+            else:
+                lines.append("无成交：本轮没有买入/卖出记录。")
         insights = _benchmark_insights(payload)
         if insights:
             lines.append("")
@@ -1589,6 +1726,27 @@ def _test_ifind_matrix(
     return rows
 
 
+def _ifind_matrix_has_success(matrix: list[dict[str, Any]]) -> bool:
+    return any(isinstance(item, dict) and item.get("status") == "ok" for item in matrix)
+
+
+def _ifind_failure_diagnosis(preflight: dict[str, Any], matrix: list[dict[str, Any]]) -> list[str]:
+    """Summarize iFinD matrix failures without exposing token values."""
+    details = " ".join(str(item.get("detail", "")) for item in matrix if isinstance(item, dict)).lower()
+    details = f"{details} {preflight.get('message', '')}".lower()
+    if "401" in details or "403" in details or "unauthorized" in details or "forbidden" in details or "权限" in details or "鉴权" in details:
+        return ["多股票/多格式均失败，且错误指向鉴权或权限；请核对 access_token、账号 QuantAPI 权限和接口额度。"]
+    if "timeout" in details or "timed out" in details or "超时" in details:
+        return ["多股票/多格式请求超时；请检查 iFinD QuantAPI 网络可达性或调大 timeout 后重试。"]
+    empty_count = sum(1 for item in matrix if isinstance(item, dict) and item.get("status") == "empty")
+    error_count = sum(1 for item in matrix if isinstance(item, dict) and item.get("status") == "error")
+    if empty_count and empty_count >= max(1, len(matrix) // 2):
+        return ["矩阵多数为空返回；更像是指标权限/接口口径问题，不像单只股票代码格式问题。"]
+    if error_count:
+        return ["矩阵已覆盖 600519/000001/600036 与 SH/SZ 前后缀格式；若全部报错，优先排查 base URL、token 权限或账号服务开通状态。"]
+    return ["iFinD 自检未通过；请查看 matrix 每行的 symbol/status/detail 区分格式、空返回和权限问题。"]
+
+
 def _sync_one_operation_with_strategy(
     settings: Any,
     agent: DataAgent,
@@ -1719,6 +1877,21 @@ class _DatasourceSmokeNoopCache:
 
     def set_financial(self, stock_code: str, snapshot: Any) -> None:
         return None
+
+
+def _sleep_with_countdown(renderer: RichEventRenderer, interval_seconds: float) -> None:
+    """Sleep between continuous rounds while keeping a visible countdown."""
+    remaining = max(0, int(interval_seconds))
+    if remaining <= 0:
+        return
+    next_notice = remaining
+    while remaining > 0:
+        if remaining == next_notice or remaining <= 10:
+            renderer.print_info("连续运行倒计时", f"距离下一轮还有 {remaining} 秒；按 Ctrl+C 可停止。")
+            next_notice = max(10, remaining // 2)
+        sleep_for = min(10, remaining)
+        time.sleep(sleep_for)
+        remaining -= sleep_for
 
 
 def _run_with_timeout(func: Any, *, timeout_seconds: float, label: str = "operation") -> Any:

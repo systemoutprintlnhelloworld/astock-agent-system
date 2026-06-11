@@ -113,3 +113,56 @@ def test_renderer_shows_decision_requested_evidence_blocks(capsys) -> None:  # n
     assert "公司与行情" in output
     assert "财务与估值" in output
     assert "Agent 分数" in output
+
+
+def test_renderer_result_summary_shows_account_positions_and_trades(capsys) -> None:  # noqa: ANN001
+    payload = {
+        "status": "ok",
+        "run_date": "2026-06-11",
+        "rankings": [{"rank": 1, "llm_model": "gpt-demo", "total_return": 0.0123, "cash": 90000, "equity": 101230}],
+        "agents": [
+            {
+                "llm_model": "gpt-demo",
+                "equity": 101230,
+                "cash": 90000,
+                "total_return": 0.0123,
+                "daily_pnl": 1230,
+                "buy_count": 1,
+                "sell_count": 0,
+                "total_trades": 1,
+                "positions": [
+                    {"stock_code": "600036", "shares": 200, "current_price": 44.2, "market_value": 8840, "unrealized_return": 0.03}
+                ],
+                "trades": [
+                    {"date": "2026-06-11", "stock_code": "600036", "side": "BUY", "price": 44.2, "shares": 200, "realized_pnl": 0}
+                ],
+            }
+        ],
+    }
+
+    _plain_renderer().render_result_summary(payload)
+
+    output = capsys.readouterr().out
+    assert "账户看板" in output
+    assert "当前持仓" in output
+    assert "最近交易" in output
+    assert "600036" in output
+
+
+def test_renderer_local_market_status_shows_inventory(capsys) -> None:  # noqa: ANN001
+    payload = {
+        "db_path": "data/market_local/market.sqlite",
+        "provider_chain": ["tushare", "baostock"],
+        "local_stats": {"exists": True, "stocks": 3, "bars": 120, "quotes": 3, "financials": 2, "sync_runs": 4, "latest_sync_at": "2026-06-11 10:00:00"},
+        "recent_sync_runs": [
+            {"created_at": "2026-06-11 10:00:00", "source": "tushare", "operation": "history", "stock_code": "600036", "status": "ok", "detail": "120 bars"}
+        ],
+    }
+
+    _plain_renderer().render_local_market_status(payload)
+
+    output = capsys.readouterr().out
+    assert "本地市场数据状态" in output
+    assert "库存统计" in output
+    assert "最近同步记录" in output
+    assert "tushare" in output

@@ -645,6 +645,7 @@ class DataAgent:
             return provider_class(
                 access_token=self.settings.data.ifind_access_token,
                 refresh_token=self.settings.data.ifind_refresh_token,
+                base_url=getattr(self.settings.data, "ifind_base_url", "https://quantapi.51ifind.com/api/v1"),
             )
         return provider_class()
 

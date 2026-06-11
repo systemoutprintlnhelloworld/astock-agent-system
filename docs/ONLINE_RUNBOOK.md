@@ -12,10 +12,10 @@ python -m astock_agent_system.cli
 
 不带子命令时会进入 `AStock 交互式工作流控制台`。顶层菜单按“先配 LLM、再配数据源、再同步本地库、再运行智能体”的日常路径拆分，降低长命令心智负担：
 
-- **LLM 配置与诊断**：选择 OpenAI-compatible / Anthropic 等请求协议，输入 Base URL 和隐藏 API Key，拉取模型列表，选择默认模型，并用“请解释 A 股是什么”的短问答完成自检；自检失败时拒绝写入本地运行态配置。
-- **数据源配置与诊断**：查看 provider chain 状态；配置 Tushare、JQData、iFinD / 同花顺 QuantAPI 等凭证时先做真实自检，通过后才保存到 Git 忽略的本地运行态配置；iFinD 会额外做多股票/多代码格式矩阵诊断，帮助区分格式、空返回和权限问题。
-- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况。
-- **运行工作流**：启动一次 LLM 智能体工作流，或进入连续运行模式直到 `Ctrl+C` / 达到最大轮数；运行事件会写入脱敏 JSONL 日志和摘要，便于排查“实时数据来自哪里、哪个步骤失败”。
+- **LLM 配置与诊断**：选择 OpenAI-compatible / Anthropic 等请求协议，输入 Base URL 和隐藏 API Key，拉取模型列表后可直接输入编号选择默认模型（回车使用当前/第一个模型，也可手动填写），并用“请解释 A 股是什么”的短问答完成自检；自检失败时拒绝写入本地运行态配置。
+- **数据源配置与诊断**：查看 provider chain 状态；配置 Tushare、JQData、iFinD / 同花顺 QuantAPI 等凭证时先做真实自检，通过后才保存到 Git 忽略的本地运行态配置；iFinD 会额外做多股票/多代码格式矩阵诊断，矩阵全失败时输出“鉴权/权限、超时、空返回、base URL/格式”方向的中文诊断。
+- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况；二级页的“查看本地市场数据状态”会展示 SQLite 库存量、最近同步时间和最近 10 条同步记录。
+- **运行工作流**：启动一次 LLM 智能体工作流，或进入连续运行模式直到 `Ctrl+C` / 达到最大轮数；连续运行会先立即执行第 1 轮，之后按交互式配置的间隔倒计时等待；运行结束摘要会展示账户看板、持仓、最近交易和本轮 PnL，并写入脱敏 JSONL 日志和摘要。
 - **学习中心**：查看持续学习状态和建议，触发学习分析，浏览经验历史和 Agent 记忆案例。
 - **运行日志 / 历史回放**：查看最近运行摘要、事件数量、错误数量和完整 JSONL 日志路径。
 
@@ -57,6 +57,9 @@ TUSHARE_TOKEN=your-tushare-token
 ALPHA_VANTAGE_API_KEY=
 JQDATA_USERNAME=
 JQDATA_PASSWORD=
+IFIND_ACCESS_TOKEN=
+IFIND_REFRESH_TOKEN=
+IFIND_BASE_URL=https://quantapi.51ifind.com/api/v1
 
 LLM_BASE_URL=https://your-gateway.example/v1
 LLM_API_KEY=your-api-key
@@ -70,6 +73,9 @@ MONGO_URI=mongodb://localhost:27017
 MONGO_DB=astock_agent_system
 MONGO_TIMEOUT_MS=3000
 REDIS_URL=redis://localhost:6379/0
+
+SMART_SEARCH_ENABLED=true
+SMART_SEARCH_TIMEOUT_SECONDS=60
 
 SCHEDULER_MODELS=gpt-5.5
 SCHEDULER_DAILY_RUN_TIME=15:05

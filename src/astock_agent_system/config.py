@@ -30,6 +30,7 @@ RUNTIME_ENV_FIELD_MAP = {
     ("data", "jqdata_password"): "JQDATA_PASSWORD",
     ("data", "ifind_access_token"): "IFIND_ACCESS_TOKEN",
     ("data", "ifind_refresh_token"): "IFIND_REFRESH_TOKEN",
+    ("data", "ifind_base_url"): "IFIND_BASE_URL",
     ("portfolio", "initial_capital"): "INITIAL_CAPITAL",
     ("risk", "max_position_per_stock"): "MAX_POSITION_PER_STOCK",
     ("risk", "max_total_position"): "MAX_TOTAL_POSITION",
@@ -201,6 +202,7 @@ class DataSettings:
     jqdata_password: str = ""
     ifind_access_token: str = ""
     ifind_refresh_token: str = ""
+    ifind_base_url: str = "https://quantapi.51ifind.com/api/v1"
 
 
 @dataclass(slots=True)
@@ -255,7 +257,7 @@ class StorageSettings:
 
 @dataclass(slots=True)
 class SmartSearchSettings:
-    enabled: bool = False
+    enabled: bool = True
     timeout_seconds: int = 60
 
 
@@ -314,6 +316,7 @@ def load_settings(config_path: str | None = None) -> Settings:
         jqdata_password=_env_or_default("JQDATA_PASSWORD", str(data_raw.get("jqdata_password", ""))),
         ifind_access_token=_env_or_default("IFIND_ACCESS_TOKEN", str(data_raw.get("ifind_access_token", ""))),
         ifind_refresh_token=_env_or_default("IFIND_REFRESH_TOKEN", str(data_raw.get("ifind_refresh_token", ""))),
+        ifind_base_url=_env_or_default("IFIND_BASE_URL", str(data_raw.get("ifind_base_url", "https://quantapi.51ifind.com/api/v1"))).rstrip("/"),
     )
     portfolio = PortfolioSettings(
         initial_capital=_to_float(_env_or_default("INITIAL_CAPITAL"), float(portfolio_raw.get("initial_capital", 100000))),
@@ -356,7 +359,7 @@ def load_settings(config_path: str | None = None) -> Settings:
         redis_url=_env_or_default("REDIS_URL", str(storage_raw.get("redis_url", "redis://localhost:6379/0"))),
     )
     smart_search = SmartSearchSettings(
-        enabled=_to_bool(_env_or_default("SMART_SEARCH_ENABLED"), bool(smart_raw.get("enabled", False))),
+        enabled=_to_bool(_env_or_default("SMART_SEARCH_ENABLED"), bool(smart_raw.get("enabled", True))),
         timeout_seconds=_to_int(_env_or_default("SMART_SEARCH_TIMEOUT_SECONDS"), int(smart_raw.get("timeout_seconds", 60))),
     )
     scheduler = SchedulerSettings(

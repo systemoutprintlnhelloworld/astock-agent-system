@@ -41,7 +41,7 @@ ALPHA_VANTAGE_API_KEY=your-alpha-vantage-key
 | yfinance | 否 | 历史K线、报价 | 无 | 适合海外/港股或 Yahoo 映射代码参考；A 股覆盖不稳定。 |
 | Alpha Vantage | 否 | 历史K线、报价 | `ALPHA_VANTAGE_API_KEY` | 全球参考源，免费额度和 A 股覆盖有限；A 股后缀映射仅 best-effort，失败会继续降级。 |
 | JQData / 聚宽 | 否 | 股票池、历史K线、报价、保守财务占位 | `JQDATA_USERNAME` / `JQDATA_PASSWORD` | 需要用户本地授权账号。 |
-| iFinD / 同花顺 QuantAPI | 否 | 历史K线、报价 | `IFIND_ACCESS_TOKEN` | 推荐通过 `datasource configure-ifind` 隐藏输入保存；HTTP 路线当前优先覆盖 history/quote，权限不足时继续降级。 |
+| iFinD / 同花顺 QuantAPI | 否 | 历史K线、报价 | `IFIND_ACCESS_TOKEN` / `IFIND_BASE_URL` | 推荐通过 `datasource configure-ifind` 隐藏输入保存；HTTP 路线当前优先覆盖 history/quote，权限不足时继续降级。 |
 | AAStock | 否 | 港股新闻参考 | 无 | 当前不做未授权网页抓取，不直接适配 A 股行情模型。 |
 | 同花顺 Skill | 否 | 人工研究流程 / 合规插件候选 | 无 | 当前不做未授权抓取，也不接入真实交易。 |
 
@@ -67,7 +67,10 @@ data/market_local/market.sqlite
 
 ```powershell
 python -m astock_agent_system.cli datasource sync-local --sources tushare,baostock,akshare --max-stocks 200 --days 365 --checks universe,history,quote,financial --format json
+python -m astock_agent_system.cli datasource local-status --format text
 ```
+
+交互式 CLI 的“本地数据同步”二级页也提供“查看本地市场数据状态”，会展示 SQLite 库存量、最近同步时间和最近同步记录。`sync-local` 支持 `--provider-strategy fill-gaps|all-providers`：前者用于日常补齐，后者用于确认每个 provider 是否真实参与。
 
 安全边界：
 
@@ -83,6 +86,7 @@ python -m astock_agent_system.cli datasource sync-local --sources tushare,baosto
 - `datasource status` 也会显示 `dependency_installed`，帮助区分“未安装”“缺凭证”和“外部服务空返回”。
 - 任一 provider 初始化、限流、字段变化或网络失败时，`DataAgent` 继续尝试下一个 provider。
 - 在线 provider 的 `universe/history/financial/quote` 调用受 `DATA_PROVIDER_TIMEOUT_SECONDS` 硬超时保护，默认 15 秒；超时后会记录 error、进入本轮 cooldown，并继续降级，避免 CLI 或后端长时间卡住。
+- iFinD / 同花顺 QuantAPI 可通过 `IFIND_BASE_URL` 覆盖 HTTP base URL，默认 `https://quantapi.51ifind.com/api/v1`。诊断会尝试 `600519`、`000001`、`600036` 以及 `600519.SH`、`SH600519`、`600519.SS` 等常见格式；若矩阵全失败，优先按中文诊断排查 token 权限、接口开通、base URL 和网络超时，而不是只怀疑单只股票代码不存在。
 - Baostock 登录时第三方库可能打印 `login success!`；适配器已捕获 stdout，避免污染 `datasource test --format json` 输出。
 - AkShare 依赖公开网页源，可能出现 empty、远端断连或超时；这些会作为诊断结果返回，不代表离线 fallback 成功就是 AkShare 成功。
 - AData 2.9.5 在当前环境下可安装，但 `stock.market.get_market()` / `list_market_current()` 仍可能返回空表；如需要更稳定的可选源，可先把它视为参考源，再根据本机网络条件或代理进行调整。
@@ -126,6 +130,7 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 
 ```powershell
 python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json
+python -m astock_agent_system.cli datasource test --sources ifind --stock-code 600519 --days 5 --checks history,quote --timeout-seconds 12 --format text
 ```
 
 `datasource test` 的结果只按目标 provider 本身的尝试判断成功与否；即使离线样例兜底拿到了数据，也不会把该 provider 误标为 `ok`。
@@ -137,3 +142,15 @@ python -m astock_agent_system.cli datasource test --sources baostock,akshare --s
 - `attempts`：本进程最近的 provider 尝试记录。
 
 这些信息可直接供 GUI/TUI 展示，帮助判断某轮分析实际用了哪个数据源。
+
+## 8. 同花顺 iWencai / SkillHub 边界
+
+用户若本机已有 iWencai SkillHub，可按官方方式安装 `announcement-search` 等技能，并把 `IWENCAI_BASE_URL`、`IWENCAI_API_KEY` 放在本地 shell profile 或工具自身配置中。仓库内只记录占位符和使用边界：
+
+```powershell
+# 示例占位，不要提交真实 key
+$env:IWENCAI_BASE_URL="https://openapi.iwencai.com"
+$env:IWENCAI_API_KEY="your-iwencai-api-key"
+```
+
+当前 `ths_skill` 在 provider catalog 中仍是“人工研究流程 / 合规插件候选”，不进入行情 provider chain，也不替代 iFinD QuantAPI 的 `history/quote` HTTP 适配器。后续若要把 SkillHub 结果写入新闻/公告库，应新增独立 adapter、脱敏诊断和运行时配置，不把真实 API key 写入代码、文档或提交。

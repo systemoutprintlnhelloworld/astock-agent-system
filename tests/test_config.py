@@ -18,6 +18,9 @@ ISOLATED_ENV_KEYS = (
     "ALPHA_VANTAGE_API_KEY",
     "JQDATA_USERNAME",
     "JQDATA_PASSWORD",
+    "IFIND_ACCESS_TOKEN",
+    "IFIND_REFRESH_TOKEN",
+    "IFIND_BASE_URL",
     "INITIAL_CAPITAL",
     "MAX_POSITION_PER_STOCK",
     "MAX_TOTAL_POSITION",
@@ -58,6 +61,25 @@ def test_load_settings_defaults_are_offline_and_non_secret(monkeypatch, tmp_path
     assert settings.risk.max_position_per_stock <= settings.risk.max_total_position
     assert settings.llm.api_key == ""
     assert settings.smart_search.enabled is False
+
+
+def test_smart_search_defaults_to_enabled_when_not_overridden(monkeypatch, tmp_path):
+    isolate_runtime_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("LLM_API_KEY", "")
+    monkeypatch.setenv("SMART_SEARCH_ENABLED", "")
+
+    settings = load_settings()
+
+    assert settings.smart_search.enabled is True
+
+
+def test_ifind_base_url_can_be_overridden(monkeypatch, tmp_path):
+    isolate_runtime_config(monkeypatch, tmp_path)
+    monkeypatch.setenv("IFIND_BASE_URL", "https://example.test/quantapi")
+
+    settings = load_settings()
+
+    assert settings.data.ifind_base_url == "https://example.test/quantapi"
 
 
 def test_environment_overrides_non_secret_values(monkeypatch, tmp_path):

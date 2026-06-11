@@ -50,3 +50,29 @@ def test_cli_interactive_agent_run_uses_default_online_model(monkeypatch) -> Non
     assert agent_args.continuous is False
     assert agent_args.timeout_seconds == 1.0
     assert agent_args.no_persist is True
+
+
+def test_prompt_select_accepts_numbered_choice(monkeypatch) -> None:  # noqa: ANN001
+    inputs = iter(["2"])
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+
+    assert cli._prompt_select("模型", ["model-a", "model-b"], "model-a") == "model-b"  # noqa: SLF001
+
+
+def test_cli_sync_center_shows_local_market_status(monkeypatch) -> None:  # noqa: ANN001
+    inputs = iter([
+        "3",  # enter local sync submenu
+        "2",  # show local market status, not generic datasource status
+        "b",  # back to main menu
+        "q",  # quit
+    ])
+    captured_args = []
+
+    monkeypatch.setattr("builtins.input", lambda prompt="": next(inputs))
+    monkeypatch.setattr(cli, "cmd_datasource_local_status", lambda args: captured_args.append(args) or 0)
+
+    exit_code = cli.main([])
+
+    assert exit_code == 0
+    assert len(captured_args) == 1
+    assert captured_args[0].format == "text"

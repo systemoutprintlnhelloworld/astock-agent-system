@@ -33,6 +33,9 @@
 - CLI 客观数据与本地同步：`agent start` 默认展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；运行事件会写入 Git 忽略的脱敏 JSONL 日志和摘要；`datasource sync-local` 支持 `fill-gaps` / `all-providers` 参与情况观察，用于先批量同步本地数据再运行 Agent。
 - CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台；顶层拆成“LLM 配置与诊断 / 数据源配置与诊断 / 本地数据同步 / 运行工作流 / 学习中心 / 运行日志”页面，并保留快速向导，默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
 - 数据源凭证准入：Tushare、JQData、iFinD / 同花顺 QuantAPI 的隐藏输入配置现在先做真实自检，失败时拒绝写入本地运行态配置；iFinD 会额外输出多股票/多代码格式矩阵诊断，帮助判断是代码格式、空返回还是账号权限问题。
+- CLI UX 继续收敛：LLM 模型列表支持编号选择；本地同步页的第二项改为 SQLite 本地市场库状态；`datasource local-status` 可查看库存量、最近同步时间和最近同步记录；连续运行会先立即启动第 1 轮并显示倒计时。
+- 运行结束看板补强：`agent start` 摘要新增账户看板、当前持仓、最近交易、买/卖次数和本轮 PnL，避免一轮跑完后只看到收益排行。
+- smart-search 现在默认启用；若 CLI 请求失败会显示 `smart-search-error` 风险提示，而不是继续误导为“未启用”。iFinD 新增 `IFIND_BASE_URL` 配置、常见代码格式归一化和矩阵失败诊断；iWencai SkillHub 仍作为研究/公告技能边界记录，不把真实 key 写入仓库。
 
 ## 2. 最短运行路径
 
