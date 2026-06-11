@@ -32,7 +32,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_sync_local,
     cmd_datasource_test,
 )
-from astock_agent_system.config import load_settings
+from astock_agent_system.config import load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.notification import build_notifier
@@ -332,6 +332,277 @@ def _cmd_compete(args: argparse.Namespace) -> int:
     return 0 if payload.get("status") == "ok" else 1
 
 
+def _prompt_default(label: str, default: str = "") -> str:
+    suffix = f" [{default}]" if default else ""
+    value = input(f"{label}{suffix}: ").strip()
+    return value or default
+
+
+def _prompt_int(label: str, default: int) -> int:
+    while True:
+        raw = _prompt_default(label, str(default))
+        try:
+            return int(raw)
+        except ValueError:
+            print("请输入整数，或直接回车使用默认值。")
+
+
+def _prompt_float(label: str, default: float) -> float:
+    while True:
+        raw = _prompt_default(label, f"{default:g}")
+        try:
+            return float(raw)
+        except ValueError:
+            print("请输入数字，或直接回车使用默认值。")
+
+
+def _prompt_yes_no(label: str, default: bool = False) -> bool:
+    hint = "Y/n" if default else "y/N"
+    while True:
+        raw = input(f"{label} [{hint}]: ").strip().lower()
+        if not raw:
+            return default
+        if raw in {"y", "yes", "是", "1", "true"}:
+            return True
+        if raw in {"n", "no", "否", "0", "false"}:
+            return False
+        print("请输入 y 或 n。")
+
+
+def _interactive_args(config: str | None, **kwargs: object) -> argparse.Namespace:
+    payload: dict[str, object] = {"config": config}
+    payload.update(kwargs)
+    return argparse.Namespace(**payload)
+
+
+def _cmd_interactive_configure(args: argparse.Namespace) -> int:
+    settings = load_settings(args.config)
+    print("\n只保存非密钥运行配置；LLM key、Tushare token、JQData/iFinD 密钥请用对应隐藏输入或 .env。")
+    data_mode = _prompt_default("数据模式：online 为主流程，offline 仅诊断", settings.data.mode or "online")
+    provider_chain_raw = _prompt_default(
+        "在线数据源链（逗号分隔）",
+        ",".join(settings.data.provider_chain or ["tushare", "baostock", "akshare"]),
+    )
+    default_model = _prompt_default("默认 LLM 模型（空值表示继续使用现有配置）", settings.llm.default_model or "")
+    max_count = _prompt_int("每轮最多分析候选数", int(settings.scheduler.max_count or 3))
+    history_days = _prompt_int("每轮历史行情天数", int(settings.scheduler.history_days or 24))
+
+    payload: dict[str, object] = {
+        "data": {
+            "mode": data_mode,
+            "provider_chain": _parse_models(provider_chain_raw),
+        },
+        "scheduler": {
+            "max_count": max_count,
+            "history_days": history_days,
+        },
+    }
+    if default_model:
+        payload["llm"] = {"default_model": default_model}
+    path = save_runtime_overrides(payload)
+    print(f"已保存到本地运行态配置：{path}")
+    print("提示：真实密钥不会写入这里；如需配置 JQData/iFinD，请回主菜单选择隐藏输入配置项。")
+    return 0
+
+
+def _make_agent_start_args(
+    config: str | None,
+    *,
+    continuous: bool,
+    settings_max_count: int,
+    settings_days: int,
+) -> argparse.Namespace:
+    max_count = _prompt_int("本轮最多分析候选数", settings_max_count)
+    days = _prompt_int("历史行情天数", settings_days)
+    timeout_seconds = _prompt_float("单轮总超时秒数", 900.0)
+    interval_minutes = 60.0
+    max_rounds = 0
+    if continuous:
+        interval_minutes = _prompt_float("连续运行间隔分钟", 60.0)
+        max_rounds = _prompt_int("最多运行轮数（0 表示直到 Ctrl+C）", 0)
+    fresh_start = _prompt_yes_no("是否从初始资金重新开始（忽略已保存账户快照）", False)
+    no_persist = _prompt_yes_no("是否跳过 MongoDB 持久化（调试时可选）", False)
+    verbose = _prompt_yes_no("是否显示更详细事件", False)
+    return _interactive_args(
+        config,
+        model="",
+        models="",
+        offline=False,
+        max_count=max_count,
+        days=days,
+        initial_capital=None,
+        fresh_start=fresh_start,
+        no_persist=no_persist,
+        no_learning=False,
+        timeout_seconds=timeout_seconds,
+        continuous=continuous,
+        interval_minutes=interval_minutes,
+        max_rounds=max_rounds,
+        verbose=verbose,
+        debug=False,
+    )
+
+
+def _run_interactive_quickstart(config: str | None) -> int:
+    print("\n快速向导会按顺序完成：非密钥配置 -> 数据源自检 -> 可选同步本地库 -> 可选启动一次智能体。")
+    if _prompt_yes_no("先调整非密钥运行配置吗", True):
+        _cmd_interactive_configure(_interactive_args(config))
+    if _prompt_yes_no("现在做一次数据源快速自检吗", True):
+        stock_code = _prompt_default("测试股票代码", "600519")
+        days = _prompt_int("测试历史天数", 5)
+        checks = _prompt_default("测试项", "history,quote")
+        cmd_datasource_test(
+            _interactive_args(
+                config,
+                sources="",
+                all=False,
+                stock_code=stock_code,
+                days=days,
+                checks=checks,
+                include_universe=False,
+                timeout_seconds=12.0,
+                format="text",
+            )
+        )
+    if _prompt_yes_no("要先小批量同步本地市场库（撸数据）吗", False):
+        _run_interactive_sync_local(config)
+    if _prompt_yes_no("现在启动一次智能体工作流吗（使用本地默认模型，不强制 offline）", False):
+        settings = load_settings(config)
+        return cmd_agent_start(
+            _make_agent_start_args(
+                config,
+                continuous=False,
+                settings_max_count=int(settings.scheduler.max_count or 3),
+                settings_days=int(settings.scheduler.history_days or 24),
+            )
+        )
+    return 0
+
+
+def _run_interactive_sync_local(config: str | None) -> int:
+    settings = load_settings(config)
+    sources = _prompt_default("同步数据源（空/回车使用配置链）", ",".join(settings.data.provider_chain or []))
+    stock_codes = _prompt_default("指定股票代码（逗号分隔，留空则先拉股票池）", "")
+    max_stocks = _prompt_int("最多同步股票数", 20)
+    days = _prompt_int("每只股票历史天数", 120)
+    checks = _prompt_default("同步项", "universe,history,quote,financial")
+    return cmd_datasource_sync_local(
+        _interactive_args(
+            config,
+            sources=sources,
+            stock_codes=stock_codes,
+            max_stocks=max_stocks,
+            days=days,
+            checks=checks,
+            db_path="",
+            format="text",
+        )
+    )
+
+
+def _render_interactive_menu(config: str | None) -> None:
+    settings = load_settings(config)
+    provider_chain = ", ".join(settings.data.provider_chain or []) or "(未配置)"
+    default_model = settings.llm.default_model or "(未配置，将由 LLM 客户端兜底)"
+    print("\n" + "=" * 72)
+    print("AStock 交互式工作流控制台")
+    print("日常只需要运行：python -m astock_agent_system.cli")
+    print("-" * 72)
+    print(f"当前数据模式: {settings.data.mode}    数据源链: {provider_chain}")
+    print(f"当前默认模型: {default_model}")
+    print(f"默认候选数/历史天数: {settings.scheduler.max_count}/{settings.scheduler.history_days}")
+    print("-" * 72)
+    print("0) 快速向导：配置 -> 自检 -> 可选同步 -> 可选运行")
+    print("1) 调整非密钥运行配置（online/provider_chain/default_model/max_count/days）")
+    print("2) 配置 JQData 凭证（隐藏输入，保存到 Git 忽略的本地配置）")
+    print("3) 配置 iFinD/同花顺凭证（隐藏输入，保存到 Git 忽略的本地配置）")
+    print("4) 查看当前配置、Agent 状态和数据源状态")
+    print("5) 数据源快速自检")
+    print("6) 同步本地市场数据（撸数据，小批量写入 SQLite）")
+    print("7) 启动一次智能体工作流（使用本地默认模型）")
+    print("8) 连续运行智能体（直到 Ctrl+C 或达到轮数）")
+    print("9) 查看学习状态和建议")
+    print("h) 显示高级长命令帮助")
+    print("q) 退出")
+
+
+def _cmd_interactive(args: argparse.Namespace) -> int:
+    config = getattr(args, "config", None)
+    print("欢迎进入 AStock CLI。长命令仍保留给自动化；日常测试从这个菜单开始。")
+    try:
+        while True:
+            _render_interactive_menu(config)
+            choice = input("请选择操作: ").strip().lower()
+            if choice in {"q", "quit", "exit"}:
+                print("已退出交互式工作流。")
+                return 0
+            if choice == "0":
+                _run_interactive_quickstart(config)
+            elif choice == "1":
+                _cmd_interactive_configure(_interactive_args(config))
+            elif choice == "2":
+                cmd_datasource_configure_jqdata(_interactive_args(config))
+            elif choice == "3":
+                cmd_datasource_configure_ifind(_interactive_args(config))
+            elif choice == "4":
+                print("\n[有效配置]")
+                _cmd_config(_interactive_args(config))
+                print("\n[Agent 状态]")
+                cmd_agent_status(_interactive_args(config, model="", agent_id="", limit=10, format="text"))
+                print("\n[数据源状态]")
+                cmd_datasource_status(_interactive_args(config, format="text"))
+            elif choice == "5":
+                stock_code = _prompt_default("测试股票代码", "600519")
+                days = _prompt_int("历史天数", 5)
+                checks = _prompt_default("检查项", "history,quote")
+                timeout_seconds = _prompt_float("单源超时秒数", 12.0)
+                cmd_datasource_test(
+                    _interactive_args(
+                        config,
+                        sources="",
+                        all=False,
+                        stock_code=stock_code,
+                        days=days,
+                        checks=checks,
+                        include_universe=False,
+                        timeout_seconds=timeout_seconds,
+                        format="text",
+                    )
+                )
+            elif choice == "6":
+                _run_interactive_sync_local(config)
+            elif choice == "7":
+                settings = load_settings(config)
+                cmd_agent_start(
+                    _make_agent_start_args(
+                        config,
+                        continuous=False,
+                        settings_max_count=int(settings.scheduler.max_count or 3),
+                        settings_days=int(settings.scheduler.history_days or 24),
+                    )
+                )
+            elif choice == "8":
+                settings = load_settings(config)
+                cmd_agent_start(
+                    _make_agent_start_args(
+                        config,
+                        continuous=True,
+                        settings_max_count=int(settings.scheduler.max_count or 3),
+                        settings_days=int(settings.scheduler.history_days or 24),
+                    )
+                )
+            elif choice == "9":
+                cmd_agent_learning_status(_interactive_args(config, format="text"))
+                cmd_agent_learning_suggestions(_interactive_args(config, format="text"))
+            elif choice in {"h", "help", "?"}:
+                build_parser().print_help()
+            else:
+                print("未知选项，请输入菜单编号、h 或 q。")
+    except (KeyboardInterrupt, EOFError):
+        print("\n已退出交互式工作流。")
+        return 130
+
+
 def build_parser() -> argparse.ArgumentParser:
     parser = argparse.ArgumentParser(
         prog="astock-agent",
@@ -592,8 +863,7 @@ def main(argv: list[str] | None = None) -> int:
     args = parser.parse_args(argv)
     if not hasattr(args, "func"):
         if args.command is None:
-            parser.print_help()
-            return 0
+            return _cmd_interactive(args)
         parser.error(f"command '{args.command}' is not implemented yet")
     return int(args.func(args))
 

@@ -31,6 +31,7 @@
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
 - TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、已保存配置动态回填、密钥状态脱敏展示、按已选数据源跳过无关凭证、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
 - CLI 客观数据与本地同步：`agent start` 默认展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；`datasource configure-ifind` 使用隐藏输入保存同花顺 iFinD token 到忽略的运行态配置，`datasource sync-local` 用于先批量同步本地数据再运行 Agent。
+- CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台，按菜单完成非密钥配置、隐藏凭证配置、数据源自检、本地同步、单轮/连续 Agent 运行和学习状态查看；默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
 
 ## 2. 最短运行路径
 
@@ -62,20 +63,24 @@ LLM_BASE_URL=https://your-gateway.example/v1
 LLM_API_KEY=your-api-key
 LLM_REQUEST_PROFILE=auto
 LLM_MAX_TOKENS=128
-SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
+LLM_DEFAULT_MODEL=gpt-5.5
+SCHEDULER_MODELS=gpt-5.5
 ```
 
 然后运行：
 
 ```powershell
+python -m astock_agent_system.cli
 .\start.bat -Mode status
 .\start.bat -Mode bench
-.\start.bat -Mode bench -BenchModel "gpt-5.4-mini"
-.\start.bat -Mode online -Models "rule-baseline,gpt-5.4-mini" -MaxCount 3 -Days 24
+.\start.bat -Mode bench -BenchModel "gpt-5.5"
+.\start.bat -Mode online -Models "gpt-5.5" -MaxCount 3 -Days 24
 .\start.bat -Mode backend -Port 18080
 .\start.bat -Mode modern-ui -Port 3000 -BackendPort 18080
 .\start.bat -Mode tui -BackendPort 18080
 ```
+
+其中 `python -m astock_agent_system.cli` 是推荐给日常测试的最短入口；后续 `start.bat` 命令仍保留给一键脚本、前后端联调和自动化验证。
 
 ### TUI 长程运行观测
 
@@ -101,7 +106,7 @@ python -m apps.tui --skip-wizard
 
 最近一次本地验证结果：
 
-- Python 测试：`41 passed`
+- Python 测试：`81 passed`
 - 前端 lint：`npm --prefix apps/frontend run lint` 通过
 - `bench --help`：通过
 - `bench-models --help`：通过
@@ -123,15 +128,16 @@ python -m apps.tui --skip-wizard
 - 桌面 release：`start.bat -Mode desktop-release -AutoInstallRust` 可生成 `apps/desktop/src-tauri/target/release/astock-agent-desktop.exe` 和 `apps/desktop/src-tauri/target/release/bundle/nsis/AStock Agent System_0.1.0_x64-setup.exe`。
 - 桌面运行时加固：前端不再依赖 Google Fonts；Tauri 壳与前端默认使用 `127.0.0.1:18080..18100`，并兼容探测旧的 `8000..8020` 健康 AStock 后端。
 - TUI/配置回归：`python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q` 通过（21 passed），覆盖运行态配置优先级、向导列表型 provider chain、初始化不写比赛模型、`/agent stats` 别名、`/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
+- CLI 交互式入口回归：`python -m pytest tests/test_cli_interactive.py tests/test_data_agent.py tests/test_llm_client.py tests/test_orchestrator.py tests/test_scheduler.py -q` 通过（37 passed），覆盖无子命令进入菜单、菜单退出、单轮 Agent 启动参数仍使用本地默认模型且不强制 offline。
 - TUI 真实后端命令链路：已脱敏验证 `/help`、`/status`、`/models list/set/selected`、`/workflow offline`、`/providers`、`/config show`、`/config test-llm`、`/dashboard` 系列、`/start --offline --max-count 1 --days 12`、`/run`、`/agent list/stats`、`/compact`、`/permission`、`/sandbox`、`/theme`、`/lang`、`/attachments`、`/history` 和 `/memory` 均可执行。
-- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `65 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
+- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `81 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态
 
 当前在线 LLM 网关已验证可用。`bench --list-models` 可以获取模型列表，`gpt-5.4-mini` 单模型 JSON smoke 已通过。
 
-需要注意：不同模型可能有不同分组、额度和可用渠道。例如某些模型可能返回“无可用渠道”，这属于网关/账户权限问题，不是本地代码失败。建议日常保留 `rule-baseline`，并在 `.env` 的 `SCHEDULER_MODELS` 中只放 bench 通过的模型。
+需要注意：不同模型可能有不同分组、额度和可用渠道。例如某些模型可能返回“无可用渠道”，这属于网关/账户权限问题，不是本地代码失败。日常在线验证应优先使用本地 `LLM_DEFAULT_MODEL`（如 `gpt-5.5`）和 bench 通过的模型；`rule-baseline` 仅保留为诊断回退，不作为主验证路径。
 
 当前需要用户自行准备或维护的信息只有：
 
