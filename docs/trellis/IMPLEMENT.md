@@ -4,6 +4,33 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
+## 最新交付记录：iFinD/iWencai、状态栏与多 Agent 协作可见性（2026-06-12）
+
+本轮继续按 CLI-first 后端交付路线推进，重点修复用户反馈的 iFinD 不可用、iWencai 未配置、运行状态不可见、Mongo 错误冗长、多 Agent 辩论不像协作、股票池筛选过早停止等问题。
+
+已落地：
+
+- iFinD provider 对齐同花顺 QuantAPI HTTP 文档：历史行情走 `cmd_history_quotation`，实时报价走 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`，并保留 refresh token 重试和多形态响应解析。
+- iWencai SkillHub 配置进入 `DataSettings`、runtime override 和 CLI：`datasource iwencai-status` 显示脱敏状态，`datasource configure-iwencai` 用隐藏输入把 API key 保存到 Git 忽略的 `data/runtime/settings.override.json`。
+- 交互式数据源菜单增加 iWencai 配置/状态入口；`config` 输出只展示 `has_iwencai_api_key`。
+- `agent start` 事件流新增 `RuntimeStatusRenderer`，以 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...` 方式持续给出前台运行状态。
+- MongoDB 持久化失败改为 `_compact_persist_error()`，输出 `E-MONGO-CONNECT` 短提示，避免 `ServerSelectionTimeout` 长异常影响 CLI 体验。
+- `DebateRoom` 改为显式记录 `agent_inputs`、`discussion_rounds`、`bull_points`、`bear_points` 和 `judge`，体现技术/基本面/舆情 Agent 的证据被收集并由评委综合。
+- `StockScreener` 在线模式不再凑够 `max_count` 就停止，而是在 scan limit 内广搜后排序，减少候选池任意性。
+
+验证：
+
+```powershell
+python -m py_compile src/astock_agent_system/config.py src/astock_agent_system/cli.py src/astock_agent_system/cli_enhanced.py src/astock_agent_system/agents/debate_room.py src/astock_agent_system/orchestrator/multi_agent_orchestrator.py src/astock_agent_system/data/providers/ifind_provider.py
+python -m pytest tests/test_ifind_provider.py tests/test_config.py tests/test_cli_interactive.py tests/test_cli_observability.py -q
+```
+
+下一步：
+
+1. 用用户本地真实 iFinD token 做 `datasource test --sources ifind --checks history,quote`，仅输出脱敏诊断。
+2. 若本机可安全安装 SkillHub，再按官方脚本安装并执行 `skillhub install announcement-search`；否则保持 CLI 诊断和本地 key 持久化。
+3. 继续把状态栏升级为真正 Rich Live 底部区域，同时保持当前纯文本模式可测试、可复制。
+
 ## 最新交付记录：TUI UX / 运行可观察性
 
 ### CLI streaming + 持续学习可观察性增强

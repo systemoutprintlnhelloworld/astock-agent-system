@@ -6,6 +6,8 @@ import copy
 import getpass
 import json
 import queue
+import shutil
+import subprocess
 import threading
 import time
 from dataclasses import asdict, is_dataclass
@@ -193,6 +195,154 @@ class RunLogRecorder:
         self._closed = True
 
 
+class RuntimeStatusRenderer:
+    """Terminal-safe status strip for long-running agent workflows."""
+
+    def __init__(self) -> None:
+        self.started_at = time.monotonic()
+        self.model = "-"
+        self.stock = "-"
+        self.phase = "初始化"
+        self.step = "0/0"
+        self.decision = "-"
+        self.trades = 0
+        self.pnl = 0.0
+        self._last_line = ""
+
+    def __call__(self, event: AgentEvent) -> None:
+        payload = event.payload
+        if payload.get("model"):
+            self.model = str(payload.get("model"))
+        if payload.get("stock_code"):
+            self.stock = str(payload.get("stock_code"))
+        progress = payload.get("progress") if isinstance(payload.get("progress"), dict) else {}
+        if progress:
+            self.step = f"{progress.get('current', 0)}/{progress.get('total', 0)}"
+        if event.type.endswith("_start") or event.type.endswith("_complete"):
+            self.phase = str(payload.get("stage") or event.type)
+        if event.type == "decision_made":
+            decision = payload.get("decision") if isinstance(payload.get("decision"), dict) else {}
+            self.decision = str(decision.get("action") or payload.get("message") or "-")
+        if event.type == "trade_executed":
+            self.trades += 1
+            trade = payload.get("trade") if isinstance(payload.get("trade"), dict) else payload
+            self.decision = str(trade.get("side") or trade.get("action") or "成交")
+        if event.type == "agent_complete":
+            self.pnl = float(payload.get("total_return", 0.0) or 0.0)
+        if event.type in {
+            "run_start",
+            "agent_start",
+            "analysis_start",
+            "debate_start",
+            "decision_made",
+            "trade_executed",
+            "agent_complete",
+            "run_complete",
+            "run_error",
+        }:
+            self.render()
+
+    def render(self) -> None:
+        elapsed = int(time.monotonic() - self.started_at)
+        line = (
+            f"状态栏 | 模型={self.model} | 阶段={self.phase} | 股票={self.stock} | "
+            f"步骤={self.step} | 决策={self.decision} | 成交={self.trades} | "
+            f"收益={self.pnl:.2%} | 用时={elapsed}s"
+        )
+        if line != self._last_line:
+            print(line)
+            self._last_line = line
+
+
+def _skillhub_status(settings: Any) -> dict[str, Any]:
+    configured_cli = getattr(settings.data, "iwencai_skillhub_cli", "skillhub") or "skillhub"
+    skillhub_path = shutil.which(configured_cli) or shutil.which("skillhub")
+    iwencai_path = shutil.which("iwencai")
+    version = ""
+    if skillhub_path:
+        try:
+            completed = subprocess.run(
+                [skillhub_path, "--version"],
+                capture_output=True,
+                text=True,
+                timeout=5,
+                check=False,
+            )
+            version = (completed.stdout or completed.stderr or "").strip().splitlines()[0:1]
+            version = version[0] if version else ""
+        except Exception as exc:  # pragma: no cover - external CLI guard
+            version = f"version check failed: {exc}"
+    return {
+        "status": "ok" if skillhub_path and getattr(settings.data, "iwencai_api_key", "") else "needs_config",
+        "base_url": getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
+        "has_api_key": bool(getattr(settings.data, "iwencai_api_key", "")),
+        "configured_cli": configured_cli,
+        "skillhub_found": bool(skillhub_path),
+        "skillhub_path": skillhub_path or "",
+        "skillhub_version": version,
+        "iwencai_cli_found": bool(iwencai_path),
+        "iwencai_cli_path": iwencai_path or "",
+        "required_skill": "announcement-search",
+        "install_hint": "安装 SkillHub 后执行 skillhub install announcement-search，并在菜单中保存 IWENCAI_API_KEY。",
+    }
+
+
+def cmd_datasource_iwencai_status(args: Any) -> int:
+    """Show redacted iWencai SkillHub configuration status."""
+
+    settings = load_settings(getattr(args, "config", None))
+    payload = _skillhub_status(settings)
+    if getattr(args, "format", "table") == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2))
+    else:
+        print(
+            _format_table(
+                ["项目", "状态"],
+                [
+                    ["Base URL", payload["base_url"]],
+                    ["API Key", "已配置" if payload["has_api_key"] else "未配置"],
+                    ["SkillHub CLI", payload["skillhub_path"] or "未找到"],
+                    ["iWencai CLI", payload["iwencai_cli_path"] or "未找到"],
+                    ["必需技能", payload["required_skill"]],
+                    ["提示", payload["install_hint"]],
+                ],
+                max_width=72,
+            )
+        )
+    return 0
+
+
+def cmd_datasource_configure_iwencai(args: Any) -> int:
+    """Persist iWencai SkillHub credentials to the local ignored runtime config."""
+
+    settings = load_settings(getattr(args, "config", None))
+    base_url = (getattr(args, "base_url", "") or "").strip()
+    if not base_url:
+        base_url = input(f"iWencai Base URL [{settings.data.iwencai_base_url}]: ").strip() or settings.data.iwencai_base_url
+    cli_name = (getattr(args, "skillhub_cli", "") or "").strip()
+    if not cli_name:
+        cli_name = input(f"SkillHub CLI [{settings.data.iwencai_skillhub_cli}]: ").strip() or settings.data.iwencai_skillhub_cli
+    api_key = getpass.getpass("iWencai API key（隐藏输入）: ").strip()
+    if not api_key:
+        print("iWencai API key 为空，未保存。")
+        return 1
+    path = save_runtime_overrides(
+        {
+            "data": {
+                "iwencai_base_url": base_url.rstrip("/"),
+                "iwencai_api_key": api_key,
+                "iwencai_skillhub_cli": cli_name,
+            },
+            "smart_search": {"enabled": True},
+        }
+    )
+    refreshed = load_settings(getattr(args, "config", None))
+    payload = _skillhub_status(refreshed)
+    print(f"iWencai 配置已保存到本地 runtime 配置（Git 忽略）: {path}")
+    print(json.dumps({key: value for key, value in payload.items() if key != "skillhub_version"}, ensure_ascii=False, indent=2))
+    return 0
+
+
 def cmd_agent_start(args: Any) -> int:
     """Run one or more model-driven agents with streaming event output."""
     settings = load_settings(args.config)
@@ -202,6 +352,7 @@ def cmd_agent_start(args: Any) -> int:
     emitter = AgentEventEmitter()
     renderer = RichEventRenderer(verbose=bool(getattr(args, "verbose", False)), debug=bool(getattr(args, "debug", False)))
     emitter.subscribe(renderer)
+    emitter.subscribe(RuntimeStatusRenderer())
     run_log = RunLogRecorder(settings, models=models)
     emitter.subscribe(run_log)
 

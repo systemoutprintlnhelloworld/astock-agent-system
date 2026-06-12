@@ -4,6 +4,16 @@
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
+## 2026-06-12 增量交付：数据源与运行可观察性
+
+- iFinD / 同花顺 QuantAPI HTTP 适配器改为官方 `cmd_history_quotation` 历史行情与 `real_time_quotation` 实时报价端点，并保留 refresh token 重试与多形态响应解析。
+- 新增 iWencai SkillHub 本地配置项与 CLI 诊断/隐藏输入保存入口：`datasource iwencai-status`、`datasource configure-iwencai`；真实 key 只写入 Git 忽略的 runtime 配置。
+- 交互式数据源页面增加 iWencai 配置/状态入口；`config` 输出只显示 `has_iwencai_api_key`，不泄露密钥。
+- Agent 前台运行增加终端安全的 `状态栏` 输出，持续显示模型、阶段、股票、步骤、决策、成交、收益和用时。
+- MongoDB 不可达时改为 `E-MONGO-CONNECT` 短提示，不再把 `ServerSelectionTimeout` 长异常刷到用户终端。
+- DebateRoom 改为显式收集技术/基本面/舆情 Agent 输入，生成多头、空头和评委轮次，让多 Agent 协作链可见。
+- StockScreener 在线模式改为先扫描更大的候选池再排序，避免“前 N 个能取到数据的股票”伪装成择优结果。
+
 当前已进入现代化重构批次，开发分支为 `tauri-rewrite`。新批次目标是保留现有 Python 业务核心，同时增加 Tauri 2.0 桌面壳、Next.js/React 现代 UI、FastAPI API 适配层和 WebSocket 实时事件，使小白用户可以通过 `.exe` 或 `.bat` 一键启动并在 UI 中完成配置和观测。
 
 > 重要：系统仍是模拟盘，不会真实下单，也不构成投资建议。

@@ -2,6 +2,14 @@
 
 本手册用于把系统从离线样例模式切到在线模拟盘模式。在线模式会读取真实数据源、调用 LLM 网关，并把模拟交易结果写入 MongoDB。
 
+## 2026-06-12 更新：iFinD/iWencai 与运行可观察性
+
+- 推荐日常入口仍是 `python -m astock_agent_system.cli`，数据源页面新增 iWencai SkillHub 配置/状态入口，API key 通过隐藏输入保存到 `data/runtime/settings.override.json`（Git 忽略）。
+- iFinD HTTP 适配器已按同花顺 QuantAPI 文档改为历史行情 `cmd_history_quotation`、实时行情 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`。
+- `smart-search` 默认开启；如果本地 `.env` 曾写入 `SMART_SEARCH_ENABLED=false`，以交互菜单或 runtime override 为准。
+- 前台 Agent 运行会输出 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...`，用于替代之前只看最终评分的黑盒体验。
+- MongoDB 不可达时不再打印长异常；系统会返回 `E-MONGO-CONNECT`，表示本轮模拟交易已完成，仅跳过排行榜/成交持久化。调试时可使用 `--no-persist`。
+
 ## 0. 推荐入口：交互式 CLI
 
 日常测试 Python 后端时优先只运行一个命令：

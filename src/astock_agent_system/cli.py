@@ -28,8 +28,10 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_status,
     cmd_agent_stop,
     cmd_datasource_configure_ifind,
+    cmd_datasource_configure_iwencai,
     cmd_datasource_configure_jqdata,
     cmd_datasource_configure_tushare,
+    cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
     cmd_datasource_status,
     cmd_datasource_sync_local,
@@ -61,6 +63,9 @@ def _cmd_config(args: argparse.Namespace) -> int:
             "has_ifind_access_token": bool(settings.data.ifind_access_token),
             "has_ifind_refresh_token": bool(settings.data.ifind_refresh_token),
             "ifind_base_url": settings.data.ifind_base_url,
+            "iwencai_base_url": settings.data.iwencai_base_url,
+            "has_iwencai_api_key": bool(settings.data.iwencai_api_key),
+            "iwencai_skillhub_cli": settings.data.iwencai_skillhub_cli,
         },
         "initial_capital": settings.portfolio.initial_capital,
         "risk": {
@@ -1095,6 +1100,22 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_status_parser = datasource_subparsers.add_parser("status", help="Show datasource mode and provider-chain status")
     datasource_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_status_parser.set_defaults(func=cmd_datasource_status)
+
+    datasource_iwencai_status_parser = datasource_subparsers.add_parser(
+        "iwencai-status",
+        help="Show redacted iWencai SkillHub configuration status",
+    )
+    datasource_iwencai_status_parser.add_argument("--format", choices=("table", "json"), default="table", help="Output format")
+    datasource_iwencai_status_parser.set_defaults(func=cmd_datasource_iwencai_status)
+
+    datasource_config_iwencai_parser = datasource_subparsers.add_parser(
+        "configure-iwencai",
+        help="Persist iWencai SkillHub credentials to local ignored runtime config",
+    )
+    datasource_config_iwencai_parser.add_argument("--base-url", default="", help="iWencai OpenAPI base URL")
+    datasource_config_iwencai_parser.add_argument("--skillhub-cli", default="", help="SkillHub CLI command name or path")
+    datasource_config_iwencai_parser.set_defaults(func=cmd_datasource_configure_iwencai)
+
     datasource_test_parser = datasource_subparsers.add_parser("test", help="Smoke-test configured or selected datasource providers")
     datasource_test_parser.add_argument("--sources", default="", help="Comma-separated provider ids; empty uses configured provider chain")
     datasource_test_parser.add_argument("--all", action="store_true", help="Include non-configured catalog entries and explain skipped sources")

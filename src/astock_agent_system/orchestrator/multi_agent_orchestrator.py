@@ -28,6 +28,17 @@ from astock_agent_system.models import StockAnalysisReport
 logger = logging.getLogger(__name__)
 
 
+def _compact_persist_error(exc: Exception) -> dict[str, str]:
+    text = str(exc)
+    lower = text.lower()
+    if "mongo" in lower or "serverselectiontimeout" in lower or "connection refused" in lower or "winerror 10061" in lower:
+        return {
+            "code": "E-MONGO-CONNECT",
+            "reason": "MongoDB 未连接或不可达；本轮交易已完成，仅跳过排行榜/成交持久化。调试时可用 --no-persist。",
+        }
+    return {"code": "E-PERSIST", "reason": text[:180] or "持久化失败"}
+
+
 @dataclass(slots=True)
 class AgentCompetitionResult:
     """Result for one LLM model's independent paper account."""
@@ -460,8 +471,9 @@ class MultiAgentOrchestrator:
                 "ranking": True,
             }
         except Exception as exc:
-            logger.warning("Persisting competition skipped: %s", exc)
-            return {"status": "skipped", "reason": str(exc)}
+            compact = _compact_persist_error(exc)
+            logger.warning("Persisting competition skipped: %s %s", compact["code"], compact["reason"])
+            return {"status": "skipped", **compact}
 
 
 def _normalize_models(models: list[str] | None, default_model: str = "") -> list[str]:

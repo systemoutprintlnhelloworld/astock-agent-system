@@ -8,6 +8,15 @@
 
 在线模式下，`DataAgent` 会按 `DATA_PROVIDER_CHAIN` 或 `config/config.yaml` 的 `data.provider_chain` 依次尝试数据源，最后降级到 `data/samples/stocks.json` 离线样例。
 
+### 2026-06-12 iFinD / iWencai update
+
+- iFinD / 同花顺 QuantAPI HTTP provider 使用官方 HTTP base URL `https://quantapi.51ifind.com/api/v1`。
+- A 股日线历史行情走 THS_HQ HTTP 服务 `cmd_history_quotation`，请求字段为 `codes`、`indicators`、`startdate`、`enddate`、`functionpara`，不再把历史行情误走 `date_sequence`。
+- 实时报价走 THS_RQ HTTP 服务 `real_time_quotation`，失败时再回退到最近历史行情构造保守 quote。
+- token 通过环境变量或 `data/runtime/settings.override.json` 读取，运行日志会脱敏 `access_token` / `refresh_token`。
+- iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status` 和 `datasource configure-iwencai`，后者隐藏输入并写入 Git 忽略的 runtime 配置。
+- 若 SkillHub CLI 未安装，诊断会显示 `skillhub_found=false` 并提示安装 `announcement-search`；这不是行情 provider chain 的成功源，不会伪装成已接通行情。
+
 默认链路：
 
 ```text

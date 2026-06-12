@@ -30,7 +30,7 @@ class ScreenedStock:
 
 
 class StockScreener:
-    """Rank the universe with explainable offline-friendly rules."""
+    """Rank the stock universe with explainable broad scanning rules."""
 
     def __init__(
         self,
@@ -48,6 +48,9 @@ class StockScreener:
         candidates: list[ScreenedStock] = []
         min_turnover = self.data_agent.settings.risk.min_turnover
         online_mode = self.data_agent.settings.data.mode != "offline"
+        # In online mode, scan a broader candidate pool first and only rank after
+        # the scan. Stopping at the first N passing stocks makes the result look
+        # arbitrary and hides better candidates later in the universe.
         scan_limit = max(max_count * 10, 20) if online_mode else None
         scanned = 0
         for stock in self.data_agent.get_universe():
@@ -103,7 +106,5 @@ class StockScreener:
                     },
                 )
             )
-            if online_mode and len(candidates) >= max_count:
-                break
         candidates.sort(key=lambda item: item.score, reverse=True)
         return candidates[: max(0, max_count)]
