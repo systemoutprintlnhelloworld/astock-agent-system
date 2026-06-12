@@ -11,7 +11,7 @@
 ### 2026-06-12 iFinD / iWencai update
 
 - iFinD / 同花顺 QuantAPI HTTP provider 使用官方 HTTP base URL `https://quantapi.51ifind.com/api/v1`。
-- A 股日线历史行情走 THS_HQ HTTP 服务 `cmd_history_quotation`，请求字段为 `codes`、`indicators`、`startdate`、`enddate`、`functionpara`，不再把历史行情误走 `date_sequence`。
+- A 股日线历史行情走 THS_HQ HTTP 服务 `cmd_history_quotation`，请求字段为 `codes`、`indicators`、`startdate`、`enddate`、`functionpara`，不再把历史行情误走 `date_sequence`。历史行情会按 `600519.SH`、原始代码 `600519`、`SH600519`、`600519.SS` 等候选格式重试，并在 `volume/amount` 权限或字段不兼容时回退到最小 `open,high,low,close` 指标集。
 - 实时报价走 THS_RQ HTTP 服务 `real_time_quotation`，失败时再回退到最近历史行情构造保守 quote。
 - token 通过环境变量或 `data/runtime/settings.override.json` 读取，运行日志会脱敏 `access_token` / `refresh_token`。
 - iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status`、`datasource configure-iwencai` 和 `datasource iwencai-search`；后者会尝试本机 SkillHub 的 `announcement-search` 技能，并在缺 CLI/key/技能时返回结构化 `skipped/error` 诊断。官方安装器生成的命令名是 `iwencai-skillhub-cli`；Windows 若只装在 WSL，状态页会以 `skillhub_bridge=wsl` 标明桥接；外部 CLI/WSL 探测统一使用容错解码，避免非 UTF-8 安装输出触发 `UnicodeDecodeError`。通过 WSL 桥接执行 SkillHub 时，适配器用 `WSLENV` 传递 `IWENCAI_BASE_URL` / `IWENCAI_API_KEY`，避免把真实 key 拼入命令行或运行日志；若 `command -v` 因 shell profile 未生效失败，还会检查 `$HOME/.local/bin/iwencai-skillhub-cli`。

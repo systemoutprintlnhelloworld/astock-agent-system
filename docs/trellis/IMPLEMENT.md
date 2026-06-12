@@ -10,7 +10,7 @@
 
 已落地：
 
-- iFinD provider 对齐同花顺 QuantAPI HTTP 文档：历史行情走 `cmd_history_quotation`，实时报价走 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`，并保留 refresh token 重试和多形态响应解析。
+- iFinD provider 对齐同花顺 QuantAPI HTTP 文档：历史行情走 `cmd_history_quotation`，实时报价走 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`，并保留 refresh token 重试和多形态响应解析；历史行情会按官方后缀、原始代码、`SH/SZ` 前缀等候选格式重试，并在扩展指标不可用时回退到 OHLC 最小指标集。
 - iWencai SkillHub 配置进入 `DataSettings`、runtime override 和 CLI：`datasource iwencai-status` 显示脱敏状态，`datasource configure-iwencai` 用隐藏输入把 API key 保存到 Git 忽略的 `data/runtime/settings.override.json`。
 - 新增 `IwencaiSkillHub` 公告/研究信源 adapter 和 `datasource iwencai-search`：当本机 CLI/API key/`announcement-search` 技能可用时尝试公告搜索；缺失时返回结构化 `skipped/error`、脱敏 attempts 和 next steps，不进入行情 provider chain，也不伪装为行情成功。官方安装器实际生成 `iwencai-skillhub-cli`，代码会优先识别该命令，并在 Windows 仅 WSL 安装时通过 `skillhub_bridge=wsl` 标明桥接；外部 CLI/WSL 探测统一使用容错解码，避免安装器乱码输出触发 `UnicodeDecodeError` 或污染诊断；WSL 桥接执行时通过 `WSLENV` 传递 iWencai 环境变量，且会兜底检查 `$HOME/.local/bin/iwencai-skillhub-cli`，避免 shell profile 尚未生效导致误判未安装。
 - 交互式数据源菜单增加 iWencai 配置/状态入口；`config` 输出只展示 `has_iwencai_api_key`。

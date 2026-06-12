@@ -36,43 +36,29 @@ class IfindProvider:
         """Get daily history through the documented THS_HQ HTTP service."""
         end = datetime.now()
         start = end - timedelta(days=max(days * 2, days + 10, 10))
-        payload = self._post(
-            "cmd_history_quotation",
-            {
-                "codes": _to_ifind_code(stock_code),
-                "indicators": "open,high,low,close,volume,amount",
-                "startdate": start.strftime("%Y-%m-%d"),
-                "enddate": end.strftime("%Y-%m-%d"),
-                "functionpara": {"Currency": "MHB", "Fill": "Omit"},
-            },
-        )
-        rows = _rows_from_payload(payload)
-        bars: list[StockBar] = []
-        for row in rows:
-            date = _pick(row, "time", "date", "datetime", "trade_date", "日期", default="")
-            close = _safe_float(_pick(row, "close", "ths_close_price_stock", "收盘价"))
-            open_price = _safe_float(_pick(row, "open", "ths_open_price_stock", "开盘价"), close)
-            high = _safe_float(_pick(row, "high", "ths_high_price_stock", "最高价"), max(open_price, close))
-            low = _safe_float(_pick(row, "low", "ths_low_price_stock", "最低价"), min(open_price, close))
-            volume = _safe_float(_pick(row, "volume", "vol", "成交量"))
-            amount = _safe_float(_pick(row, "amount", "amt", "成交额"))
-            if not date or close <= 0:
-                continue
-            bars.append(
-                StockBar(
-                    stock_code=stock_code,
-                    date=str(date).split()[0],
-                    open=open_price,
-                    high=high,
-                    low=low,
-                    close=close,
-                    volume=volume,
-                    amount=amount,
-                    turnover=0.0,
+        errors: list[str] = []
+        for code, indicators in _history_request_variants(stock_code):
+            try:
+                payload = self._post(
+                    "cmd_history_quotation",
+                    {
+                        "codes": code,
+                        "indicators": indicators,
+                        "startdate": start.strftime("%Y-%m-%d"),
+                        "enddate": end.strftime("%Y-%m-%d"),
+                        "functionpara": {"Currency": "MHB", "Fill": "Omit"},
+                    },
                 )
-            )
-        bars.sort(key=lambda item: item.date)
-        return bars[-days:] if days > 0 else bars
+            except Exception as exc:
+                errors.append(f"{code}/{indicators}: {exc}")
+                continue
+            bars = _bars_from_history_payload(payload, stock_code=stock_code)
+            if bars:
+                bars.sort(key=lambda item: item.date)
+                return bars[-days:] if days > 0 else bars
+        if errors:
+            raise RuntimeError("iFinD history attempts failed: " + " | ".join(errors[-3:]))
+        return []
 
     def get_quote(self, stock_code: str) -> StockQuote:
         """Build a quote from THS_RQ, falling back to recent history."""
@@ -217,6 +203,72 @@ def _to_ifind_code(stock_code: str) -> str:
     return code
 
 
+def _history_request_variants(stock_code: str) -> list[tuple[str, str]]:
+    """Return iFinD THS_HQ request variants ordered from most to least specific."""
+
+    indicator_sets = [
+        "open,high,low,close,volume,amount",
+        "open,high,low,close",
+    ]
+    variants: list[tuple[str, str]] = []
+    for code in _candidate_ifind_codes(stock_code):
+        for indicators in indicator_sets:
+            item = (code, indicators)
+            if item not in variants:
+                variants.append(item)
+    return variants
+
+
+def _candidate_ifind_codes(stock_code: str) -> list[str]:
+    """Try official suffix form plus raw/common vendor forms for live diagnostics."""
+
+    raw = stock_code.strip().upper()
+    normalized = _to_ifind_code(raw)
+    digits = normalized.split(".", 1)[0] if "." in normalized else raw
+    suffix = normalized.split(".", 1)[1] if "." in normalized else ""
+    candidates = [normalized, raw]
+    if suffix in {"SH", "SZ", "BJ"} and digits.isdigit():
+        candidates.extend([digits, f"{suffix}{digits}"])
+        if suffix == "SH":
+            candidates.append(f"{digits}.SS")
+        elif suffix == "SZ":
+            candidates.extend([f"{digits}.XSHE"])
+    unique: list[str] = []
+    for item in candidates:
+        if item and item not in unique:
+            unique.append(item)
+    return unique
+
+
+def _bars_from_history_payload(payload: dict[str, Any], *, stock_code: str) -> list[StockBar]:
+    rows = _rows_from_payload(payload)
+    bars: list[StockBar] = []
+    for row in rows:
+        date = _pick(row, "time", "date", "datetime", "trade_date", "日期", default="")
+        close = _safe_float(_pick(row, "close", "ths_close_price_stock", "收盘价"))
+        open_price = _safe_float(_pick(row, "open", "ths_open_price_stock", "开盘价"), close)
+        high = _safe_float(_pick(row, "high", "ths_high_price_stock", "最高价"), max(open_price, close))
+        low = _safe_float(_pick(row, "low", "ths_low_price_stock", "最低价"), min(open_price, close))
+        volume = _safe_float(_pick(row, "volume", "vol", "成交量"))
+        amount = _safe_float(_pick(row, "amount", "amt", "成交额"))
+        if not date or close <= 0:
+            continue
+        bars.append(
+            StockBar(
+                stock_code=stock_code,
+                date=str(date).split()[0],
+                open=open_price,
+                high=high,
+                low=low,
+                close=close,
+                volume=volume,
+                amount=amount,
+                turnover=0.0,
+            )
+        )
+    return bars
+
+
 def _rows_from_payload(payload: dict[str, Any]) -> list[dict[str, Any]]:
     for key in ("tables", "table"):
         rows = _rows_from_any(payload.get(key))
@@ -258,6 +310,10 @@ def _rows_from_list(data: list[Any], payload: dict[str, Any]) -> list[dict[str, 
         rows: list[dict[str, Any]] = []
         for item in data:
             nested_rows = _rows_from_any(item.get("table") if isinstance(item, dict) and "table" in item else item)
+            if isinstance(item, dict):
+                nested_rows = _attach_times(nested_rows, item.get("time"))
+                for row in nested_rows:
+                    row.setdefault("thscode", item.get("thscode"))
             rows.extend(nested_rows or [dict(item)])
         return rows
     indicators = payload.get("indicators") or payload.get("indicator")

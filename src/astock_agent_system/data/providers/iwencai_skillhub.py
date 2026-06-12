@@ -12,6 +12,7 @@ import os
 import shutil
 import subprocess
 from dataclasses import dataclass, field
+from pathlib import Path
 from typing import Any
 
 
@@ -81,14 +82,20 @@ class IwencaiSkillHub:
         legacy_path = shutil.which(LEGACY_CLI)
         official_path = shutil.which(OFFICIAL_CLI)
         iwencai_path = shutil.which("iwencai")
+        skill_state = _skill_install_status(cli)
+        capabilities = _cli_capabilities(cli)
         return {
-            "status": "ok" if cli and self.api_key else "needs_config",
+            "status": "ok" if cli and self.api_key and skill_state["installed"] and capabilities["run_supported"] else "needs_config",
             "base_url": self.base_url,
             "has_api_key": bool(self.api_key),
             "configured_cli": self.cli,
             "skillhub_found": bool(cli),
             "skillhub_path": cli.display_path if cli else "",
             "skillhub_bridge": cli.bridge if cli else "",
+            "required_skill_installed": skill_state["installed"],
+            "required_skill_paths": skill_state["paths"],
+            "direct_run_supported": capabilities["run_supported"],
+            "cli_capability_detail": capabilities["detail"],
             "official_cli_found": bool(official_path),
             "official_cli_path": official_path or "",
             "legacy_skillhub_found": bool(legacy_path),
@@ -99,22 +106,45 @@ class IwencaiSkillHub:
             "installer_url": INSTALLER_URL,
             "install_command": f"{OFFICIAL_CLI} install {REQUIRED_SKILL}",
             "project_install_command": f"{OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} install {REQUIRED_SKILL} --force",
-            "next_steps": self.next_steps(cli_found=bool(cli)),
+            "next_steps": self.next_steps(
+                cli_found=bool(cli),
+                skill_installed=skill_state["installed"],
+                run_supported=capabilities["run_supported"],
+            ),
         }
 
-    def next_steps(self, *, cli_found: bool | None = None) -> list[str]:
+    def next_steps(
+        self,
+        *,
+        cli_found: bool | None = None,
+        skill_installed: bool | None = None,
+        run_supported: bool | None = None,
+    ) -> list[str]:
         if cli_found is None:
-            cli_found = bool(_resolve_cli(self.cli))
+            cli = _resolve_cli(self.cli)
+            cli_found = bool(cli)
+        else:
+            cli = _resolve_cli(self.cli) if cli_found and (skill_installed is None or run_supported is None) else None
         steps: list[str] = []
         if not cli_found:
             steps.append(f"Install SkillHub from the official installer: {INSTALLER_URL}")
         if not self.api_key:
             steps.append("Save IWENCAI_API_KEY locally with datasource configure-iwencai or shell profile.")
-        steps.append(f"Install or verify the SkillHub skill: {OFFICIAL_CLI} install {REQUIRED_SKILL}")
+        if skill_installed is None:
+            skill_installed = _skill_install_status(cli)["installed"] if cli else False
+        if not skill_installed:
+            steps.append(f"Install or verify the SkillHub skill: {OFFICIAL_CLI} install {REQUIRED_SKILL}")
         steps.append(
             f"For project-local installs, run: {OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} "
             f"install {REQUIRED_SKILL} --force"
         )
+        if run_supported is None:
+            run_supported = _cli_capabilities(cli)["run_supported"] if cli else False
+        if cli_found and not run_supported:
+            steps.append(
+                "The installed iWencai SkillHub store CLI exposes install-only behavior here; "
+                "direct announcement search needs an official run-capable CLI or host tool integration."
+            )
         return steps
 
     def search_announcements(self, *, stock_code: str = "", query: str = "", limit: int = 5) -> SkillHubSearchResult:
@@ -133,6 +163,18 @@ class IwencaiSkillHub:
                 query=query_text,
                 reason="SkillHub CLI is not installed or not on PATH.",
                 next_steps=self.next_steps(cli_found=False),
+            )
+        capabilities = _cli_capabilities(cli)
+        if not capabilities["run_supported"]:
+            return SkillHubSearchResult(
+                status="skipped",
+                query=query_text,
+                reason="Installed SkillHub CLI does not expose a direct run/search command.",
+                next_steps=self.next_steps(
+                    cli_found=True,
+                    skill_installed=_skill_install_status(cli)["installed"],
+                    run_supported=False,
+                ),
             )
 
         commands = _candidate_commands(cli, query_text, limit)
@@ -208,6 +250,162 @@ def _unique_cli_names(configured_cli: str) -> list[str]:
         if clean and clean not in names:
             names.append(clean)
     return names
+
+
+def _skill_install_status(cli: SkillHubCli | None) -> dict[str, Any]:
+    paths = _local_skill_paths()
+    probes: list[dict[str, Any]] = []
+    installed = bool(paths)
+    if cli:
+        if cli.bridge == "wsl":
+            paths.extend(_wsl_skill_paths(cli))
+            paths = sorted(dict.fromkeys(paths))
+            installed = bool(paths)
+        for args in (("list",), ("skill", "list")):
+            attempt = _run_cli_probe(cli, *args)
+            probes.append(_attempt_summary(attempt))
+            text = _attempt_text(attempt)
+            if attempt.exit_code == 0 and REQUIRED_SKILL in text:
+                installed = True
+                break
+    return {"installed": installed, "paths": paths, "probes": probes}
+
+
+def _cli_capabilities(cli: SkillHubCli | None) -> dict[str, Any]:
+    if not cli:
+        return {"run_supported": False, "detail": "SkillHub CLI is not installed or not on PATH.", "probes": []}
+
+    run_help = _run_cli_probe(cli, "run", "--help")
+    probes = [_attempt_summary(run_help)]
+    run_text = _attempt_text(run_help).lower()
+    negative_markers = (
+        "no such command",
+        "unknown command",
+        "invalid choice",
+        "unrecognized arguments",
+        "not found",
+    )
+    run_supported = run_help.exit_code == 0 and not any(marker in run_text for marker in negative_markers)
+    if run_supported:
+        return {"run_supported": True, "detail": "CLI accepts `run --help`.", "probes": probes}
+
+    top_help = _run_cli_probe(cli, "--help")
+    probes.append(_attempt_summary(top_help))
+    detail = _first_nonempty(_attempt_text(run_help), _attempt_text(top_help))
+    if _looks_install_only(_attempt_text(top_help)):
+        detail = "CLI help only exposes install/store behavior; direct run/search support was not detected."
+    return {"run_supported": False, "detail": _redact_text(detail)[:1000], "probes": probes}
+
+
+def _local_skill_paths() -> list[str]:
+    roots = [Path.cwd() / PROJECT_SKILL_INSTALL_DIR, _project_root() / PROJECT_SKILL_INSTALL_DIR]
+    paths: dict[str, None] = {}
+    for root in roots:
+        if not root.exists():
+            continue
+        direct = root / REQUIRED_SKILL
+        if direct.exists():
+            paths[str(direct.resolve())] = None
+        for match in root.rglob(f"*{REQUIRED_SKILL}*"):
+            paths[str(match.resolve())] = None
+            if len(paths) >= 20:
+                break
+    return sorted(paths)
+
+
+def _project_root() -> Path:
+    return Path(__file__).resolve().parents[4]
+
+
+def _wsl_skill_paths(cli: SkillHubCli) -> list[str]:
+    if cli.bridge != "wsl":
+        return []
+    script = (
+        'export PATH="$HOME/.local/bin:$PATH"; '
+        f'for root in "$HOME/.iwencai-skillhub" "$HOME/.local/share/iwencai-skillhub" '
+        f'"$HOME/.cache/iwencai-skillhub" "$PWD/{PROJECT_SKILL_INSTALL_DIR}"; do '
+        '[ -e "$root" ] || continue; '
+        f'find "$root" -maxdepth 5 -iname "*{REQUIRED_SKILL}*" -print 2>/dev/null; '
+        'done'
+    )
+    attempt = _run_wsl_script(cli, script)
+    if attempt.exit_code != 0:
+        return []
+    return [f"wsl:{line.strip()}" for line in attempt.stdout.splitlines() if line.strip()]
+
+
+def _run_cli_probe(cli: SkillHubCli, *args: str) -> SkillHubAttempt:
+    command = _probe_command(cli, *args)
+    attempt = SkillHubAttempt(command=command)
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+            check=False,
+        )
+        attempt.exit_code = completed.returncode
+        attempt.stdout = completed.stdout or ""
+        attempt.stderr = completed.stderr or ""
+    except Exception as exc:  # pragma: no cover - external CLI guard
+        attempt.error = str(exc)
+    return attempt
+
+
+def _run_wsl_script(cli: SkillHubCli, script: str) -> SkillHubAttempt:
+    command = [*cli.command_prefix, script]
+    attempt = SkillHubAttempt(command=command)
+    try:
+        completed = subprocess.run(
+            command,
+            capture_output=True,
+            text=True,
+            encoding="utf-8",
+            errors="replace",
+            timeout=3,
+            check=False,
+        )
+        attempt.exit_code = completed.returncode
+        attempt.stdout = completed.stdout or ""
+        attempt.stderr = completed.stderr or ""
+    except Exception as exc:  # pragma: no cover - external CLI guard
+        attempt.error = str(exc)
+    return attempt
+
+
+def _probe_command(cli: SkillHubCli, *args: str) -> list[str]:
+    if cli.bridge == "wsl":
+        return [*cli.command_prefix, _wsl_command(*args)]
+    return [*cli.command_prefix, *args]
+
+
+def _attempt_text(attempt: SkillHubAttempt) -> str:
+    return "\n".join(item for item in (attempt.stdout, attempt.stderr, attempt.error) if item)
+
+
+def _attempt_summary(attempt: SkillHubAttempt) -> dict[str, Any]:
+    return {
+        "command": _redact_command(attempt.command),
+        "exit_code": attempt.exit_code,
+        "stdout": _redact_text(attempt.stdout)[:500],
+        "stderr": _redact_text(attempt.stderr)[:500],
+        "error": _redact_text(attempt.error)[:500],
+    }
+
+
+def _first_nonempty(*values: str) -> str:
+    for value in values:
+        if value and value.strip():
+            return value.strip()
+    return "CLI did not expose direct run/search support."
+
+
+def _looks_install_only(help_text: str) -> bool:
+    text = (help_text or "").lower()
+    return "install" in text and " run" not in text and "search" not in text
 
 
 def _resolve_wsl_cli() -> SkillHubCli | None:
