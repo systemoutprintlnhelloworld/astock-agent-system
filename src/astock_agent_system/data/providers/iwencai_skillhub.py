@@ -14,9 +14,11 @@ import subprocess
 from dataclasses import dataclass, field
 from pathlib import Path
 from typing import Any
+from urllib.parse import quote
 
 
 INSTALLER_URL = "https://www.iwencai.com/skillhub/static/0.0.4/download_and_install.sh"
+SCREENER_URL = "https://www.iwencai.com/screener"
 REQUIRED_SKILL = "announcement-search"
 OFFICIAL_CLI = "iwencai-skillhub-cli"
 LEGACY_CLI = "skillhub"
@@ -56,6 +58,7 @@ class SkillHubSearchResult:
     attempts: list[SkillHubAttempt] = field(default_factory=list)
     reason: str = ""
     next_steps: list[str] = field(default_factory=list)
+    manual_screener_url: str = ""
 
     def to_dict(self) -> dict[str, Any]:
         return {
@@ -65,6 +68,7 @@ class SkillHubSearchResult:
             "attempts": [attempt.to_dict() for attempt in self.attempts],
             "reason": self.reason,
             "next_steps": self.next_steps,
+            "manual_screener_url": self.manual_screener_url,
         }
 
 
@@ -104,6 +108,8 @@ class IwencaiSkillHub:
             "iwencai_cli_path": iwencai_path or "",
             "required_skill": REQUIRED_SKILL,
             "installer_url": INSTALLER_URL,
+            "screener_url": SCREENER_URL,
+            "manual_screener_url": _screener_url(_build_query(stock_code="", query="公告")),
             "install_command": f"{OFFICIAL_CLI} install {REQUIRED_SKILL}",
             "project_install_command": f"{OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} install {REQUIRED_SKILL} --force",
             "next_steps": self.next_steps(
@@ -145,6 +151,7 @@ class IwencaiSkillHub:
                 "The installed iWencai SkillHub store CLI exposes install-only behavior here; "
                 "direct announcement search needs an official run-capable CLI or host tool integration."
             )
+            steps.append(f"Manual web screener fallback: {_screener_url(_build_query(stock_code='', query='公告'))}")
         return steps
 
     def search_announcements(self, *, stock_code: str = "", query: str = "", limit: int = 5) -> SkillHubSearchResult:
@@ -174,7 +181,9 @@ class IwencaiSkillHub:
                     cli_found=True,
                     skill_installed=_skill_install_status(cli)["installed"],
                     run_supported=False,
-                ),
+                )
+                + [f"Open iWencai screener manually for this query: {_screener_url(query_text)}"],
+                manual_screener_url=_screener_url(query_text),
             )
 
         commands = _candidate_commands(cli, query_text, limit)
@@ -233,6 +242,10 @@ class IwencaiSkillHub:
 def _build_query(*, stock_code: str, query: str) -> str:
     parts = [item.strip() for item in (stock_code, query or "公告") if item and item.strip()]
     return " ".join(parts) or "A股 公告"
+
+
+def _screener_url(query: str) -> str:
+    return f"{SCREENER_URL}?query={quote(query or 'A股 公告', safe='')}"
 
 
 def _resolve_cli(configured_cli: str) -> SkillHubCli | None:

@@ -210,3 +210,32 @@ def test_iwencai_skillhub_wsl_probe_uses_lossy_decoding(monkeypatch) -> None:  #
     assert cli.display_path == "wsl:/home/nicai/.local/bin/iwencai-skillhub-cli"
     assert calls[0]["encoding"] == "utf-8"
     assert calls[0]["errors"] == "replace"
+
+
+def test_iwencai_skillhub_install_only_cli_reports_screener_fallback(monkeypatch) -> None:  # noqa: ANN001
+    cli = iwencai_skillhub.SkillHubCli(command_prefix=["iwencai-skillhub-cli"], display_path="iwencai-skillhub-cli")
+
+    monkeypatch.setattr(iwencai_skillhub, "_resolve_cli", lambda _: cli)
+    monkeypatch.setattr(iwencai_skillhub, "_skill_install_status", lambda _: {"installed": True, "paths": ["skill"], "probes": []})
+    monkeypatch.setattr(
+        iwencai_skillhub,
+        "_cli_capabilities",
+        lambda _: {"run_supported": False, "detail": "install-only", "probes": []},
+    )
+    monkeypatch.setattr(iwencai_skillhub.shutil, "which", lambda _: None)
+
+    hub = IwencaiSkillHub(base_url="https://openapi.iwencai.com", api_key="fake-key", cli="iwencai-skillhub-cli")
+    status = hub.status()
+    result = hub.search_announcements(stock_code="600519", query="公告")
+
+    assert status["status"] == "needs_config"
+    assert status["skillhub_found"] is True
+    assert status["required_skill_installed"] is True
+    assert status["direct_run_supported"] is False
+    assert status["screener_url"] == "https://www.iwencai.com/screener"
+    assert "query=" in status["manual_screener_url"]
+    assert result.status == "skipped"
+    assert "direct run/search" in result.reason
+    assert result.manual_screener_url.startswith("https://www.iwencai.com/screener?query=")
+    assert result.to_dict()["manual_screener_url"] == result.manual_screener_url
+    assert any("screener" in step.lower() for step in result.next_steps)

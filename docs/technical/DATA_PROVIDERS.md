@@ -164,6 +164,8 @@ $env:IWENCAI_API_KEY="your-iwencai-api-key"
 
 当前 `ths_skill` 在 provider catalog 中仍是“人工研究流程 / 合规插件候选”，不进入行情 provider chain，也不替代 iFinD QuantAPI 的 `history/quote` HTTP 适配器。代码中 `IwencaiSkillHub` 是公告/研究信源 adapter，只在本机 SkillHub CLI 和 `IWENCAI_API_KEY` 可用时调用 `announcement-search`；失败时必须返回 `skipped` / `error` 和 next steps，不能把失败当作行情 provider 成功。
 
+若本机官方安装器生成的是商店/安装器 CLI（状态页 `direct_run_supported=false`），说明该 CLI 只能执行安装/商店类操作，未暴露可由后端自动调用的 `run/search` 命令。此时 `datasource iwencai-search` 会返回 `skipped`，并提供 `manual_screener_url` / `https://www.iwencai.com/screener?query=...` 作为人工公告/问财信源入口；等官方 run-capable CLI 或宿主工具集成可用后，再把 `IWENCAI_SKILLHUB_CLI` 指向对应可执行命令。
+
 可验证命令：
 
 ```powershell

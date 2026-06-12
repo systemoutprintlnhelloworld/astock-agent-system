@@ -114,6 +114,8 @@ iwencai-skillhub-cli install announcement-search
 iwencai-skillhub-cli --dir data/runtime/skillhub/skills install announcement-search --force
 ```
 
+如果状态页显示 `direct_run_supported=false`，表示本机检测到的是 iWencai SkillHub 商店/安装器 CLI，只能安装技能，未暴露可由后端直接调用的 `run/search` 命令。此时 `iwencai-search` 会返回 `skipped` 和 `manual_screener_url`，可先用 `https://www.iwencai.com/screener?query=...` 作为人工公告/问财信源入口；后续接入官方可运行 CLI 或宿主工具后再切换为自动公告搜索。
+
 ## 3. 启动存储服务
 
 推荐一键入口：
