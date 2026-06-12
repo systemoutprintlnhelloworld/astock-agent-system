@@ -181,6 +181,10 @@ class IwencaiSkillHub:
         env = dict(os.environ)
         env["IWENCAI_BASE_URL"] = self.base_url
         env["IWENCAI_API_KEY"] = self.api_key
+        env["WSLENV"] = _merge_wslenv(
+            env.get("WSLENV", ""),
+            ["IWENCAI_BASE_URL/u", "IWENCAI_API_KEY/u"],
+        )
         return env
 
 
@@ -214,7 +218,15 @@ def _resolve_wsl_cli() -> SkillHubCli | None:
         return None
     try:
         completed = subprocess.run(
-            [bash_path, "-lc", f'export PATH="$HOME/.local/bin:$PATH"; command -v {OFFICIAL_CLI}'],
+            [
+                bash_path,
+                "-lc",
+                (
+                    f'export PATH="$HOME/.local/bin:$PATH"; command -v {OFFICIAL_CLI} || '
+                    f'{{ if [ -x "$HOME/.local/bin/{OFFICIAL_CLI}" ]; then '
+                    f'printf "%s\\n" "$HOME/.local/bin/{OFFICIAL_CLI}"; fi; }}'
+                ),
+            ],
             capture_output=True,
             text=True,
             encoding="utf-8",
@@ -225,9 +237,19 @@ def _resolve_wsl_cli() -> SkillHubCli | None:
     except Exception:  # pragma: no cover - host shell availability guard
         return None
     cli_path = (completed.stdout or "").strip().splitlines()[-1:] or []
-    if completed.returncode == 0 and cli_path:
+    if cli_path:
         return SkillHubCli(command_prefix=[bash_path, "-lc"], display_path=f"wsl:{cli_path[0]}", bridge="wsl")
     return None
+
+
+def _merge_wslenv(current: str, entries: list[str]) -> str:
+    """Mark iWencai variables for Windows-to-WSL propagation without embedding secrets in commands."""
+
+    parts = [item for item in (current or "").split(":") if item]
+    for entry in entries:
+        if entry not in parts:
+            parts.append(entry)
+    return ":".join(parts)
 
 
 def _candidate_commands(cli: SkillHubCli, query: str, limit: int) -> list[list[str]]:
