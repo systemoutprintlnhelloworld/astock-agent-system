@@ -5,7 +5,7 @@
 ## 2026-06-12 更新：iFinD/iWencai 与运行可观察性
 
 - 推荐日常入口仍是 `python -m astock_agent_system.cli`，数据源页面新增 iWencai SkillHub 配置/状态入口，API key 通过隐藏输入保存到 `data/runtime/settings.override.json`（Git 忽略）。
-- iWencai SkillHub 现提供明确的公告信源诊断命令：`datasource iwencai-status` 查看本机 CLI/API key/必需技能状态，`datasource iwencai-search --stock-code 600519 --query 公告` 尝试调用本机 `announcement-search` 技能；官方安装器实际生成的命令名是 `iwencai-skillhub-cli`，Windows 侧若只在 WSL 中安装，状态页会显示 `skillhub_bridge=wsl`；未安装 CLI 或未配置 key 时返回 `skipped` 和 next steps，不会伪装成行情数据源成功。
+- iWencai SkillHub 现提供明确的公告信源诊断命令：`datasource iwencai-status` 查看本机 CLI/API key/必需技能状态，`datasource iwencai-search --stock-code 600519 --query 公告` 尝试调用本机 `announcement-search` 技能；官方安装器实际生成的命令名是 `iwencai-skillhub-cli`，Windows 侧若只在 WSL 中安装，状态页会显示 `skillhub_bridge=wsl`；WSL/外部 CLI 探测会使用容错解码，避免安装脚本乱码污染状态页；未安装 CLI 或未配置 key 时返回 `skipped` 和 next steps，不会伪装成行情数据源成功。
 - iFinD HTTP 适配器已按同花顺 QuantAPI 文档改为历史行情 `cmd_history_quotation`、实时行情 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`。
 - `smart-search` 默认开启；如果本地 `.env` 曾写入 `SMART_SEARCH_ENABLED=false`，以交互菜单或 runtime override 为准。
 - 前台 Agent 运行会输出 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...`，用于替代之前只看最终评分的黑盒体验。

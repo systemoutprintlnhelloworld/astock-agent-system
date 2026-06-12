@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+from types import SimpleNamespace
+
 from astock_agent_system.cli_enhanced import RichEventRenderer
+from astock_agent_system.data.providers import iwencai_skillhub
 from astock_agent_system.data.providers.iwencai_skillhub import IwencaiSkillHub
 from astock_agent_system.events import AgentEvent
 from astock_agent_system.models import AnalysisResult
@@ -184,3 +187,26 @@ def test_iwencai_skillhub_reports_missing_cli_and_key(monkeypatch) -> None:  # n
     assert result.next_steps
     assert "iwencai-skillhub-cli" in status["install_command"]
     assert any("iwencai-skillhub-cli" in step for step in result.next_steps)
+
+
+def test_iwencai_skillhub_wsl_probe_uses_lossy_decoding(monkeypatch) -> None:  # noqa: ANN001
+    calls: list[dict[str, object]] = []
+
+    def fake_which(name: str) -> str | None:
+        return "C:\\Windows\\System32\\bash.exe" if name == "bash" else None
+
+    def fake_run(command: list[str], **kwargs: object) -> SimpleNamespace:  # noqa: ARG001
+        calls.append(kwargs)
+        return SimpleNamespace(returncode=0, stdout="/home/nicai/.local/bin/iwencai-skillhub-cli\n", stderr="")
+
+    monkeypatch.setattr(iwencai_skillhub.os, "name", "nt")
+    monkeypatch.setattr(iwencai_skillhub.shutil, "which", fake_which)
+    monkeypatch.setattr(iwencai_skillhub.subprocess, "run", fake_run)
+
+    cli = iwencai_skillhub._resolve_cli("skillhub")
+
+    assert cli is not None
+    assert cli.bridge == "wsl"
+    assert cli.display_path == "wsl:/home/nicai/.local/bin/iwencai-skillhub-cli"
+    assert calls[0]["encoding"] == "utf-8"
+    assert calls[0]["errors"] == "replace"

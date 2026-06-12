@@ -145,6 +145,8 @@ class IwencaiSkillHub:
                     command,
                     capture_output=True,
                     text=True,
+                    encoding="utf-8",
+                    errors="replace",
                     timeout=self.timeout_seconds,
                     check=False,
                     env=env,
@@ -215,6 +217,8 @@ def _resolve_wsl_cli() -> SkillHubCli | None:
             [bash_path, "-lc", f'export PATH="$HOME/.local/bin:$PATH"; command -v {OFFICIAL_CLI}'],
             capture_output=True,
             text=True,
+            encoding="utf-8",
+            errors="replace",
             timeout=5,
             check=False,
         )
