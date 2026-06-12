@@ -12,7 +12,7 @@
 
 - iFinD provider 对齐同花顺 QuantAPI HTTP 文档：历史行情走 `cmd_history_quotation`，实时报价走 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`，并保留 refresh token 重试和多形态响应解析。
 - iWencai SkillHub 配置进入 `DataSettings`、runtime override 和 CLI：`datasource iwencai-status` 显示脱敏状态，`datasource configure-iwencai` 用隐藏输入把 API key 保存到 Git 忽略的 `data/runtime/settings.override.json`。
-- 新增 `IwencaiSkillHub` 公告/研究信源 adapter 和 `datasource iwencai-search`：当本机 CLI/API key/`announcement-search` 技能可用时尝试公告搜索；缺失时返回结构化 `skipped/error`、脱敏 attempts 和 next steps，不进入行情 provider chain，也不伪装为行情成功。
+- 新增 `IwencaiSkillHub` 公告/研究信源 adapter 和 `datasource iwencai-search`：当本机 CLI/API key/`announcement-search` 技能可用时尝试公告搜索；缺失时返回结构化 `skipped/error`、脱敏 attempts 和 next steps，不进入行情 provider chain，也不伪装为行情成功。官方安装器实际生成 `iwencai-skillhub-cli`，代码会优先识别该命令，并在 Windows 仅 WSL 安装时通过 `skillhub_bridge=wsl` 标明桥接。
 - 交互式数据源菜单增加 iWencai 配置/状态入口；`config` 输出只展示 `has_iwencai_api_key`。
 - `agent start` 事件流新增 `RuntimeStatusRenderer`，以 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...` 方式持续给出前台运行状态。
 - MongoDB 持久化失败改为 `_compact_persist_error()`，输出 `E-MONGO-CONNECT` 短提示，避免 `ServerSelectionTimeout` 长异常影响 CLI 体验。
@@ -31,7 +31,7 @@ python -m astock_agent_system.cli datasource iwencai-search --stock-code 600519 
 下一步：
 
 1. 用用户本地真实 iFinD token 做 `datasource test --sources ifind --checks history,quote`，仅输出脱敏诊断。
-2. 若本机可安全安装 SkillHub，再按官方脚本安装并执行 `skillhub install announcement-search`；否则保持 CLI 诊断和本地 key 持久化。
+2. 若本机可安全安装 SkillHub，再按官方脚本安装 CLI，并执行 `iwencai-skillhub-cli install announcement-search`；项目本地技能目录可用 `iwencai-skillhub-cli --dir data/runtime/skillhub/skills install announcement-search --force`。若 WSL/网络不可用，则保持 CLI 诊断和本地 key 持久化。
 3. 继续把状态栏升级为真正 Rich Live 底部区域，同时保持当前纯文本模式可测试、可复制。
 
 ## 最新交付记录：TUI UX / 运行可观察性

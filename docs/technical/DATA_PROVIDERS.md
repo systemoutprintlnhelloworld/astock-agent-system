@@ -14,8 +14,8 @@
 - A 股日线历史行情走 THS_HQ HTTP 服务 `cmd_history_quotation`，请求字段为 `codes`、`indicators`、`startdate`、`enddate`、`functionpara`，不再把历史行情误走 `date_sequence`。
 - 实时报价走 THS_RQ HTTP 服务 `real_time_quotation`，失败时再回退到最近历史行情构造保守 quote。
 - token 通过环境变量或 `data/runtime/settings.override.json` 读取，运行日志会脱敏 `access_token` / `refresh_token`。
-- iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status`、`datasource configure-iwencai` 和 `datasource iwencai-search`；后者会尝试本机 SkillHub 的 `announcement-search` 技能，并在缺 CLI/key/技能时返回结构化 `skipped/error` 诊断。
-- 若 SkillHub CLI 未安装，诊断会显示 `skillhub_found=false` 并提示安装 `announcement-search`；这不是行情 provider chain 的成功源，不会伪装成已接通行情。
+- iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status`、`datasource configure-iwencai` 和 `datasource iwencai-search`；后者会尝试本机 SkillHub 的 `announcement-search` 技能，并在缺 CLI/key/技能时返回结构化 `skipped/error` 诊断。官方安装器生成的命令名是 `iwencai-skillhub-cli`；Windows 若只装在 WSL，状态页会以 `skillhub_bridge=wsl` 标明桥接。
+- 若 SkillHub CLI 未安装，诊断会显示 `skillhub_found=false` 并提示安装 `announcement-search`；这不是行情 provider chain 的成功源，不会伪装成已接通行情。项目本地技能目录建议使用 Git 忽略的 `data/runtime/skillhub/skills`。
 
 默认链路：
 
@@ -154,7 +154,7 @@ python -m astock_agent_system.cli datasource test --sources ifind --stock-code 6
 
 ## 8. 同花顺 iWencai / SkillHub 边界
 
-用户若本机已有 iWencai SkillHub，可按官方方式安装 `announcement-search` 等技能，并把 `IWENCAI_BASE_URL`、`IWENCAI_API_KEY` 放在本地 shell profile 或工具自身配置中。仓库内只记录占位符和使用边界：
+用户若本机已有 iWencai SkillHub，可按官方方式安装 `announcement-search` 等技能，并把 `IWENCAI_BASE_URL`、`IWENCAI_API_KEY` 放在本地 shell profile、工具自身配置或 Git 忽略的 `data/runtime/settings.override.json` 中。仓库内只记录占位符和使用边界：
 
 ```powershell
 # 示例占位，不要提交真实 key
@@ -174,5 +174,6 @@ python -m astock_agent_system.cli datasource iwencai-search --stock-code 600519 
 若本机官方安装器下载返回 403 或 curl 56，则先保留诊断状态，待网络/权限恢复后再安装 SkillHub 并执行：
 
 ```powershell
-skillhub install announcement-search
+iwencai-skillhub-cli install announcement-search
+iwencai-skillhub-cli --dir data/runtime/skillhub/skills install announcement-search --force
 ```

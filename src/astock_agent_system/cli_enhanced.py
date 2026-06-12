@@ -34,7 +34,7 @@ from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
-from astock_agent_system.data.providers.iwencai_skillhub import IwencaiSkillHub
+from astock_agent_system.data.providers.iwencai_skillhub import OFFICIAL_CLI, IwencaiSkillHub
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 
@@ -259,10 +259,13 @@ def _skillhub_status(settings: Any) -> dict[str, Any]:
     hub = IwencaiSkillHub(
         base_url=getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
         api_key=getattr(settings.data, "iwencai_api_key", ""),
-        cli=getattr(settings.data, "iwencai_skillhub_cli", "skillhub"),
+        cli=getattr(settings.data, "iwencai_skillhub_cli", OFFICIAL_CLI),
     )
     payload = hub.status()
-    payload["install_hint"] = "安装 SkillHub 后执行 skillhub install announcement-search，并在菜单中保存 IWENCAI_API_KEY。"
+    payload["install_hint"] = (
+        "安装 SkillHub 后执行 iwencai-skillhub-cli install announcement-search，"
+        "并在菜单中保存 IWENCAI_API_KEY。Windows 若只装在 WSL，状态页会显示 skillhub_bridge=wsl。"
+    )
     return payload
 
 
@@ -281,8 +284,10 @@ def cmd_datasource_iwencai_status(args: Any) -> int:
                     ["Base URL", payload["base_url"]],
                     ["API Key", "已配置" if payload["has_api_key"] else "未配置"],
                     ["SkillHub CLI", payload["skillhub_path"] or "未找到"],
+                    ["SkillHub Bridge", payload.get("skillhub_bridge") or "native/未找到"],
                     ["iWencai CLI", payload["iwencai_cli_path"] or "未找到"],
                     ["必需技能", payload["required_skill"]],
+                    ["安装命令", payload.get("project_install_command") or payload.get("install_command") or ""],
                     ["提示", payload["install_hint"]],
                 ],
                 max_width=72,
@@ -298,7 +303,7 @@ def cmd_datasource_iwencai_search(args: Any) -> int:
     hub = IwencaiSkillHub(
         base_url=getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
         api_key=getattr(settings.data, "iwencai_api_key", ""),
-        cli=getattr(settings.data, "iwencai_skillhub_cli", "skillhub"),
+        cli=getattr(settings.data, "iwencai_skillhub_cli", OFFICIAL_CLI),
         timeout_seconds=float(getattr(args, "timeout_seconds", 20.0) or 20.0),
     )
     result = hub.search_announcements(

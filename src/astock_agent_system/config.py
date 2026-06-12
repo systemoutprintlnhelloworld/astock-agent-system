@@ -208,7 +208,7 @@ class DataSettings:
     ifind_base_url: str = "https://quantapi.51ifind.com/api/v1"
     iwencai_base_url: str = "https://openapi.iwencai.com"
     iwencai_api_key: str = ""
-    iwencai_skillhub_cli: str = "skillhub"
+    iwencai_skillhub_cli: str = "iwencai-skillhub-cli"
 
 
 @dataclass(slots=True)
@@ -325,7 +325,7 @@ def load_settings(config_path: str | None = None) -> Settings:
         ifind_base_url=_env_or_default("IFIND_BASE_URL", str(data_raw.get("ifind_base_url", "https://quantapi.51ifind.com/api/v1"))).rstrip("/"),
         iwencai_base_url=_env_or_default("IWENCAI_BASE_URL", str(data_raw.get("iwencai_base_url", "https://openapi.iwencai.com"))).rstrip("/"),
         iwencai_api_key=_env_or_default("IWENCAI_API_KEY", str(data_raw.get("iwencai_api_key", ""))),
-        iwencai_skillhub_cli=_env_or_default("IWENCAI_SKILLHUB_CLI", str(data_raw.get("iwencai_skillhub_cli", "skillhub"))),
+        iwencai_skillhub_cli=_env_or_default("IWENCAI_SKILLHUB_CLI", str(data_raw.get("iwencai_skillhub_cli", "iwencai-skillhub-cli"))),
     )
     portfolio = PortfolioSettings(
         initial_capital=_to_float(_env_or_default("INITIAL_CAPITAL"), float(portfolio_raw.get("initial_capital", 100000))),

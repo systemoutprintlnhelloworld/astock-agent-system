@@ -182,3 +182,5 @@ def test_iwencai_skillhub_reports_missing_cli_and_key(monkeypatch) -> None:  # n
     assert result.status == "skipped"
     assert "IWENCAI_API_KEY" in result.reason
     assert result.next_steps
+    assert "iwencai-skillhub-cli" in status["install_command"]
+    assert any("iwencai-skillhub-cli" in step for step in result.next_steps)
