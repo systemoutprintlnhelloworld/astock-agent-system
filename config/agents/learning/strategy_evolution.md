@@ -77,3 +77,28 @@
 
 - `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
 - `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.00%，建议人工复核仓位和止损阈值。
+
+## 2026-06-12T13:45:01 学习分析
+
+- `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
+- `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.00%，建议人工复核仓位和止损阈值。
+
+## 2026-06-12T14:20:14 学习分析
+
+- `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
+- `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.01%，建议人工复核仓位和止损阈值。
+
+## 2026-06-12T14:55:37 学习分析
+
+- `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
+- `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.01%，建议人工复核仓位和止损阈值。
+
+## 2026-06-12T15:30:14 学习分析
+
+- `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
+- `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.00%，建议人工复核仓位和止损阈值。
+
+## 2026-06-12T16:06:04 学习分析
+
+- `technical_analyst` / rules.ma_cross_bonus: MA相关理由在最近样本成功率约 0.0%，建议降低均线信号权重。
+- `risk_manager` / risk_profile: 最近样本成功率 0.0%，平均收益 -0.00%，建议人工复核仓位和止损阈值。

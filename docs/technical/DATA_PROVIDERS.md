@@ -14,7 +14,7 @@
 - A 股日线历史行情走 THS_HQ HTTP 服务 `cmd_history_quotation`，请求字段为 `codes`、`indicators`、`startdate`、`enddate`、`functionpara`，不再把历史行情误走 `date_sequence`。
 - 实时报价走 THS_RQ HTTP 服务 `real_time_quotation`，失败时再回退到最近历史行情构造保守 quote。
 - token 通过环境变量或 `data/runtime/settings.override.json` 读取，运行日志会脱敏 `access_token` / `refresh_token`。
-- iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status` 和 `datasource configure-iwencai`，后者隐藏输入并写入 Git 忽略的 runtime 配置。
+- iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status`、`datasource configure-iwencai` 和 `datasource iwencai-search`；后者会尝试本机 SkillHub 的 `announcement-search` 技能，并在缺 CLI/key/技能时返回结构化 `skipped/error` 诊断。
 - 若 SkillHub CLI 未安装，诊断会显示 `skillhub_found=false` 并提示安装 `announcement-search`；这不是行情 provider chain 的成功源，不会伪装成已接通行情。
 
 默认链路：
@@ -162,4 +162,17 @@ $env:IWENCAI_BASE_URL="https://openapi.iwencai.com"
 $env:IWENCAI_API_KEY="your-iwencai-api-key"
 ```
 
-当前 `ths_skill` 在 provider catalog 中仍是“人工研究流程 / 合规插件候选”，不进入行情 provider chain，也不替代 iFinD QuantAPI 的 `history/quote` HTTP 适配器。后续若要把 SkillHub 结果写入新闻/公告库，应新增独立 adapter、脱敏诊断和运行时配置，不把真实 API key 写入代码、文档或提交。
+当前 `ths_skill` 在 provider catalog 中仍是“人工研究流程 / 合规插件候选”，不进入行情 provider chain，也不替代 iFinD QuantAPI 的 `history/quote` HTTP 适配器。代码中 `IwencaiSkillHub` 是公告/研究信源 adapter，只在本机 SkillHub CLI 和 `IWENCAI_API_KEY` 可用时调用 `announcement-search`；失败时必须返回 `skipped` / `error` 和 next steps，不能把失败当作行情 provider 成功。
+
+可验证命令：
+
+```powershell
+python -m astock_agent_system.cli datasource iwencai-status --format json
+python -m astock_agent_system.cli datasource iwencai-search --stock-code 600519 --query "公告" --format json
+```
+
+若本机官方安装器下载返回 403 或 curl 56，则先保留诊断状态，待网络/权限恢复后再安装 SkillHub 并执行：
+
+```powershell
+skillhub install announcement-search
+```

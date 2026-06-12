@@ -34,6 +34,7 @@ from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
+from astock_agent_system.data.providers.iwencai_skillhub import IwencaiSkillHub
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 
@@ -255,36 +256,14 @@ class RuntimeStatusRenderer:
 
 
 def _skillhub_status(settings: Any) -> dict[str, Any]:
-    configured_cli = getattr(settings.data, "iwencai_skillhub_cli", "skillhub") or "skillhub"
-    skillhub_path = shutil.which(configured_cli) or shutil.which("skillhub")
-    iwencai_path = shutil.which("iwencai")
-    version = ""
-    if skillhub_path:
-        try:
-            completed = subprocess.run(
-                [skillhub_path, "--version"],
-                capture_output=True,
-                text=True,
-                timeout=5,
-                check=False,
-            )
-            version = (completed.stdout or completed.stderr or "").strip().splitlines()[0:1]
-            version = version[0] if version else ""
-        except Exception as exc:  # pragma: no cover - external CLI guard
-            version = f"version check failed: {exc}"
-    return {
-        "status": "ok" if skillhub_path and getattr(settings.data, "iwencai_api_key", "") else "needs_config",
-        "base_url": getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
-        "has_api_key": bool(getattr(settings.data, "iwencai_api_key", "")),
-        "configured_cli": configured_cli,
-        "skillhub_found": bool(skillhub_path),
-        "skillhub_path": skillhub_path or "",
-        "skillhub_version": version,
-        "iwencai_cli_found": bool(iwencai_path),
-        "iwencai_cli_path": iwencai_path or "",
-        "required_skill": "announcement-search",
-        "install_hint": "安装 SkillHub 后执行 skillhub install announcement-search，并在菜单中保存 IWENCAI_API_KEY。",
-    }
+    hub = IwencaiSkillHub(
+        base_url=getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
+        api_key=getattr(settings.data, "iwencai_api_key", ""),
+        cli=getattr(settings.data, "iwencai_skillhub_cli", "skillhub"),
+    )
+    payload = hub.status()
+    payload["install_hint"] = "安装 SkillHub 后执行 skillhub install announcement-search，并在菜单中保存 IWENCAI_API_KEY。"
+    return payload
 
 
 def cmd_datasource_iwencai_status(args: Any) -> int:
@@ -310,6 +289,34 @@ def cmd_datasource_iwencai_status(args: Any) -> int:
             )
         )
     return 0
+
+
+def cmd_datasource_iwencai_search(args: Any) -> int:
+    """Try announcement-search through the local SkillHub CLI and print redacted diagnostics."""
+
+    settings = load_settings(getattr(args, "config", None))
+    hub = IwencaiSkillHub(
+        base_url=getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
+        api_key=getattr(settings.data, "iwencai_api_key", ""),
+        cli=getattr(settings.data, "iwencai_skillhub_cli", "skillhub"),
+        timeout_seconds=float(getattr(args, "timeout_seconds", 20.0) or 20.0),
+    )
+    result = hub.search_announcements(
+        stock_code=str(getattr(args, "stock_code", "") or ""),
+        query=str(getattr(args, "query", "") or ""),
+        limit=int(getattr(args, "limit", 5) or 5),
+    )
+    payload = result.to_dict()
+    if getattr(args, "format", "json") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        rows = [["status", payload.get("status", "")], ["query", payload.get("query", "")], ["reason", payload.get("reason", "")]]
+        for index, item in enumerate(payload.get("items", [])[:5] if isinstance(payload.get("items"), list) else [], 1):
+            rows.append([f"item {index}", item.get("title") or item.get("text") or json.dumps(item, ensure_ascii=False)[:120]])
+        for index, step in enumerate(payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else [], 1):
+            rows.append([f"next {index}", step])
+        print(_format_table(["项目", "状态"], rows, max_width=96))
+    return 0 if payload.get("status") in {"ok", "skipped"} else 1
 
 
 def cmd_datasource_configure_iwencai(args: Any) -> int:
@@ -1496,6 +1503,9 @@ def _render_phase_details(title: str, result: dict[str, Any], objective_data: An
     details: list[str] = []
     if result:
         details.append(render_analysis_result(title, result))
+        debate_detail = _render_debate_discussion(result)
+        if debate_detail:
+            details.extend(["", debate_detail])
     bars = objective.get("bars", []) if isinstance(objective.get("bars"), list) else []
     if bars:
         details.extend(["", render_technical_indicators(bars)])
@@ -1508,6 +1518,38 @@ def _render_phase_details(title: str, result: dict[str, Any], objective_data: An
     if news:
         details.extend(["", render_news_list(news)])
     return "\n".join(item for item in details if str(item).strip()).strip()
+
+
+def _render_debate_discussion(result: dict[str, Any]) -> str:
+    """Render DebateRoom analyst inputs and judge rounds when present."""
+
+    metadata = _dict_or_empty(result.get("metadata"))
+    agent_inputs = metadata.get("agent_inputs") if isinstance(metadata.get("agent_inputs"), list) else []
+    rounds = metadata.get("discussion_rounds") if isinstance(metadata.get("discussion_rounds"), list) else []
+    judge = metadata.get("judge", "")
+    if not agent_inputs and not rounds and not judge:
+        return ""
+    lines: list[str] = ["【多Agent辩论过程】"]
+    if agent_inputs:
+        lines.append("输入证据:")
+        for item in agent_inputs[:5]:
+            if not isinstance(item, dict):
+                continue
+            lines.append(f"- {item.get('agent', '')}: {item.get('label', '')} 评分={_percent(item.get('score', 0.0))}")
+            reasons = item.get("top_reasons") if isinstance(item.get("top_reasons"), list) else []
+            risks = item.get("top_risks") if isinstance(item.get("top_risks"), list) else []
+            if reasons:
+                lines.append(f"  + {reasons[0]}")
+            if risks:
+                lines.append(f"  - {risks[0]}")
+    if rounds:
+        lines.append("辩论轮次:")
+        for item in rounds[:6]:
+            if isinstance(item, dict):
+                lines.append(f"- {item.get('role', '')}: {item.get('content', '')}")
+    if judge:
+        lines.append(f"评委结论: {judge}")
+    return "\n".join(lines)
 
 
 def _render_analysis_overview(report: dict[str, Any], objective: dict[str, Any], agent_chain: dict[str, Any]) -> str:
@@ -1633,6 +1675,11 @@ def _render_agent_chain_summary(report: dict[str, Any], agent_chain: dict[str, A
         if isinstance(risks, list):
             for risk in risks[:1]:
                 lines.append(f"  - {risk}")
+        if key == "debate":
+            debate_detail = _render_debate_discussion(result)
+            if debate_detail:
+                for line in debate_detail.splitlines()[1:]:
+                    lines.append(f"  {line}")
     return lines
 
 

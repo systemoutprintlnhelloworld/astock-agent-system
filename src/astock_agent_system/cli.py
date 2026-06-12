@@ -31,6 +31,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_iwencai,
     cmd_datasource_configure_jqdata,
     cmd_datasource_configure_tushare,
+    cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
     cmd_datasource_status,
@@ -1107,6 +1108,17 @@ def build_parser() -> argparse.ArgumentParser:
     )
     datasource_iwencai_status_parser.add_argument("--format", choices=("table", "json"), default="table", help="Output format")
     datasource_iwencai_status_parser.set_defaults(func=cmd_datasource_iwencai_status)
+
+    datasource_iwencai_search_parser = datasource_subparsers.add_parser(
+        "iwencai-search",
+        help="Try iWencai SkillHub announcement-search and print redacted diagnostics",
+    )
+    datasource_iwencai_search_parser.add_argument("--stock-code", default="", help="Optional stock code context")
+    datasource_iwencai_search_parser.add_argument("--query", default="公告", help="Search query passed to announcement-search")
+    datasource_iwencai_search_parser.add_argument("--limit", type=int, default=5, help="Maximum announcement rows")
+    datasource_iwencai_search_parser.add_argument("--timeout-seconds", type=float, default=20.0, help="SkillHub CLI timeout")
+    datasource_iwencai_search_parser.add_argument("--format", choices=("table", "json"), default="json", help="Output format")
+    datasource_iwencai_search_parser.set_defaults(func=cmd_datasource_iwencai_search)
 
     datasource_config_iwencai_parser = datasource_subparsers.add_parser(
         "configure-iwencai",

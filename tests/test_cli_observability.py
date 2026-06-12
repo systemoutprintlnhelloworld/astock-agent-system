@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 from astock_agent_system.cli_enhanced import RichEventRenderer
+from astock_agent_system.data.providers.iwencai_skillhub import IwencaiSkillHub
 from astock_agent_system.events import AgentEvent
 from astock_agent_system.models import AnalysisResult
 
@@ -166,3 +167,18 @@ def test_renderer_local_market_status_shows_inventory(capsys) -> None:  # noqa: 
     assert "库存统计" in output
     assert "最近同步记录" in output
     assert "tushare" in output
+
+
+def test_iwencai_skillhub_reports_missing_cli_and_key(monkeypatch) -> None:  # noqa: ANN001
+    monkeypatch.setattr("shutil.which", lambda _: None)
+
+    hub = IwencaiSkillHub(base_url="https://openapi.iwencai.com", api_key="", cli="skillhub")
+    status = hub.status()
+    result = hub.search_announcements(stock_code="600519", query="公告")
+
+    assert status["status"] == "needs_config"
+    assert status["skillhub_found"] is False
+    assert status["has_api_key"] is False
+    assert result.status == "skipped"
+    assert "IWENCAI_API_KEY" in result.reason
+    assert result.next_steps
