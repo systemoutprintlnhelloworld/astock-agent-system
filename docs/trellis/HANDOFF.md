@@ -21,8 +21,13 @@
 ## 2. 当前分支和最新状态
 
 - 工作分支：`tauri-rewrite`。
-- 最新提交以 `git log -1 --oneline` 为准；当前代码稳定点已推进到 `af20112 feat(tui): 完善配置向导与命令验证`，并已推送到 `origin/tauri-rewrite`。本 handoff 文档提交后可能会有后续 docs-only 提交。
+- 最新提交以 `git log -1 --oneline` 为准；每轮收尾必须提交并推送到 `origin/tauri-rewrite`。
+- 2026-06-13 增量状态：本轮继续暂停 GUI/TUI 扩展，优先修复 Python CLI 后端链路。已新增 smart-search CLI 解析/doctor 自检、交互式数据源页 smart-search/iWencai 入口，以及本地 SQLite 市场库覆盖率/日期热力图状态页。聚焦验证命令为 `python -m pytest tests/test_cli_observability.py tests/test_data_agent.py -q`，最终仍需按交付闭环跑 `delivery-check`、密钥检查、commit、push。
 - 本 handoff 批次已完成的重点修复：
+  - `SentimentAnalyst` 不再直接用裸 `smart-search` 命令，而是通过 `src/astock_agent_system/smart_search.py` 解析 Windows/npm `.CMD` shim，避免 Agent 长程运行中出现 `[WinError 2]`。
+  - `datasource smart-search-status` 会输出 doctor 摘要、解析路径、通道状态和 next steps；JSON 输出必须先脱敏，不能把真实 key 写入日志或文档。
+  - `datasource local-status` 已从库存页升级为本地市场库可观察性页，包含 K 线/行情/财务覆盖率、日期热力图、样本股票覆盖和行业/分组覆盖。
+  - 交互式数据源菜单已补齐 iWencai 状态/配置/公告检索和 smart-search 自检入口。
   - TUI 配置向导支持已保存配置回填、密钥状态脱敏展示、按已选数据源跳过无关凭证问询。
   - `settings.override.json` 作为本地运行态配置优先于 `.env` 的同名旧值，避免向导保存后看起来未生效。
   - `/agent` 子命令与 slash palette 补全已对齐，`/dashboard` 默认交易看板，`/start` 会自动切换到运行观测视图。

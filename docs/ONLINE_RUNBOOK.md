@@ -7,7 +7,8 @@
 - 推荐日常入口仍是 `python -m astock_agent_system.cli`，数据源页面新增 iWencai SkillHub 配置/状态入口，API key 通过隐藏输入保存到 `data/runtime/settings.override.json`（Git 忽略）。
 - iWencai SkillHub 现提供明确的公告信源诊断命令：`datasource iwencai-status` 查看本机 CLI/API key/必需技能状态，`datasource iwencai-search --stock-code 600519 --query 公告` 尝试调用本机 `announcement-search` 技能；官方安装器实际生成的命令名是 `iwencai-skillhub-cli`，Windows 侧若只在 WSL 中安装，状态页会显示 `skillhub_bridge=wsl`；WSL/外部 CLI 探测会使用容错解码，避免安装脚本乱码污染状态页，并通过 `WSLENV` 把 `IWENCAI_BASE_URL` / `IWENCAI_API_KEY` 传入 WSL，不把 key 拼进命令行；未安装 CLI 或未配置 key 时返回 `skipped` 和 next steps，不会伪装成行情数据源成功。
 - iFinD HTTP 适配器已按同花顺 QuantAPI 文档改为历史行情 `cmd_history_quotation`、实时行情 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`；历史行情会自动尝试官方后缀、原始代码和 `SH/SZ` 前缀等格式，并在扩展指标不可用时回退到 OHLC 最小指标集。
-- `smart-search` 默认开启；如果本地 `.env` 曾写入 `SMART_SEARCH_ENABLED=false`，以交互菜单或 runtime override 为准。
+- `smart-search` 默认开启；如果本地 `.env` 曾写入 `SMART_SEARCH_ENABLED=false`，以交互菜单或 runtime override 为准。Windows/npm 安装的 `smart-search.CMD` 现在会先由 Python 解析真实路径，避免 Agent 运行中出现 `[WinError 2]`；可用 `datasource smart-search-status` 或交互式“数据源配置与诊断 -> smart-search 舆情检索自检”查看 doctor 摘要、可用通道和 next steps。
+- `datasource local-status` 现在不仅展示 SQLite 库存量和最近同步记录，还会展示 K 线/行情/财务覆盖率、最近日期热力图、样本股票覆盖和行业/分组覆盖，便于确认本地库是否足够支撑多股票/板块级研究。
 - 前台 Agent 运行会输出 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...`，用于替代之前只看最终评分的黑盒体验。
 - MongoDB 不可达时不再打印长异常；系统会返回 `E-MONGO-CONNECT`，表示本轮模拟交易已完成，仅跳过排行榜/成交持久化。调试时可使用 `--no-persist`。
 
@@ -22,8 +23,8 @@ python -m astock_agent_system.cli
 不带子命令时会进入 `AStock 交互式工作流控制台`。顶层菜单按“先配 LLM、再配数据源、再同步本地库、再运行智能体”的日常路径拆分，降低长命令心智负担：
 
 - **LLM 配置与诊断**：选择 OpenAI-compatible / Anthropic 等请求协议，输入 Base URL 和隐藏 API Key，拉取模型列表后可直接输入编号选择默认模型（回车使用当前/第一个模型，也可手动填写），并用“请解释 A 股是什么”的短问答完成自检；自检失败时拒绝写入本地运行态配置。
-- **数据源配置与诊断**：查看 provider chain 状态；配置 Tushare、JQData、iFinD / 同花顺 QuantAPI 等凭证时先做真实自检，通过后才保存到 Git 忽略的本地运行态配置；iFinD 会额外做多股票/多代码格式矩阵诊断，矩阵全失败时输出“鉴权/权限、超时、空返回、base URL/格式”方向的中文诊断。
-- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况；二级页的“查看本地市场数据状态”会展示 SQLite 库存量、最近同步时间和最近 10 条同步记录。
+- **数据源配置与诊断**：查看 provider chain 状态；配置 Tushare、JQData、iFinD / 同花顺 QuantAPI 等凭证时先做真实自检，通过后才保存到 Git 忽略的本地运行态配置；iFinD 会额外做多股票/多代码格式矩阵诊断，矩阵全失败时输出“鉴权/权限、超时、空返回、base URL/格式”方向的中文诊断；同页还提供 iWencai SkillHub 状态/配置/公告检索诊断和 smart-search doctor 自检。
+- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况；二级页的“查看本地市场数据状态”会展示 SQLite 库存量、最近同步时间、最近 10 条同步记录、覆盖率和日期热力图。
 - **运行工作流**：启动一次 LLM 智能体工作流，或进入连续运行模式直到 `Ctrl+C` / 达到最大轮数；连续运行会先立即执行第 1 轮，之后按交互式配置的间隔倒计时等待；运行结束摘要会展示账户看板、持仓、最近交易和本轮 PnL，并写入脱敏 JSONL 日志和摘要。
 - **学习中心**：查看持续学习状态和建议，触发学习分析，浏览经验历史和 Agent 记忆案例。
 - **运行日志 / 历史回放**：查看最近运行摘要、事件数量、错误数量和完整 JSONL 日志路径。
@@ -85,6 +86,8 @@ REDIS_URL=redis://localhost:6379/0
 
 SMART_SEARCH_ENABLED=true
 SMART_SEARCH_TIMEOUT_SECONDS=60
+# 可选：Windows/npm 安装时如 PATH 不一致，可显式指向 smart-search.CMD
+# SMART_SEARCH_CLI=C:\Users\you\AppData\Roaming\npm\smart-search.CMD
 
 SCHEDULER_MODELS=gpt-5.5
 SCHEDULER_DAILY_RUN_TIME=15:05
@@ -105,6 +108,7 @@ STOP_LOSS_INTERVAL_MINUTES=5
 ```powershell
 python -m astock_agent_system.cli datasource iwencai-status --format json
 python -m astock_agent_system.cli datasource iwencai-search --stock-code 600519 --query "公告" --format json
+python -m astock_agent_system.cli datasource smart-search-status --format text
 ```
 
 如果输出 `SkillHub CLI is not installed or not on PATH` 或 `IWENCAI_API_KEY is not configured`，说明公告信源尚未接通；这不会影响行情 provider chain，但新闻/公告证据块会缺少 iWencai 结果。官方安装器下载成功后，优先执行以下命令安装技能；若希望技能目录落在仓库的 Git 忽略运行态目录，可使用第二条：
@@ -207,6 +211,14 @@ SQLite 本地库用于 Tushare 式“先批量下载、再本地查询”的工�
 $env:ASTOCK_MARKET_LOCAL_READ="false"   # 临时关闭本地库读取
 $env:ASTOCK_MARKET_LOCAL_DB="D:\\market-data\\astock.sqlite"  # 指定自定义库路径
 ```
+
+查看本地库可观察性：
+
+```powershell
+python -m astock_agent_system.cli datasource local-status --format text --stock-limit 12 --date-limit 30
+```
+
+输出会包含：库存统计、最近同步记录、K 线/行情/财务覆盖率、最近日期热力图、样本股票覆盖表和行业/分组覆盖表。热力图每格表示一个最近交易日，颜色/块越深表示该日覆盖的股票越多；如果覆盖率很低，应先用 `datasource sync-local` 补齐，再运行多股票 Agent 分析。
 
 ### 6.2 在线 smoke 命令
 

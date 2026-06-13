@@ -341,6 +341,120 @@ class LocalMarketStore:
             for row in rows
         ]
 
+    def coverage_summary(self, *, stock_limit: int = 12, date_limit: int = 30) -> dict[str, Any]:
+        """Return local-market coverage metrics for CLI dashboards."""
+        empty = {
+            "exists": self.exists(),
+            "stock_count": 0,
+            "bars_stock_count": 0,
+            "quote_stock_count": 0,
+            "financial_stock_count": 0,
+            "bar_count": 0,
+            "date_count": 0,
+            "first_date": "",
+            "last_date": "",
+            "bar_stock_coverage": 0.0,
+            "quote_stock_coverage": 0.0,
+            "financial_stock_coverage": 0.0,
+            "recent_dates": [],
+            "top_stocks": [],
+            "sector_coverage": [],
+        }
+        if not self.exists():
+            return empty
+        safe_stock_limit = max(1, min(int(stock_limit or 12), 100))
+        safe_date_limit = max(1, min(int(date_limit or 30), 120))
+        try:
+            with self._connect(readonly=True) as conn:
+                stock_count = int(conn.execute("SELECT COUNT(*) FROM stocks").fetchone()[0])
+                bar_count = int(conn.execute("SELECT COUNT(*) FROM bars").fetchone()[0])
+                bars_stock_count = int(conn.execute("SELECT COUNT(DISTINCT stock_code) FROM bars").fetchone()[0])
+                quote_stock_count = int(conn.execute("SELECT COUNT(*) FROM quotes").fetchone()[0])
+                financial_stock_count = int(conn.execute("SELECT COUNT(*) FROM financials").fetchone()[0])
+                date_row = conn.execute("SELECT MIN(date), MAX(date), COUNT(DISTINCT date) FROM bars").fetchone()
+                recent_rows = conn.execute(
+                    """
+                    SELECT date, COUNT(DISTINCT stock_code) AS stock_count, COUNT(*) AS bar_count
+                    FROM bars
+                    GROUP BY date
+                    ORDER BY date DESC
+                    LIMIT ?
+                    """,
+                    (safe_date_limit,),
+                ).fetchall()
+                top_rows = conn.execute(
+                    """
+                    SELECT b.stock_code, COALESCE(s.stock_name, ''), COALESCE(s.sector, ''),
+                           COUNT(*) AS bar_count, MIN(b.date), MAX(b.date),
+                           MAX(q.date) IS NOT NULL AS has_quote,
+                           MAX(f.report_date) IS NOT NULL AS has_financial
+                    FROM bars b
+                    LEFT JOIN stocks s ON s.stock_code = b.stock_code
+                    LEFT JOIN quotes q ON q.stock_code = b.stock_code
+                    LEFT JOIN financials f ON f.stock_code = b.stock_code
+                    GROUP BY b.stock_code
+                    ORDER BY bar_count DESC, b.stock_code
+                    LIMIT ?
+                    """,
+                    (safe_stock_limit,),
+                ).fetchall()
+                sector_rows = conn.execute(
+                    """
+                    SELECT COALESCE(NULLIF(s.sector, ''), '(未分类)') AS sector,
+                           COUNT(DISTINCT s.stock_code) AS stock_count,
+                           COUNT(b.date) AS bar_count,
+                           COUNT(DISTINCT b.stock_code) AS bars_stock_count
+                    FROM stocks s
+                    LEFT JOIN bars b ON b.stock_code = s.stock_code
+                    GROUP BY sector
+                    ORDER BY bar_count DESC, stock_count DESC
+                    LIMIT 12
+                    """
+                ).fetchall()
+        except sqlite3.Error:
+            return empty
+        denominator = max(stock_count, bars_stock_count, quote_stock_count, financial_stock_count, 1)
+        return {
+            "exists": True,
+            "stock_count": stock_count,
+            "bars_stock_count": bars_stock_count,
+            "quote_stock_count": quote_stock_count,
+            "financial_stock_count": financial_stock_count,
+            "bar_count": bar_count,
+            "date_count": int(date_row[2] or 0) if date_row else 0,
+            "first_date": str(date_row[0] or "") if date_row else "",
+            "last_date": str(date_row[1] or "") if date_row else "",
+            "bar_stock_coverage": bars_stock_count / denominator,
+            "quote_stock_coverage": quote_stock_count / denominator,
+            "financial_stock_coverage": financial_stock_count / denominator,
+            "recent_dates": [
+                {"date": str(row[0]), "stocks": int(row[1] or 0), "bars": int(row[2] or 0)}
+                for row in reversed(recent_rows)
+            ],
+            "top_stocks": [
+                {
+                    "stock_code": str(row[0]),
+                    "stock_name": str(row[1] or ""),
+                    "sector": str(row[2] or ""),
+                    "bars": int(row[3] or 0),
+                    "first_date": str(row[4] or ""),
+                    "last_date": str(row[5] or ""),
+                    "has_quote": bool(row[6]),
+                    "has_financial": bool(row[7]),
+                }
+                for row in top_rows
+            ],
+            "sector_coverage": [
+                {
+                    "sector": str(row[0]),
+                    "stocks": int(row[1] or 0),
+                    "bars": int(row[2] or 0),
+                    "bars_stock_count": int(row[3] or 0),
+                }
+                for row in sector_rows
+            ],
+        }
+
     def _connect(self, readonly: bool = False) -> sqlite3.Connection:
         if readonly:
             uri = f"file:{self.path.as_posix()}?mode=ro"

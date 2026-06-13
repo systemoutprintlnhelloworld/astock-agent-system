@@ -1,6 +1,6 @@
 # 数据源 Provider 接入说明
 
-更新时间：2026-06-11
+更新时间：2026-06-13
 
 本文说明 `DataAgent` 如何接入 A 股和参考市场数据源。当前系统仍只做模拟盘；数据源只影响分析输入，不会触发真实下单。
 
@@ -16,6 +16,7 @@
 - token 通过环境变量或 `data/runtime/settings.override.json` 读取，运行日志会脱敏 `access_token` / `refresh_token`。
 - iWencai SkillHub 当前作为公告/问财技能层配置项接入：`IWENCAI_BASE_URL`、`IWENCAI_API_KEY`、`IWENCAI_SKILLHUB_CLI`。CLI 提供 `datasource iwencai-status`、`datasource configure-iwencai` 和 `datasource iwencai-search`；后者会尝试本机 SkillHub 的 `announcement-search` 技能，并在缺 CLI/key/技能时返回结构化 `skipped/error` 诊断。官方安装器生成的命令名是 `iwencai-skillhub-cli`；Windows 若只装在 WSL，状态页会以 `skillhub_bridge=wsl` 标明桥接；外部 CLI/WSL 探测统一使用容错解码，避免非 UTF-8 安装输出触发 `UnicodeDecodeError`。通过 WSL 桥接执行 SkillHub 时，适配器用 `WSLENV` 传递 `IWENCAI_BASE_URL` / `IWENCAI_API_KEY`，避免把真实 key 拼入命令行或运行日志；若 `command -v` 因 shell profile 未生效失败，还会检查 `$HOME/.local/bin/iwencai-skillhub-cli`。
 - 若 SkillHub CLI 未安装，诊断会显示 `skillhub_found=false` 并提示安装 `announcement-search`；这不是行情 provider chain 的成功源，不会伪装成已接通行情。项目本地技能目录建议使用 Git 忽略的 `data/runtime/skillhub/skills`。
+- `smart-search` 是舆情/新闻研究工具，不是行情 provider。当前 SentimentAnalyst 会先解析本机 `smart-search` / `smart-search.CMD` 的真实路径再启动，避免 Windows/npm shim 在长程 Agent 进程中触发 `[WinError 2]`；可用 `python -m astock_agent_system.cli datasource smart-search-status --format text` 查看 CLI 路径、doctor 摘要、已配置通道和修复建议。
 
 默认链路：
 
@@ -81,6 +82,14 @@ python -m astock_agent_system.cli datasource local-status --format text
 
 交互式 CLI 的“本地数据同步”二级页也提供“查看本地市场数据状态”，会展示 SQLite 库存量、最近同步时间和最近同步记录。`sync-local` 支持 `--provider-strategy fill-gaps|all-providers`：前者用于日常补齐，后者用于确认每个 provider 是否真实参与。
 
+`datasource local-status` 现在也会展示本地库覆盖率和日期热力图：
+
+```powershell
+python -m astock_agent_system.cli datasource local-status --format text --stock-limit 12 --date-limit 30
+```
+
+输出包含：K 线/行情/财务覆盖率、最近交易日覆盖热力图、样本股票覆盖表、行业/分组覆盖表。它用于判断本地库是否足够支撑多股票/板块级 Agent 分析；覆盖率偏低时应先执行 `datasource sync-local`，不要把少量本地样本误解为全市场数据已齐。
+
 安全边界：
 
 - 同步时使用 `DataAgent(use_local_store=False)`，避免把旧本地库误当作新 provider 结果写回自己。
@@ -140,6 +149,7 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 ```powershell
 python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json
 python -m astock_agent_system.cli datasource test --sources ifind --stock-code 600519 --days 5 --checks history,quote --timeout-seconds 12 --format text
+python -m astock_agent_system.cli datasource smart-search-status --format text
 ```
 
 `datasource test` 的结果只按目标 provider 本身的尝试判断成功与否；即使离线样例兜底拿到了数据，也不会把该 provider 误标为 `ok`。

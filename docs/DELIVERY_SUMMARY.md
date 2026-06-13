@@ -9,7 +9,9 @@
 - iFinD / 同花顺 QuantAPI HTTP 适配器改为官方 `cmd_history_quotation` 历史行情与 `real_time_quotation` 实时报价端点，并保留 refresh token 重试与多形态响应解析。
 - 新增 iWencai SkillHub 本地配置项与 CLI 诊断/隐藏输入保存入口：`datasource iwencai-status`、`datasource configure-iwencai`；真实 key 只写入 Git 忽略的 runtime 配置。
 - 新增 `datasource iwencai-search` 和 `IwencaiSkillHub` adapter，用于公告/研究信源诊断；未安装 CLI、未配置 key 或缺少 `announcement-search` 技能时返回结构化 next steps，不进入行情 provider chain。
-- 交互式数据源页面增加 iWencai 配置/状态入口；`config` 输出只显示 `has_iwencai_api_key`，不泄露密钥。
+- 交互式数据源页面增加 iWencai 配置/状态/公告检索入口；`config` 输出只显示 `has_iwencai_api_key`，不泄露密钥。
+- 新增 `datasource smart-search-status`：解析 Windows/npm `smart-search.CMD` 真实路径，展示 doctor 摘要、已配置检索通道和 next steps；SentimentAnalyst 复用该解析逻辑，避免长程 Agent 运行中因 PATH 差异出现 `[WinError 2]`。
+- `datasource local-status` 增强为本地市场库可观察性页，除库存/最近同步外展示 K 线、行情、财务覆盖率、最近日期热力图、样本股票覆盖和行业/分组覆盖。
 - Agent 前台运行增加终端安全的 `状态栏` 输出，持续显示模型、阶段、股票、步骤、决策、成交、收益和用时。
 - MongoDB 不可达时改为 `E-MONGO-CONNECT` 短提示，不再把 `ServerSelectionTimeout` 长异常刷到用户终端。
 - DebateRoom 改为显式收集技术/基本面/舆情 Agent 输入，生成多头、空头和评委轮次，让多 Agent 协作链可见。

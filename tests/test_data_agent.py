@@ -98,6 +98,15 @@ def test_local_market_store_roundtrip(tmp_path):
     assert stats["quotes"] == 1
     assert stats["financials"] == 1
     assert stats["sync_runs"] == 1
+    coverage = store.coverage_summary(stock_limit=5, date_limit=5)
+    assert coverage["stock_count"] == 2
+    assert coverage["bars_stock_count"] == 1
+    assert coverage["bar_count"] == 3
+    assert coverage["first_date"] == "2026-06-01"
+    assert coverage["last_date"] == "2026-06-03"
+    assert coverage["recent_dates"][-1]["date"] == "2026-06-03"
+    assert coverage["top_stocks"][0]["stock_code"] == "000001"
+    assert coverage["sector_coverage"]
 
 
 def test_data_agent_reads_local_market_store_first(monkeypatch, tmp_path):

@@ -34,6 +34,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
+    cmd_datasource_smart_search_status,
     cmd_datasource_status,
     cmd_datasource_sync_local,
     cmd_datasource_test,
@@ -649,7 +650,7 @@ def _render_interactive_menu(config: str | None) -> None:
     print("-" * 72)
     print("0) 快速向导：重新初始化并运行一次测试")
     print("1) LLM 配置与诊断：Provider/Base URL/Key/模型列表/自检")
-    print("2) 数据源配置与诊断：Tushare/JQData/iFinD/矩阵自检")
+    print("2) 数据源配置与诊断：Tushare/JQData/iFinD/iWencai/smart-search 自检")
     print("3) 本地数据同步：全市场/增量/指定股票 SQLite 撸数据")
     print("4) 运行工作流：LLM 智能体单轮 / 连续运行 / Agent 状态")
     print("5) 学习中心：学习状态 / 建议 / 触发分析 / 历史 / 记忆")
@@ -714,7 +715,11 @@ def _interactive_datasource_diagnostics(config: str | None) -> bool:
                 "3) 配置 Tushare token（隐藏输入，自检通过才保存）",
                 "4) 配置 JQData 凭证（隐藏输入，自检通过才保存）",
                 "5) 配置 iFinD/同花顺 token（隐藏输入，矩阵自检通过才保存）",
-                "6) 查看当前脱敏配置和 Agent 状态",
+                "6) 查看 iWencai SkillHub 状态",
+                "7) 配置 iWencai API Key / SkillHub CLI（隐藏输入）",
+                "8) iWencai 公告检索诊断",
+                "9) smart-search 舆情检索自检",
+                "10) 查看当前脱敏配置和 Agent 状态",
             ],
         )
         choice = input("数据源配置与诊断> ").strip().lower()
@@ -733,6 +738,18 @@ def _interactive_datasource_diagnostics(config: str | None) -> bool:
         elif choice == "5":
             cmd_datasource_configure_ifind(_interactive_args(config))
         elif choice == "6":
+            cmd_datasource_iwencai_status(_interactive_args(config, format="table"))
+        elif choice == "7":
+            cmd_datasource_configure_iwencai(_interactive_args(config, base_url="", skillhub_cli=""))
+        elif choice == "8":
+            stock_code = _prompt_default("股票代码（可空）", "600519")
+            query = _prompt_default("iWencai 查询", "公告")
+            cmd_datasource_iwencai_search(
+                _interactive_args(config, stock_code=stock_code, query=query, limit=5, timeout_seconds=20.0, format="table")
+            )
+        elif choice == "9":
+            cmd_datasource_smart_search_status(_interactive_args(config, timeout_seconds=20.0, format="text"))
+        elif choice == "10":
             print("\n[有效配置]")
             _cmd_config(_interactive_args(config))
             print("\n[Agent 状态]")
@@ -1102,6 +1119,14 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_status_parser.set_defaults(func=cmd_datasource_status)
 
+    datasource_smart_search_parser = datasource_subparsers.add_parser(
+        "smart-search-status",
+        help="Show smart-search CLI/configuration diagnostics used by SentimentAnalyst",
+    )
+    datasource_smart_search_parser.add_argument("--timeout-seconds", type=float, default=20.0, help="smart-search doctor timeout")
+    datasource_smart_search_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_smart_search_parser.set_defaults(func=cmd_datasource_smart_search_status)
+
     datasource_iwencai_status_parser = datasource_subparsers.add_parser(
         "iwencai-status",
         help="Show redacted iWencai SkillHub configuration status",
@@ -1198,6 +1223,8 @@ def build_parser() -> argparse.ArgumentParser:
         default="",
         help="Optional SQLite path; default is data/market_local/market.sqlite and is ignored by Git",
     )
+    datasource_local_status_parser.add_argument("--stock-limit", type=int, default=12, help="Maximum stock rows in coverage sample")
+    datasource_local_status_parser.add_argument("--date-limit", type=int, default=30, help="Maximum recent dates in coverage heatmap")
     datasource_local_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_local_status_parser.set_defaults(func=cmd_datasource_local_status)
 

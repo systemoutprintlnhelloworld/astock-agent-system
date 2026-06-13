@@ -2,8 +2,6 @@
 
 from __future__ import annotations
 
-import json
-import subprocess
 from typing import Any
 
 from astock_agent_system.agent_descriptor import load_agent_descriptor
@@ -11,6 +9,7 @@ from astock_agent_system.agent_learning import load_experiences
 from astock_agent_system.config import Settings, load_settings
 from astock_agent_system.llm import LLMClient
 from astock_agent_system.models import AnalysisResult
+from astock_agent_system.smart_search import run_smart_search_search
 
 
 POSITIVE_KEYWORDS = ["增长", "超预期", "回购", "增持", "中标", "突破", "创新高", "盈利", "订单", "利好"]
@@ -97,26 +96,7 @@ class SentimentAnalyst:
         )
 
     def _run_smart_search(self, query: str) -> dict[str, Any]:
-        command = ["smart-search", "search", query, "--validation", "fast", "--format", "json"]
-        try:
-            result = subprocess.run(
-                command,
-                capture_output=True,
-                text=True,
-                encoding="utf-8",
-                errors="replace",
-                timeout=self.settings.smart_search.timeout_seconds,
-                check=False,
-            )
-        except (OSError, subprocess.TimeoutExpired) as exc:
-            return {"error": str(exc)}
-        if result.returncode != 0:
-            return {"error": result.stderr.strip() or f"smart-search exit code {result.returncode}"}
-        try:
-            payload = json.loads(result.stdout or "{}")
-        except json.JSONDecodeError:
-            return {"content": result.stdout.strip()}
-        return payload if isinstance(payload, dict) else {"content": str(payload)}
+        return run_smart_search_search(query, timeout_seconds=self.settings.smart_search.timeout_seconds)
 
     def _score_with_llm(self, stock_code: str, text: str) -> float | None:
         if not self.llm_client.is_configured or not self.llm_client.settings.default_model:

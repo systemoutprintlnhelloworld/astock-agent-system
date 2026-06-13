@@ -37,6 +37,7 @@ from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalM
 from astock_agent_system.data.providers.iwencai_skillhub import OFFICIAL_CLI, IwencaiSkillHub
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
+from astock_agent_system.smart_search import resolve_smart_search_cli, run_smart_search_doctor
 
 
 _SECRET_FIELD_HINTS = (
@@ -116,6 +117,9 @@ def _compact_error(message: Any, *, retry: str | int | None = None) -> dict[str,
     elif "llm" in lower or "openai" in lower or "model" in lower or "gateway" in lower:
         code = "E-LLM"
         reason = "LLM 网关或模型请求失败；请在 LLM 配置与诊断页面执行自检"
+    elif "smart-search" in lower or "smart_search" in lower or "e-smart-search" in lower:
+        code = "E-SMART-SEARCH"
+        reason = "smart-search 舆情检索失败；请在数据源配置页执行 smart-search 自检"
     return {"code": code, "reason": reason, "retry": str(retry if retry is not None else "0/0"), "raw": text[:500]}
 
 
@@ -148,6 +152,92 @@ def _format_table(headers: list[str], rows: list[list[Any]], *, max_width: int =
 
     sep = "-+-".join("-" * width for width in widths)
     return "\n".join([line(headers), sep, *[line(row) for row in string_rows]])
+
+
+def _to_float(value: Any) -> float:
+    try:
+        if value is None or value == "":
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _coverage_bar(value: Any, *, width: int = 18) -> str:
+    ratio = max(0.0, min(1.0, _to_float(value)))
+    filled = int(round(ratio * width))
+    return "#" * filled + "-" * max(0, width - filled)
+
+
+def _heatmap_cell(value: Any, maximum: float) -> str:
+    count = _to_float(value)
+    if maximum <= 0 or count <= 0:
+        return "·"
+    levels = "▁▂▃▄▅▆▇█"
+    index = min(len(levels) - 1, max(0, int(round((count / maximum) * (len(levels) - 1)))))
+    return levels[index]
+
+
+def _render_local_market_coverage(coverage: dict[str, Any]) -> str:
+    """Render stock/date coverage for the local SQLite market warehouse."""
+    if not coverage or not coverage.get("exists"):
+        return "覆盖率 / 日期热力图: 本地库不存在或尚未初始化。"
+    rows = [
+        ["K线股票覆盖", f"{coverage.get('bars_stock_count', 0)}/{coverage.get('stock_count', 0)}", _percent(coverage.get("bar_stock_coverage", 0.0)), _coverage_bar(coverage.get("bar_stock_coverage", 0.0))],
+        ["行情覆盖", f"{coverage.get('quote_stock_count', 0)}/{coverage.get('stock_count', 0)}", _percent(coverage.get("quote_stock_coverage", 0.0)), _coverage_bar(coverage.get("quote_stock_coverage", 0.0))],
+        ["财务覆盖", f"{coverage.get('financial_stock_count', 0)}/{coverage.get('stock_count', 0)}", _percent(coverage.get("financial_stock_coverage", 0.0)), _coverage_bar(coverage.get("financial_stock_coverage", 0.0))],
+    ]
+    lines = [
+        "覆盖率 / 日期热力图",
+        f"K线日期: {coverage.get('first_date', '') or '-'} -> {coverage.get('last_date', '') or '-'}  交易日={coverage.get('date_count', 0)}  K线={coverage.get('bar_count', 0)}",
+        _format_table(["项目", "股票数", "覆盖率", "条"], rows, max_width=24),
+    ]
+    recent_dates = coverage.get("recent_dates", []) if isinstance(coverage.get("recent_dates"), list) else []
+    if recent_dates:
+        maximum = max(_to_float(item.get("stocks")) for item in recent_dates if isinstance(item, dict))
+        heat = "".join(_heatmap_cell(item.get("stocks"), maximum) for item in recent_dates if isinstance(item, dict))
+        first = str(recent_dates[0].get("date", "")) if isinstance(recent_dates[0], dict) else ""
+        last = str(recent_dates[-1].get("date", "")) if isinstance(recent_dates[-1], dict) else ""
+        lines.extend(["", "日期热力图（每格一个交易日，越深表示覆盖股票越多）", f"{first} {heat} {last}"])
+    top_stocks = coverage.get("top_stocks", []) if isinstance(coverage.get("top_stocks"), list) else []
+    if top_stocks:
+        lines.extend(
+            [
+                "",
+                "覆盖最多股票（样本）",
+                _format_table(
+                    ["股票", "名称", "行业", "K线", "日期范围", "行情", "财务"],
+                    [
+                        [
+                            item.get("stock_code", ""),
+                            item.get("stock_name", ""),
+                            item.get("sector", ""),
+                            item.get("bars", 0),
+                            f"{item.get('first_date', '')}->{item.get('last_date', '')}",
+                            "Y" if item.get("has_quote") else "N",
+                            "Y" if item.get("has_financial") else "N",
+                        ]
+                        for item in top_stocks[:12]
+                        if isinstance(item, dict)
+                    ],
+                    max_width=18,
+                ),
+            ]
+        )
+    sectors = coverage.get("sector_coverage", []) if isinstance(coverage.get("sector_coverage"), list) else []
+    if sectors:
+        lines.extend(
+            [
+                "",
+                "行业/分组覆盖（按K线量排序）",
+                _format_table(
+                    ["行业", "股票", "有K线股票", "K线"],
+                    [[item.get("sector", ""), item.get("stocks", 0), item.get("bars_stock_count", 0), item.get("bars", 0)] for item in sectors if isinstance(item, dict)],
+                    max_width=24,
+                ),
+            ]
+        )
+    return "\n".join(lines)
 
 
 class RunLogRecorder:
@@ -528,6 +618,18 @@ def cmd_datasource_status(args: Any) -> int:
     return 0
 
 
+def cmd_datasource_smart_search_status(args: Any) -> int:
+    """Show smart-search CLI/configuration diagnostics for sentiment research."""
+    settings = load_settings(getattr(args, "config", None))
+    timeout_seconds = float(getattr(args, "timeout_seconds", 20.0) or 20.0)
+    payload = _smart_search_diagnostics(settings, timeout_seconds=timeout_seconds)
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().render_smart_search_status(payload)
+    return 0 if payload.get("status") in {"ok", "disabled"} else 1
+
+
 def cmd_datasource_local_status(args: Any) -> int:
     """Show SQLite local market database status and recent sync history."""
     settings = load_settings(args.config)
@@ -539,6 +641,10 @@ def cmd_datasource_local_status(args: Any) -> int:
         "db_path": str(store.path),
         "local_stats": stats,
         "recent_sync_runs": store.recent_sync_runs(10),
+        "coverage": store.coverage_summary(
+            stock_limit=int(getattr(args, "stock_limit", 12) or 12),
+            date_limit=int(getattr(args, "date_limit", 30) or 30),
+        ),
         "provider_chain": list(settings.data.provider_chain or []),
     }
     if getattr(args, "format", "text") == "json":
@@ -1005,6 +1111,13 @@ class RichEventRenderer:
             f"数据模式: {payload.get('mode', '')}",
             f"Provider chain: {', '.join(payload.get('provider_chain', []) or [])}",
         ]
+        smart_search = payload.get("smart_search", {}) if isinstance(payload.get("smart_search"), dict) else {}
+        if smart_search:
+            lines.append(
+                "smart-search: "
+                f"{'已启用' if smart_search.get('enabled') else '未启用'} / "
+                f"{'CLI已找到' if smart_search.get('cli_found') else 'CLI未找到'}"
+            )
         providers = payload.get("providers", [])
         if isinstance(providers, list) and providers:
             lines.append("")
@@ -1021,6 +1134,43 @@ class RichEventRenderer:
                     )
             lines.append(_format_table(["Provider", "已配置", "可用", "原因"], rows, max_width=32))
         self.print_info("数据源状态", "\n".join(lines))
+
+    def render_smart_search_status(self, payload: dict[str, Any]) -> None:
+        channels = payload.get("configured_channels", {}) if isinstance(payload.get("configured_channels"), dict) else {}
+        doctor = payload.get("doctor", {}) if isinstance(payload.get("doctor"), dict) else {}
+        lines = [
+            f"状态: {payload.get('status', '')}",
+            f"启用: {'是' if payload.get('enabled') else '否'}",
+            f"CLI: {payload.get('cli_path') or '未找到'}",
+            f"错误码: {payload.get('error_code', '')}",
+            f"说明: {payload.get('message', '')}",
+        ]
+        if doctor:
+            lines.extend(
+                [
+                    "",
+                    "doctor 摘要",
+                    _format_table(
+                        ["项目", "值"],
+                        [
+                            ["主通道", doctor.get("primary_api_mode", "")],
+                            ["OpenAI兼容模型", doctor.get("openai_compatible_model", "")],
+                            ["校验级别", doctor.get("validation_level", "")],
+                            ["降级模式", doctor.get("fallback_mode", "")],
+                            ["配置文件", doctor.get("config_file", "")],
+                            ["日志目录", doctor.get("resolved_log_dir", "")],
+                        ],
+                        max_width=56,
+                    ),
+                ]
+            )
+        if channels:
+            lines.extend(["", "可用凭证通道（仅布尔值，不显示密钥）"])
+            lines.append(_format_table(["通道", "已配置"], [[key, "是" if value else "否"] for key, value in channels.items()]))
+        next_steps = payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else []
+        if next_steps:
+            lines.extend(["", "下一步", *[f"- {item}" for item in next_steps]])
+        self.print_info("smart-search 自检", "\n".join(str(item) for item in lines if str(item).strip()))
 
     def render_datasource_tests(self, payload: dict[str, Any]) -> None:
         items = payload.get("items", []) if isinstance(payload, dict) else []
@@ -1183,6 +1333,10 @@ class RichEventRenderer:
             )
         else:
             lines.append("\n最近同步记录: 暂无；请先执行本页面的同步功能。")
+        coverage = payload.get("coverage", {}) if isinstance(payload.get("coverage"), dict) else {}
+        coverage_text = _render_local_market_coverage(coverage)
+        if coverage_text:
+            lines.extend(["", coverage_text])
         self.print_info("本地市场数据状态", "\n".join(lines).strip())
 
     def render_result_summary(self, payload: dict[str, Any]) -> None:
@@ -1759,8 +1913,98 @@ def _provider_diagnostics(settings: Any) -> dict[str, Any]:
             "provider_chain": getattr(settings.data, "provider_chain", []) or [],
             "providers": [],
             "error": str(exc),
+            "smart_search": _smart_search_snapshot(settings),
         }
-    return payload if isinstance(payload, dict) else {"providers": []}
+    if not isinstance(payload, dict):
+        payload = {"providers": []}
+    payload["smart_search"] = _smart_search_snapshot(settings)
+    return payload
+
+
+def _smart_search_snapshot(settings: Any) -> dict[str, Any]:
+    cli_path = resolve_smart_search_cli()
+    return {
+        "enabled": bool(getattr(settings.smart_search, "enabled", False)),
+        "timeout_seconds": int(getattr(settings.smart_search, "timeout_seconds", 0) or 0),
+        "cli_found": bool(cli_path),
+        "cli_path": cli_path,
+    }
+
+
+def _smart_search_diagnostics(settings: Any, *, timeout_seconds: float = 20.0) -> dict[str, Any]:
+    snapshot = _smart_search_snapshot(settings)
+    payload: dict[str, Any] = {
+        **snapshot,
+        "status": "ok",
+        "message": "smart-search 已启用且 doctor 可运行。",
+        "error_code": "",
+        "doctor": {},
+        "configured_channels": {},
+        "next_steps": [],
+    }
+    if not snapshot["enabled"]:
+        payload.update(
+            {
+                "status": "disabled",
+                "message": "SMART_SEARCH_ENABLED=false；SentimentAnalyst 将使用离线中性舆情基线。",
+                "next_steps": ["如需在线舆情，请在本地 runtime 配置或 .env 中启用 SMART_SEARCH_ENABLED=true。"],
+            }
+        )
+        return payload
+    if not snapshot["cli_found"]:
+        payload.update(
+            {
+                "status": "error",
+                "error_code": "E-SMART-SEARCH-NOT-FOUND",
+                "message": "smart-search CLI 未在当前 Python 进程 PATH 中找到。",
+                "next_steps": ["确认 smart-search 已安装。", "Windows/npm 安装时可设置 SMART_SEARCH_CLI 指向 smart-search.CMD。"],
+            }
+        )
+        return payload
+    doctor = run_smart_search_doctor(timeout_seconds=timeout_seconds)
+    if doctor.get("status") == "error" or doctor.get("error"):
+        payload.update(
+            {
+                "status": "error",
+                "error_code": doctor.get("error_code", "E-SMART-SEARCH-DOCTOR"),
+                "message": str(doctor.get("error", "smart-search doctor failed"))[:300],
+                "next_steps": ["先修复 smart-search doctor 报错，再运行 Agent 舆情分析。"],
+            }
+        )
+        return payload
+    channels = {
+        "openai_compatible": _configured_secret_flag(doctor.get("OPENAI_COMPATIBLE_API_KEY")),
+        "xai": _configured_secret_flag(doctor.get("XAI_API_KEY")),
+        "tavily": _configured_secret_flag(doctor.get("TAVILY_API_KEY")),
+        "firecrawl": _configured_secret_flag(doctor.get("FIRECRAWL_API_KEY")),
+        "anysearch": _configured_secret_flag(doctor.get("ANYSEARCH_API_KEY")),
+        "exa": _configured_secret_flag(doctor.get("EXA_API_KEY")),
+        "zhipu": _configured_secret_flag(doctor.get("ZHIPU_API_KEY")),
+    }
+    doctor_summary = {
+        "primary_api_mode": doctor.get("primary_api_mode", ""),
+        "openai_compatible_model": doctor.get("OPENAI_COMPATIBLE_MODEL", ""),
+        "validation_level": doctor.get("SMART_SEARCH_VALIDATION_LEVEL", ""),
+        "fallback_mode": doctor.get("SMART_SEARCH_FALLBACK_MODE", ""),
+        "config_file": doctor.get("config_file", ""),
+        "resolved_log_dir": doctor.get("resolved_log_dir", ""),
+    }
+    payload.update({"configured_channels": channels, "doctor": doctor_summary})
+    if not any(channels.values()):
+        payload.update(
+            {
+                "status": "error",
+                "error_code": "E-SMART-SEARCH-NO-KEYS",
+                "message": "smart-search doctor 可运行，但未检测到可用检索/LLM 通道凭证。",
+                "next_steps": ["在 smart-search 配置中至少配置一个可用通道后重试。"],
+            }
+        )
+    return payload
+
+
+def _configured_secret_flag(value: Any) -> bool:
+    text = str(value or "").strip()
+    return bool(text and text not in {"未配置", "not configured", "None", "null"})
 
 
 def _test_one_datasource(

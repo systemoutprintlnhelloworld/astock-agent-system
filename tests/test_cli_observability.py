@@ -172,6 +172,67 @@ def test_renderer_local_market_status_shows_inventory(capsys) -> None:  # noqa: 
     assert "tushare" in output
 
 
+def test_renderer_local_market_status_shows_coverage_heatmap(capsys) -> None:  # noqa: ANN001
+    payload = {
+        "db_path": "data/market_local/market.sqlite",
+        "provider_chain": ["tushare", "baostock"],
+        "local_stats": {"exists": True, "stocks": 2, "bars": 4, "quotes": 1, "financials": 1, "sync_runs": 1, "latest_sync_at": "2026-06-11 10:00:00"},
+        "recent_sync_runs": [],
+        "coverage": {
+            "exists": True,
+            "stock_count": 2,
+            "bars_stock_count": 2,
+            "quote_stock_count": 1,
+            "financial_stock_count": 1,
+            "bar_count": 4,
+            "date_count": 2,
+            "first_date": "2026-06-01",
+            "last_date": "2026-06-02",
+            "bar_stock_coverage": 1.0,
+            "quote_stock_coverage": 0.5,
+            "financial_stock_coverage": 0.5,
+            "recent_dates": [{"date": "2026-06-01", "stocks": 1, "bars": 1}, {"date": "2026-06-02", "stocks": 2, "bars": 2}],
+            "top_stocks": [{"stock_code": "600036", "stock_name": "招商银行", "sector": "金融", "bars": 2, "first_date": "2026-06-01", "last_date": "2026-06-02", "has_quote": True, "has_financial": True}],
+            "sector_coverage": [{"sector": "金融", "stocks": 1, "bars_stock_count": 1, "bars": 2}],
+        },
+    }
+
+    _plain_renderer().render_local_market_status(payload)
+
+    output = capsys.readouterr().out
+    assert "覆盖率 / 日期热力图" in output
+    assert "日期热力图" in output
+    assert "行业/分组覆盖" in output
+    assert "600036" in output
+
+
+def test_renderer_smart_search_status_shows_doctor_summary(capsys) -> None:  # noqa: ANN001
+    payload = {
+        "status": "ok",
+        "enabled": True,
+        "cli_path": "C:/Users/demo/AppData/Roaming/npm/smart-search.CMD",
+        "error_code": "",
+        "message": "smart-search 已启用且 doctor 可运行。",
+        "doctor": {
+            "primary_api_mode": "chat-completions",
+            "openai_compatible_model": "grok-demo",
+            "validation_level": "fast",
+            "fallback_mode": "auto",
+            "config_file": "config.json",
+            "resolved_log_dir": "logs",
+        },
+        "configured_channels": {"openai_compatible": True, "tavily": False},
+        "next_steps": [],
+    }
+
+    _plain_renderer().render_smart_search_status(payload)
+
+    output = capsys.readouterr().out
+    assert "smart-search 自检" in output
+    assert "doctor 摘要" in output
+    assert "grok-demo" in output
+
+
 def test_iwencai_skillhub_reports_missing_cli_and_key(monkeypatch) -> None:  # noqa: ANN001
     monkeypatch.setattr("shutil.which", lambda _: None)
 

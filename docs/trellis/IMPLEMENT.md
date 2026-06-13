@@ -4,7 +4,33 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
-## 最新交付记录：iFinD/iWencai、状态栏与多 Agent 协作可见性（2026-06-12）
+## 最新交付记录：smart-search 自检、本地市场库覆盖率与交互式数据源入口（2026-06-13）
+
+本轮继续按用户要求暂停 GUI/TUI 扩展，优先把 Python CLI 后端链路做成可诊断、可解释、可交接的工作流。重点修复真实运行中暴露的 `smart-search` Windows shim/PATH 问题，并把 iWencai 与本地市场 SQLite 库状态纳入交互式数据源页面。
+
+已落地：
+
+- 新增 `src/astock_agent_system/smart_search.py`，统一解析并调用本机 `smart-search` CLI。Windows/npm 安装出的 `smart-search.CMD` 会先通过 `shutil.which` 解析为真实路径，再传给 `subprocess.run`，避免长程 Agent 进程内出现 `[WinError 2]`。
+- `SentimentAnalyst` 改为复用 smart-search helper；调用失败时仍明确标记 `smart-search-error`、保留中性临时舆情，并把风险提示交给前台，而不是静默伪装为成功。
+- 新增 `datasource smart-search-status`，输出 doctor 摘要、CLI 解析路径、已配置检索通道与 next steps；JSON 输出会先递归脱敏，避免把 doctor 返回的本地 key 状态写入用户可分享日志。
+- 交互式“数据源配置与诊断”页面补齐 iWencai 状态、配置、公告检索和 smart-search 自检入口，用户无需记忆长命令即可排查 SkillHub/smart-search 状态。
+- `LocalMarketStore.coverage_summary()` 新增本地 SQLite 市场库覆盖统计，包括股票/K线/行情/财务覆盖率、日期范围、最近交易日覆盖热力图、样本股票覆盖和行业/分组覆盖。
+- `datasource local-status` 的 CLI 渲染增强为本地市场库可观察性页，除库存和最近同步记录外直接展示覆盖率、日期热力图、样本股票覆盖和 sector/group 分布，便于判断本地库是否足够支撑多股票/板块研究。
+- 新增/更新聚焦测试覆盖 smart-search 状态渲染、local-status 覆盖率渲染和 `LocalMarketStore.coverage_summary()`。
+
+验证：
+
+```powershell
+python -m pytest tests/test_cli_observability.py tests/test_data_agent.py -q
+```
+
+下一步：
+
+1. 在用户本机继续运行 `datasource smart-search-status` 与 `agent start`，确认 `SentimentAnalyst` 不再出现 `[WinError 2]`。
+2. 若用户需要更强的底部固定状态栏，再把当前终端安全的状态栏升级为 Rich Live footer，并保持纯文本 fallback 可测试、可复制。
+3. 继续推进本地市场库 freshness/增量窗口、公告/新闻入库和板块级主动研究；不要把当前覆盖率页误报为完整数据仓库。
+
+## 上一交付记录：iFinD/iWencai、状态栏与多 Agent 协作可见性（2026-06-12）
 
 本轮继续按 CLI-first 后端交付路线推进，重点修复用户反馈的 iFinD 不可用、iWencai 未配置、运行状态不可见、Mongo 错误冗长、多 Agent 辩论不像协作、股票池筛选过早停止等问题。
 
