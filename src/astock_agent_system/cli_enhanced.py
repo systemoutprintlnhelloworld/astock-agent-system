@@ -86,6 +86,34 @@ def _redact_for_run_log(value: Any) -> Any:
     return value
 
 
+def _redact_known_values(value: Any, sensitive_values: list[str]) -> Any:
+    """Redact runtime-only secret values that may appear inside provider exceptions."""
+
+    secrets = [str(item) for item in sensitive_values if str(item or "")]
+    if isinstance(value, dict):
+        return {key: _redact_known_values(item, secrets) for key, item in value.items()}
+    if isinstance(value, list):
+        return [_redact_known_values(item, secrets) for item in value]
+    if isinstance(value, tuple):
+        return [_redact_known_values(item, secrets) for item in value]
+    if isinstance(value, str):
+        text = value
+        for secret in secrets:
+            text = text.replace(secret, "***REDACTED***")
+        return _redact_string_for_run_log(text)
+    return value
+
+
+def _masked_identifier(value: str) -> str:
+    """Return a non-reversible identifier summary for secret account candidates."""
+
+    text = str(value or "").strip()
+    if not text:
+        return "empty"
+    kind = "numeric" if text.isdigit() else "email" if "@" in text else "text"
+    return f"{kind}:len={len(text)}"
+
+
 def _compact_error(message: Any, *, retry: str | int | None = None) -> dict[str, Any]:
     """Classify noisy exceptions into a short Chinese reason plus stable error code."""
 
@@ -905,29 +933,46 @@ def cmd_datasource_sync_local(args: Any) -> int:
 
 def cmd_datasource_configure_jqdata(args: Any) -> int:
     """Persist JQData credentials after a real provider preflight."""
-    username = str(getattr(args, "username", "") or "").strip()
-    if not username:
-        username = input("JQData username: ").strip()
+    candidates = _collect_jqdata_candidates(args)
     password = getpass.getpass("JQData password: ").strip()
-    if not username or not password:
-        print(json.dumps({"status": "error", "message": "username and password are required"}, ensure_ascii=False, indent=2))
+    if not candidates or not password:
+        print(json.dumps({"status": "error", "message": "at least one username candidate and password are required"}, ensure_ascii=False, indent=2))
         return 1
     provider_chain = _parse_models(str(getattr(args, "provider_chain", "") or ""))
     settings = load_settings(getattr(args, "config", None))
     if not provider_chain:
         provider_chain = list(getattr(settings.data, "provider_chain", []) or [])
-    scoped = copy.deepcopy(settings)
-    scoped.data.jqdata_username = username
-    scoped.data.jqdata_password = password
-    scoped.data.provider_chain = ["jqdata"]
-    preflight = _test_one_datasource(scoped, source="jqdata", stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=12.0)
-    if preflight.get("status") != "ok":
+    attempts: list[dict[str, Any]] = []
+    selected_username = ""
+    selected_preflight: dict[str, Any] = {}
+    for index, candidate in enumerate(candidates, start=1):
+        scoped = copy.deepcopy(settings)
+        scoped.data.jqdata_username = candidate
+        scoped.data.jqdata_password = password
+        scoped.data.provider_chain = ["jqdata"]
+        preflight = _test_one_datasource(scoped, source="jqdata", stock_code="600519", days=5, checks=["history", "quote"], timeout_seconds=12.0)
+        safe_preflight = _redact_known_values(preflight, [candidate, password])
+        attempt = {
+            "candidate_index": index,
+            "masked_candidate": _masked_identifier(candidate),
+            "preflight": {
+                "status": safe_preflight.get("status"),
+                "checks": safe_preflight.get("checks", []),
+            },
+        }
+        if preflight.get("status") != "ok":
+            attempt["error"] = _compact_error(safe_preflight.get("message", "JQData preflight failed"))
+        attempts.append(attempt)
+        if preflight.get("status") == "ok":
+            selected_username = candidate
+            selected_preflight = safe_preflight
+            break
+    if not selected_username:
         payload = {
             "status": "error",
             "message": "JQData 自检失败，已拒绝写入本地配置",
             "provider": "jqdata",
-            "checks": preflight.get("checks", []),
-            "error": _compact_error(preflight.get("message", "JQData preflight failed")),
+            "attempts": attempts,
         }
         print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
         return 1
@@ -939,7 +984,7 @@ def cmd_datasource_configure_jqdata(args: Any) -> int:
     path = save_runtime_overrides(
         {
             "data": {
-                "jqdata_username": username,
+                "jqdata_username": selected_username,
                 "jqdata_password": password,
                 "provider_chain": normalized_chain,
             }
@@ -950,12 +995,33 @@ def cmd_datasource_configure_jqdata(args: Any) -> int:
         "message": "JQData credentials saved to ignored runtime config",
         "runtime_config_path": str(path),
         "provider_chain": normalized_chain,
+        "selected_candidate_index": next((item["candidate_index"] for item in attempts if item.get("preflight", {}).get("status") == "ok"), 0),
+        "selected_candidate": _masked_identifier(selected_username),
         "has_jqdata_username": True,
         "has_jqdata_password": True,
-        "preflight": {"status": preflight.get("status"), "checks": preflight.get("checks", [])},
+        "preflight": {"status": selected_preflight.get("status"), "checks": selected_preflight.get("checks", [])},
+        "attempts": attempts,
     }
     print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
     return 0
+
+
+def _collect_jqdata_candidates(args: Any) -> list[str]:
+    """Collect JQData username candidates without echoing prompt-based values."""
+
+    candidates: list[str] = []
+    username = str(getattr(args, "username", "") or "").strip()
+    if username:
+        candidates.append(username)
+    candidate_count = max(1, int(getattr(args, "candidate_count", 1) or 1))
+    while len(candidates) < candidate_count:
+        prompt = f"JQData username candidate #{len(candidates) + 1} (hidden, blank to finish): "
+        candidate = getpass.getpass(prompt).strip()
+        if not candidate:
+            break
+        if candidate not in candidates:
+            candidates.append(candidate)
+    return candidates
 
 
 def cmd_datasource_configure_ifind(args: Any) -> int:

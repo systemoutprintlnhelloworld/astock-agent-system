@@ -51,6 +51,7 @@
 - 运行日志可解释性：`agent start` 的 summary 明确记录 `run_id`、账户模式、是否 fresh start、是否继续读取存储、实际恢复账户数和同日幂等跳过账户数，避免把历史 summary 当作当前决策流。
 - CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台；顶层拆成“LLM 配置与诊断 / 数据源配置与诊断 / 本地数据同步 / 运行工作流 / 学习中心 / 运行日志”页面，并保留快速向导，默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
 - 数据源凭证准入：Tushare、JQData、iFinD / 同花顺 QuantAPI 的隐藏输入配置现在先做真实自检，失败时拒绝写入本地运行态配置；iFinD 会额外输出多股票/多代码格式矩阵诊断，帮助判断是代码格式、空返回还是账号权限问题。
+- JQData 隐藏输入配置支持 `--candidate-count` 多用户名候选探测：手机号、用户名等候选只在进程内用于 preflight，终端和日志只显示候选序号与不可逆长度摘要；首个自检成功候选才写入 Git 忽略的 runtime 配置，失败不会保存凭据。
 - CLI UX 继续收敛：LLM 模型列表支持编号选择；本地同步页的第二项改为 SQLite 本地市场库状态；`datasource local-status` 可查看库存量、最近同步时间和最近同步记录；连续运行会先立即启动第 1 轮并显示倒计时。
 - 运行结束看板补强：`agent start` 摘要新增账户看板、当前持仓、最近交易、买/卖次数和本轮 PnL，避免一轮跑完后只看到收益排行。
 - smart-search 现在默认启用；若 CLI 请求失败会显示 `smart-search-error` 风险提示，而不是继续误导为“未启用”。iFinD 新增 `IFIND_BASE_URL` 配置、常见代码格式归一化和矩阵失败诊断；iWencai SkillHub 仍作为研究/公告技能边界记录，不把真实 key 写入仓库。

@@ -48,6 +48,24 @@ LLM_MAX_TOKENS=128
 SCHEDULER_MODELS=rule-baseline,gpt-5.4-mini
 ```
 
+### 可选：安全配置 JQData
+
+如果你有 JQData / 聚宽账号，可以通过隐藏输入保存到 Git 忽略的本地运行态配置。不要把账号或密码写进命令行、文档、截图或提交记录。
+
+单个用户名候选：
+
+```powershell
+python -m astock_agent_system.cli datasource configure-jqdata
+```
+
+如果不确定 JQData 接受手机号、用户名还是其他登录名，可让 CLI 通过隐藏输入逐个探测候选；程序只在内存中尝试，终端输出只显示候选序号和不可逆长度摘要：
+
+```powershell
+python -m astock_agent_system.cli datasource configure-jqdata --candidate-count 2
+```
+
+自检成功后才会写入 `data/runtime/settings.override.json`；失败时不会保存凭据。输出中的 `masked_candidate` 只用于确认候选类型和长度，不会回显真实登录名或密码。
+
 ## 3. 启动 MongoDB 和 Redis
 
 模拟盘排行榜、持仓快照、交易记录需要 MongoDB；缓存需要 Redis。

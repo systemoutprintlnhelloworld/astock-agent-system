@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import json
+from types import SimpleNamespace
 
 from astock_agent_system.cli import build_parser
-from astock_agent_system.cli_enhanced import RunLogRecorder
+from astock_agent_system.cli_enhanced import RunLogRecorder, cmd_datasource_configure_jqdata
 from astock_agent_system.agents.master_agent import MasterAgent
 from astock_agent_system.config import load_settings
 from astock_agent_system.events import AgentEventEmitter
@@ -237,6 +238,76 @@ def test_datasource_active_scan_cli_parser_wires_options():
     assert args.min_amount == 100000000
     assert args.top_per_sector == 3
     assert args.format == "json"
+
+
+def test_configure_jqdata_parser_supports_hidden_candidate_count():
+    parser = build_parser()
+    args = parser.parse_args(["datasource", "configure-jqdata", "--candidate-count", "2", "--provider-chain", "tushare"])
+
+    assert args.func.__name__ == "cmd_datasource_configure_jqdata"
+    assert args.candidate_count == 2
+    assert args.provider_chain == "tushare"
+
+
+def test_configure_jqdata_redacts_candidate_and_password(monkeypatch, capsys):
+    secret_candidate = "secret-jqdata-user"
+    secret_password = "secret-jqdata-password"
+    saved_payloads: list[dict[str, object]] = []
+
+    import astock_agent_system.cli_enhanced as cli_enhanced
+
+    monkeypatch.setattr(cli_enhanced.getpass, "getpass", lambda _prompt: secret_password)
+
+    monkeypatch.setattr(
+        cli_enhanced,
+        "_test_one_datasource",
+        lambda *_args, **_kwargs: {
+            "status": "ok",
+            "message": f"logged in as {secret_candidate} with {secret_password}",
+            "checks": [{"operation": "history", "status": "ok"}],
+        },
+    )
+    monkeypatch.setattr(cli_enhanced, "save_runtime_overrides", lambda payload: saved_payloads.append(payload) or "runtime.local.json")
+
+    exit_code = cmd_datasource_configure_jqdata(
+        SimpleNamespace(username=secret_candidate, candidate_count=1, provider_chain="", config=None)
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 0
+    assert secret_candidate not in output
+    assert secret_password not in output
+    assert "text:len=18" in output
+    assert saved_payloads[0]["data"]["jqdata_username"] == secret_candidate  # type: ignore[index]
+    assert saved_payloads[0]["data"]["jqdata_password"] == secret_password  # type: ignore[index]
+
+
+def test_configure_jqdata_redacts_failed_attempt_messages(monkeypatch, capsys):
+    secret_candidate = "secret-jqdata-user"
+    secret_password = "secret-jqdata-password"
+
+    import astock_agent_system.cli_enhanced as cli_enhanced
+
+    monkeypatch.setattr(cli_enhanced.getpass, "getpass", lambda _prompt: secret_password)
+    monkeypatch.setattr(
+        cli_enhanced,
+        "_test_one_datasource",
+        lambda *_args, **_kwargs: {
+            "status": "error",
+            "message": f"auth failed for {secret_candidate} / {secret_password}",
+            "checks": [],
+        },
+    )
+
+    exit_code = cmd_datasource_configure_jqdata(
+        SimpleNamespace(username=secret_candidate, candidate_count=1, provider_chain="", config=None)
+    )
+    output = capsys.readouterr().out
+
+    assert exit_code == 1
+    assert secret_candidate not in output
+    assert secret_password not in output
+    assert "***REDACTED***" in output
 
 
 def test_run_log_summary_records_run_and_account_metadata(monkeypatch, tmp_path):

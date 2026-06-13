@@ -1279,6 +1279,12 @@ def build_parser() -> argparse.ArgumentParser:
     )
     datasource_jqdata_parser.add_argument("--username", default="", help="Optional JQData username; password is always prompted securely")
     datasource_jqdata_parser.add_argument(
+        "--candidate-count",
+        type=int,
+        default=1,
+        help="Number of hidden username candidates to probe before saving the first successful JQData preflight",
+    )
+    datasource_jqdata_parser.add_argument(
         "--provider-chain",
         default="",
         help="Optional comma-separated provider chain to save; jqdata is appended when absent",
