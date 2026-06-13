@@ -1,6 +1,9 @@
 from __future__ import annotations
 
+import json
+
 from astock_agent_system.cli import build_parser
+from astock_agent_system.cli_enhanced import RunLogRecorder
 from astock_agent_system.agents.master_agent import MasterAgent
 from astock_agent_system.config import load_settings
 from astock_agent_system.events import AgentEventEmitter
@@ -27,7 +30,15 @@ def test_competition_runs_independent_accounts_without_persistence(monkeypatch):
     )
 
     assert payload["status"] == "ok"
+    assert payload["run_id"]
     assert payload["run_date"] == "2026-01-05"
+    assert payload["account_mode"] == "fresh_start"
+    assert payload["fresh_start"] is True
+    assert payload["continue_from_storage"] is False
+    assert payload["snapshot_restore"]["status"] == "fresh_start"
+    assert payload["snapshot_restore"]["loaded_count"] == 0
+    assert payload["restored_account_count"] == 0
+    assert payload["skipped_agent_count"] == 0
     assert payload["model_count"] == 2
     assert "persisted" not in payload
     assert len(payload["rankings"]) == 2
@@ -110,6 +121,12 @@ def test_competition_can_continue_from_previous_snapshot(monkeypatch):
     assert agent["previous_equity"] == 99350
     assert agent["initial_capital"] == 100000
     assert round(agent["equity"] - 99350, 4) == agent["daily_pnl"]
+    assert payload["account_mode"] == "continue_from_storage"
+    assert payload["fresh_start"] is False
+    assert payload["continue_from_storage"] is True
+    assert payload["restored_account_count"] == 1
+    assert payload["snapshot_restore"]["loaded_count"] == 1
+    assert payload["snapshot_restore"]["missing_agent_ids"] == []
     assert payload["rankings"][0]["restored_from_snapshot"] is True
     assert payload["rankings"][0]["previous_snapshot_date"] == "2026-01-04"
 
@@ -157,6 +174,9 @@ def test_competition_is_idempotent_for_existing_trade_date_snapshot(monkeypatch)
     assert agent["buy_count"] == 0
     assert agent["sell_count"] == 0
     assert agent["positions"][0]["shares"] == 100
+    assert payload["restored_account_count"] == 1
+    assert payload["skipped_agent_count"] == 1
+    assert payload["snapshot_restore"]["skipped_agent_ids"] == ["agent-rule-baseline"]
     assert payload["rankings"][0]["skipped_execution"] is True
     assert payload["rankings"][0]["skip_reason"] == "already_ran_for_trade_date"
 
@@ -188,6 +208,66 @@ def test_compete_cli_parser_wires_command_options():
     assert args.initial_capital == 100000
     assert args.fresh_start is True
     assert args.no_persist is True
+
+
+def test_datasource_active_scan_cli_parser_wires_options():
+    parser = build_parser()
+    args = parser.parse_args(
+        [
+            "datasource",
+            "active-scan",
+            "--limit",
+            "20",
+            "--sector",
+            "银行",
+            "--sector",
+            "半导体,券商",
+            "--min-amount",
+            "100000000",
+            "--top-per-sector",
+            "3",
+            "--format",
+            "json",
+        ]
+    )
+
+    assert args.func.__name__ == "cmd_datasource_active_scan"
+    assert args.limit == 20
+    assert args.sector == ["银行", "半导体,券商"]
+    assert args.min_amount == 100000000
+    assert args.top_per_sector == 3
+    assert args.format == "json"
+
+
+def test_run_log_summary_records_run_and_account_metadata(monkeypatch, tmp_path):
+    settings = _offline_settings(monkeypatch)
+    import astock_agent_system.cli_enhanced as cli_enhanced
+
+    monkeypatch.setattr(cli_enhanced, "PROJECT_ROOT", tmp_path)
+    recorder = RunLogRecorder(settings, models=["rule-baseline"])
+    payload = {
+        "status": "ok",
+        "run_id": "run-1234",
+        "run_date": "2026-01-05",
+        "account_mode": "fresh_start",
+        "fresh_start": True,
+        "continue_from_storage": False,
+        "restored_account_count": 0,
+        "skipped_agent_count": 0,
+        "snapshot_restore": {"status": "fresh_start", "loaded_count": 0},
+        "model_count": 1,
+        "rankings": [],
+    }
+
+    recorder.write_summary(payload)
+    summary = json.loads(recorder.summary_path.read_text(encoding="utf-8"))
+
+    assert summary["run_id"] == "run-1234"
+    assert summary["fresh_start"] is True
+    assert summary["continue_from_storage"] is False
+    assert summary["snapshot_restore"]["status"] == "fresh_start"
+    assert summary["log_path"].endswith(".jsonl")
+    assert summary["summary_path"].endswith(".summary.json")
 
 
 def test_master_agent_emits_fine_grained_observability_events(monkeypatch):

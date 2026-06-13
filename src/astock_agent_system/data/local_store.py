@@ -455,9 +455,288 @@ class LocalMarketStore:
             ],
         }
 
+    def scan_candidates(
+        self,
+        *,
+        limit: int = 30,
+        as_of_date: str | None = None,
+        sectors: list[str] | None = None,
+        min_amount: float | None = None,
+        min_volume: float | None = None,
+        min_change_pct: float | None = None,
+        max_change_pct: float | None = None,
+        history_days: int = 20,
+        top_per_sector: int | None = None,
+        include_stale: bool = False,
+    ) -> dict[str, Any]:
+        """Scan the local SQLite warehouse for a broad, non-LLM candidate shortlist.
+
+        This method is intentionally read-only and does not call online providers.
+        It is a fast discovery layer before the deeper multi-agent analysis.
+        """
+
+        safe_limit = max(1, min(int(limit or 30), 500))
+        safe_history_days = max(2, min(int(history_days or 20), 250))
+        normalized_sectors = _normalize_filter_values(sectors or [])
+        criteria = {
+            "limit": safe_limit,
+            "as_of_date": as_of_date or "",
+            "sectors": normalized_sectors,
+            "min_amount": min_amount,
+            "min_volume": min_volume,
+            "min_change_pct": min_change_pct,
+            "max_change_pct": max_change_pct,
+            "history_days": safe_history_days,
+            "top_per_sector": top_per_sector,
+            "include_stale": bool(include_stale),
+        }
+        base_payload: dict[str, Any] = {
+            "status": "missing_db" if not self.exists() else "empty",
+            "source": "local_sqlite",
+            "db_path": str(self.path),
+            "criteria": criteria,
+            "coverage": self.coverage_summary(stock_limit=min(safe_limit, 30), date_limit=min(safe_history_days, 60)),
+            "latest_quote_date": "",
+            "as_of_date": as_of_date or "",
+            "candidate_pool_count": 0,
+            "stale_count": 0,
+            "count": 0,
+            "candidates": [],
+            "next_steps": [
+                "先运行 datasource sync-local 补齐本地 SQLite 行情，再重新执行 active-scan。",
+                "active-scan 只做本地广域发现；对候选股仍需运行 analyze 或 agent start 做深度多 Agent 分析。",
+            ],
+        }
+        if not self.exists():
+            return base_payload
+
+        params: list[Any] = []
+        where = ["1=1"]
+        try:
+            with self._connect(readonly=True) as conn:
+                latest_row = conn.execute("SELECT MAX(date) FROM quotes").fetchone()
+                latest_quote_date = str(latest_row[0] or "") if latest_row else ""
+                reference_date = (as_of_date or latest_quote_date).strip()
+                if not include_stale and reference_date:
+                    where.append("q.date = ?")
+                    params.append(reference_date)
+                elif include_stale and as_of_date:
+                    where.append("q.date <= ?")
+                    params.append(as_of_date)
+                if normalized_sectors:
+                    placeholders = ",".join("?" for _ in normalized_sectors)
+                    where.append(f"COALESCE(NULLIF(q.sector, ''), NULLIF(s.sector, ''), NULLIF(f.sector, ''), '') IN ({placeholders})")
+                    params.extend(normalized_sectors)
+                if min_amount is not None:
+                    where.append("q.amount >= ?")
+                    params.append(float(min_amount))
+                if min_volume is not None:
+                    where.append("q.volume >= ?")
+                    params.append(float(min_volume))
+                if min_change_pct is not None:
+                    where.append("q.change_pct >= ?")
+                    params.append(float(min_change_pct))
+                if max_change_pct is not None:
+                    where.append("q.change_pct <= ?")
+                    params.append(float(max_change_pct))
+
+                pool_limit = max(safe_limit * 8, 200)
+                rows = conn.execute(
+                    f"""
+                    SELECT q.stock_code,
+                           COALESCE(NULLIF(q.stock_name, ''), NULLIF(s.stock_name, ''), q.stock_code) AS stock_name,
+                           COALESCE(NULLIF(q.sector, ''), NULLIF(s.sector, ''), NULLIF(f.sector, ''), '') AS sector,
+                           q.date, q.price, q.change_pct, q.volume, q.amount,
+                           f.pe_ttm, f.pb, f.roe, f.market_cap
+                    FROM quotes q
+                    LEFT JOIN stocks s ON s.stock_code = q.stock_code
+                    LEFT JOIN financials f ON f.stock_code = q.stock_code
+                    WHERE {' AND '.join(where)}
+                    ORDER BY q.amount DESC, q.volume DESC, q.stock_code
+                    LIMIT ?
+                    """,
+                    (*params, pool_limit),
+                ).fetchall()
+        except sqlite3.Error as exc:
+            base_payload["status"] = "error"
+            base_payload["error"] = str(exc)[:500]
+            return base_payload
+
+        if not rows:
+            base_payload["latest_quote_date"] = reference_date if "reference_date" in locals() else ""
+            base_payload["as_of_date"] = base_payload["latest_quote_date"]
+            return base_payload
+
+        max_amount = max(_safe_float(row[7]) for row in rows) or 1.0
+        candidates: list[dict[str, Any]] = []
+        for row in rows:
+            stock_code = str(row[0])
+            bars = self.get_history(stock_code, days=safe_history_days)
+            return_5d = _window_return(bars, 5)
+            return_20d = _window_return(bars, 20)
+            latest_bar = bars[-1] if bars else None
+            previous_bars = bars[:-1] or bars
+            avg_volume = sum(item.volume for item in previous_bars) / len(previous_bars) if previous_bars else 0.0
+            avg_amount = sum(item.amount for item in previous_bars) / len(previous_bars) if previous_bars else 0.0
+            volume_ratio = (latest_bar.volume / avg_volume) if latest_bar and avg_volume else 0.0
+            amount_ratio = (latest_bar.amount / avg_amount) if latest_bar and avg_amount else 0.0
+            amount = _safe_float(row[7])
+            change_pct = _safe_float(row[5])
+            liquidity_score = _clamp(amount / max(max_amount, _safe_float(min_amount), 1.0))
+            momentum_score = _clamp(0.5 + change_pct * 4.0 + return_5d * 2.0 + return_20d)
+            expansion_score = _clamp((max(volume_ratio, amount_ratio) - 0.8) / 1.4)
+            roe = _safe_float(row[10])
+            quality_score = _clamp(roe / 0.18) if roe else 0.5
+            score = liquidity_score * 0.35 + momentum_score * 0.25 + expansion_score * 0.25 + quality_score * 0.15
+            reasons = _candidate_reasons(
+                amount=amount,
+                min_amount=_safe_float(min_amount),
+                change_pct=change_pct,
+                return_5d=return_5d,
+                return_20d=return_20d,
+                volume_ratio=volume_ratio,
+                amount_ratio=amount_ratio,
+                roe=roe,
+                quote_date=str(row[3] or ""),
+                latest_quote_date=latest_quote_date,
+            )
+            candidates.append(
+                {
+                    "stock_code": stock_code,
+                    "stock_name": str(row[1] or stock_code),
+                    "sector": str(row[2] or ""),
+                    "date": str(row[3] or ""),
+                    "price": round(_safe_float(row[4]), 4),
+                    "change_pct": round(change_pct, 6),
+                    "volume": round(_safe_float(row[6]), 4),
+                    "amount": round(amount, 4),
+                    "turnover": round(_safe_float(getattr(latest_bar, "turnover", 0.0)), 6),
+                    "return_5d": round(return_5d, 6),
+                    "return_20d": round(return_20d, 6),
+                    "volume_ratio_20d": round(volume_ratio, 6),
+                    "amount_ratio_20d": round(amount_ratio, 6),
+                    "pe_ttm": round(_safe_float(row[8]), 4),
+                    "pb": round(_safe_float(row[9]), 4),
+                    "roe": round(roe, 6),
+                    "market_cap": round(_safe_float(row[11]), 4),
+                    "bar_count": len(bars),
+                    "score": round(score, 6),
+                    "reasons": reasons,
+                    "next_steps": [
+                        f"python -m astock_agent_system.cli analyze {stock_code} --days {safe_history_days}",
+                        "检查最近 K 线、财务快照和公告/舆情风险后再交给模拟盘。",
+                    ],
+                }
+            )
+
+        candidates.sort(key=lambda item: (item["score"], item["amount"]), reverse=True)
+        selected = _apply_sector_cap(candidates, safe_limit=safe_limit, top_per_sector=top_per_sector)
+        return {
+            **base_payload,
+            "status": "ok" if selected else "empty",
+            "latest_quote_date": latest_quote_date,
+            "as_of_date": reference_date,
+            "candidate_pool_count": len(candidates),
+            "stale_count": sum(1 for item in candidates if latest_quote_date and item.get("date") != latest_quote_date),
+            "count": len(selected),
+            "candidates": selected,
+            "next_steps": [
+                "把 active-scan 输出当作广域短名单，不等同于买入建议。",
+                "对候选股运行 analyze 或 agent start，查看完整技术/基本面/舆情/风控协作链。",
+                "若覆盖率低或日期陈旧，先运行 datasource sync-local 增量补齐本地库。",
+            ],
+        }
+
     def _connect(self, readonly: bool = False) -> sqlite3.Connection:
         if readonly:
             uri = f"file:{self.path.as_posix()}?mode=ro"
             return sqlite3.connect(uri, uri=True)
         self.path.parent.mkdir(parents=True, exist_ok=True)
         return sqlite3.connect(self.path)
+
+
+def _safe_float(value: Any) -> float:
+    try:
+        if value is None or value == "":
+            return 0.0
+        return float(value)
+    except (TypeError, ValueError):
+        return 0.0
+
+
+def _clamp(value: float, minimum: float = 0.0, maximum: float = 1.0) -> float:
+    return max(minimum, min(maximum, value))
+
+
+def _normalize_filter_values(values: list[str]) -> list[str]:
+    normalized: list[str] = []
+    for value in values:
+        for item in str(value or "").split(","):
+            text = item.strip()
+            if text and text not in normalized:
+                normalized.append(text)
+    return normalized
+
+
+def _window_return(bars: list[StockBar], window: int) -> float:
+    if len(bars) < 2:
+        return 0.0
+    latest = bars[-1].close
+    base_index = max(0, len(bars) - window - 1)
+    base = bars[base_index].close
+    return (latest / base - 1.0) if base else 0.0
+
+
+def _candidate_reasons(
+    *,
+    amount: float,
+    min_amount: float,
+    change_pct: float,
+    return_5d: float,
+    return_20d: float,
+    volume_ratio: float,
+    amount_ratio: float,
+    roe: float,
+    quote_date: str,
+    latest_quote_date: str,
+) -> list[str]:
+    reasons: list[str] = []
+    if min_amount > 0 and amount >= min_amount:
+        reasons.append(f"成交额达到阈值（{amount:,.0f} >= {min_amount:,.0f}）")
+    elif amount > 0:
+        reasons.append(f"成交额靠前（{amount:,.0f}）")
+    if change_pct > 0:
+        reasons.append(f"最新涨跌幅为正（{change_pct:.2%}）")
+    if return_5d > 0:
+        reasons.append(f"5日收益为正（{return_5d:.2%}）")
+    if return_20d > 0:
+        reasons.append(f"20日收益为正（{return_20d:.2%}）")
+    if volume_ratio >= 1.2 or amount_ratio >= 1.2:
+        reasons.append(f"近端量能放大（量比 {volume_ratio:.2f} / 额比 {amount_ratio:.2f}）")
+    if roe >= 0.1:
+        reasons.append(f"ROE 较高（{roe:.2%}）")
+    if latest_quote_date and quote_date and quote_date != latest_quote_date:
+        reasons.append(f"报价日期 {quote_date} 非全库最新 {latest_quote_date}，需复核时效")
+    return reasons[:6] or ["本地库指标进入候选池，需进一步深度分析"]
+
+
+def _apply_sector_cap(
+    candidates: list[dict[str, Any]],
+    *,
+    safe_limit: int,
+    top_per_sector: int | None,
+) -> list[dict[str, Any]]:
+    cap = int(top_per_sector or 0)
+    if cap <= 0:
+        return candidates[:safe_limit]
+    selected: list[dict[str, Any]] = []
+    counts: dict[str, int] = {}
+    for item in candidates:
+        sector = str(item.get("sector") or "(未分类)")
+        if counts.get(sector, 0) >= cap:
+            continue
+        selected.append(item)
+        counts[sector] = counts.get(sector, 0) + 1
+        if len(selected) >= safe_limit:
+            break
+    return selected

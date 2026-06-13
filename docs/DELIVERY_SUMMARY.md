@@ -12,6 +12,8 @@
 - 交互式数据源页面增加 iWencai 配置/状态/公告检索入口；`config` 输出只显示 `has_iwencai_api_key`，不泄露密钥。
 - 新增 `datasource smart-search-status`：解析 Windows/npm `smart-search.CMD` 真实路径，展示 doctor 摘要、已配置检索通道和 next steps；SentimentAnalyst 复用该解析逻辑，避免长程 Agent 运行中因 PATH 差异出现 `[WinError 2]`。
 - `datasource local-status` 增强为本地市场库可观察性页，除库存/最近同步外展示 K 线、行情、财务覆盖率、最近日期热力图、样本股票覆盖和行业/分组覆盖。
+- 新增 `datasource active-scan` 本地市场主动扫描：直接用 SQLite 中的股票池、报价、K 线和财务快照做广域候选短名单，不访问外部 provider、不调用 LLM、不输出交易建议，解决“几千只股票逐股深度分析太慢”的入口问题。
+- 运行 payload 和脱敏 summary 增加 `run_id`、`fresh_start`、`continue_from_storage`、`account_mode`、`snapshot_restore`、恢复账户数和同日快照跳过数，便于区分当前运行、历史日志、新账户和存储快照恢复。
 - Agent 前台运行增加终端安全的 `状态栏` 输出，持续显示模型、阶段、股票、步骤、决策、成交、收益和用时。
 - MongoDB 不可达时改为 `E-MONGO-CONNECT` 短提示，不再把 `ServerSelectionTimeout` 长异常刷到用户终端。
 - DebateRoom 改为显式收集技术/基本面/舆情 Agent 输入，生成多头、空头和评委轮次，让多 Agent 协作链可见。
@@ -45,6 +47,8 @@
 - 总览引导增强：现代控制台首页新增“开箱检查清单”和“首次启动向导”，帮助小白用户先补齐配置再跑首轮验证。
 - TUI 长程运行入口：`apps/tui` 复用同一个 FastAPI 后端，提供单选/多选初始化向导、已保存配置动态回填、密钥状态脱敏展示、按已选数据源跳过无关凭证、输入 `/` 即显示说明的命令面板、默认交易看板、`/run` 运行观测和 `/start` 后自动展示 run_id、状态、排行、持仓/交易与决策日志。
 - CLI 客观数据与本地同步：`agent start` 默认展示公司/行情、ASCII K 线、技术指标、财务估值和 Agent 协作链；运行事件会写入 Git 忽略的脱敏 JSONL 日志和摘要；`datasource sync-local` 支持 `fill-gaps` / `all-providers` 参与情况观察，用于先批量同步本地数据再运行 Agent。
+- 本地市场主动研究：`datasource active-scan` 可在不调用 LLM/外部 API 的情况下，从已同步 SQLite 市场库中按行业、成交额、涨跌幅、短期动量和量能生成候选短名单，再交给 `analyze` 或 `agent start` 做深度多 Agent 分析。
+- 运行日志可解释性：`agent start` 的 summary 明确记录 `run_id`、账户模式、是否 fresh start、是否继续读取存储、实际恢复账户数和同日幂等跳过账户数，避免把历史 summary 当作当前决策流。
 - CLI 交互式入口：日常测试 Python 后端现在可直接运行 `python -m astock_agent_system.cli` 进入工作流控制台；顶层拆成“LLM 配置与诊断 / 数据源配置与诊断 / 本地数据同步 / 运行工作流 / 学习中心 / 运行日志”页面，并保留快速向导，默认使用本地 `llm.default_model`，不再要求用户记忆复杂长命令。
 - 数据源凭证准入：Tushare、JQData、iFinD / 同花顺 QuantAPI 的隐藏输入配置现在先做真实自检，失败时拒绝写入本地运行态配置；iFinD 会额外输出多股票/多代码格式矩阵诊断，帮助判断是代码格式、空返回还是账号权限问题。
 - CLI UX 继续收敛：LLM 模型列表支持编号选择；本地同步页的第二项改为 SQLite 本地市场库状态；`datasource local-status` 可查看库存量、最近同步时间和最近同步记录；连续运行会先立即启动第 1 轮并显示倒计时。
@@ -124,7 +128,7 @@ python -m apps.tui --skip-wizard
 
 最近一次本地验证结果：
 
-- Python 测试：`81 passed`
+- Python 测试：`103 passed`
 - 前端 lint：`npm --prefix apps/frontend run lint` 通过
 - `bench --help`：通过
 - `bench-models --help`：通过
@@ -148,7 +152,7 @@ python -m apps.tui --skip-wizard
 - TUI/配置回归：`python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q` 通过（21 passed），覆盖运行态配置优先级、向导列表型 provider chain、初始化不写比赛模型、`/agent stats` 别名、`/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
 - CLI 交互式入口回归：`python -m pytest tests/test_cli_interactive.py tests/test_data_agent.py tests/test_llm_client.py tests/test_orchestrator.py tests/test_scheduler.py -q` 通过（37 passed），覆盖无子命令进入菜单、菜单退出、单轮 Agent 启动参数仍使用本地默认模型且不强制 offline。
 - TUI 真实后端命令链路：已脱敏验证 `/help`、`/status`、`/models list/set/selected`、`/workflow offline`、`/providers`、`/config show`、`/config test-llm`、`/dashboard` 系列、`/start --offline --max-count 1 --days 12`、`/run`、`/agent list/stats`、`/compact`、`/permission`、`/sandbox`、`/theme`、`/lang`、`/attachments`、`/history` 和 `/memory` 均可执行。
-- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `81 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
+- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `103 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态

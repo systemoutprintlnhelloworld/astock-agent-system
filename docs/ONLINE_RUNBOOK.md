@@ -9,7 +9,9 @@
 - iFinD HTTP 适配器已按同花顺 QuantAPI 文档改为历史行情 `cmd_history_quotation`、实时行情 `real_time_quotation`，默认 base URL 为 `https://quantapi.51ifind.com/api/v1`；历史行情会自动尝试官方后缀、原始代码和 `SH/SZ` 前缀等格式，并在扩展指标不可用时回退到 OHLC 最小指标集。
 - `smart-search` 默认开启；如果本地 `.env` 曾写入 `SMART_SEARCH_ENABLED=false`，以交互菜单或 runtime override 为准。Windows/npm 安装的 `smart-search.CMD` 现在会先由 Python 解析真实路径，避免 Agent 运行中出现 `[WinError 2]`；可用 `datasource smart-search-status` 或交互式“数据源配置与诊断 -> smart-search 舆情检索自检”查看 doctor 摘要、可用通道和 next steps。
 - `datasource local-status` 现在不仅展示 SQLite 库存量和最近同步记录，还会展示 K 线/行情/财务覆盖率、最近日期热力图、样本股票覆盖和行业/分组覆盖，便于确认本地库是否足够支撑多股票/板块级研究。
+- 新增 `datasource active-scan`：直接扫描本地 SQLite 市场库的 `quotes/stocks/bars/financials`，按行业、成交额、涨跌幅、量能和短期动量生成广域候选短名单；它不访问在线 provider、不调用 LLM、不输出买卖建议，只作为“从几千只本地股票中先找候选”的主动研究入口。
 - 前台 Agent 运行会输出 `状态栏 | 模型=... | 阶段=... | 股票=... | 决策=... | 成交=... | 收益=... | 用时=...`，用于替代之前只看最终评分的黑盒体验。
+- 前台 Agent 运行的脱敏 JSONL 摘要现在会记录 `run_id`、`fresh_start`、`continue_from_storage`、`account_mode`、`snapshot_restore`、恢复账户数和同日快照跳过数，便于区分“当前新运行”“历史摘要回放”“从旧模拟账户恢复”和“同日已跑过所以复用快照”。
 - MongoDB 不可达时不再打印长异常；系统会返回 `E-MONGO-CONNECT`，表示本轮模拟交易已完成，仅跳过排行榜/成交持久化。调试时可使用 `--no-persist`。
 
 ## 0. 推荐入口：交互式 CLI
@@ -24,10 +26,10 @@ python -m astock_agent_system.cli
 
 - **LLM 配置与诊断**：选择 OpenAI-compatible / Anthropic 等请求协议，输入 Base URL 和隐藏 API Key，拉取模型列表后可直接输入编号选择默认模型（回车使用当前/第一个模型，也可手动填写），并用“请解释 A 股是什么”的短问答完成自检；自检失败时拒绝写入本地运行态配置。
 - **数据源配置与诊断**：查看 provider chain 状态；配置 Tushare、JQData、iFinD / 同花顺 QuantAPI 等凭证时先做真实自检，通过后才保存到 Git 忽略的本地运行态配置；iFinD 会额外做多股票/多代码格式矩阵诊断，矩阵全失败时输出“鉴权/权限、超时、空返回、base URL/格式”方向的中文诊断；同页还提供 iWencai SkillHub 状态/配置/公告检索诊断和 smart-search doctor 自检。
-- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况；二级页的“查看本地市场数据状态”会展示 SQLite 库存量、最近同步时间、最近 10 条同步记录、覆盖率和日期热力图。
+- **本地数据同步**：将真实 provider-chain 成功返回的股票池、K 线、报价和财务快照同步到本地 SQLite；默认使用 `fill-gaps` 补齐策略，也可用 `all-providers` 观察各数据源参与情况；二级页的“查看本地市场数据状态”会展示 SQLite 库存量、最近同步时间、最近 10 条同步记录、覆盖率和日期热力图；“本地市场主动扫描”会基于已同步数据生成板块/行业候选短名单，避免对几千只股票逐股深度分析。
 - **运行工作流**：启动一次 LLM 智能体工作流，或进入连续运行模式直到 `Ctrl+C` / 达到最大轮数；连续运行会先立即执行第 1 轮，之后按交互式配置的间隔倒计时等待；运行结束摘要会展示账户看板、持仓、最近交易和本轮 PnL，并写入脱敏 JSONL 日志和摘要。
 - **学习中心**：查看持续学习状态和建议，触发学习分析，浏览经验历史和 Agent 记忆案例。
-- **运行日志 / 历史回放**：查看最近运行摘要、事件数量、错误数量和完整 JSONL 日志路径。
+- **运行日志 / 历史回放**：查看最近运行摘要、事件数量、错误数量、`run_id`、账户恢复模式和完整 JSONL 日志路径；看到旧 summary 文件时先核对 `run_id/run_date/account_mode`，不要把历史回放误解为当前新决策。
 
 顶层仍保留 `0) 快速向导`，用于按“配置 -> 自检 -> 可选同步 -> 可选运行”的顺序完成首轮验证。
 
@@ -217,6 +219,15 @@ $env:ASTOCK_MARKET_LOCAL_DB="D:\\market-data\\astock.sqlite"  # 指定自定义�
 ```powershell
 python -m astock_agent_system.cli datasource local-status --format text --stock-limit 12 --date-limit 30
 ```
+
+从本地库主动生成候选短名单：
+
+```powershell
+python -m astock_agent_system.cli datasource active-scan --limit 30 --history-days 20 --min-amount 100000000 --top-per-sector 5 --format text
+python -m astock_agent_system.cli datasource active-scan --sector 银行 --sector 半导体,券商 --limit 20 --format json
+```
+
+`active-scan` 的边界：只读本地 SQLite，不触发在线数据源、不调用 LLM、不下单、不代表买入建议。输出字段包括本地覆盖率、全库最新报价日期、候选池规模、陈旧报价数量、每只候选的成交额/涨跌幅/5日与20日动量/量能比/原因和下一步建议。若输出为空，先用 `datasource local-status` 查看覆盖率，再用 `datasource sync-local` 补齐本地库。
 
 输出会包含：库存统计、最近同步记录、K 线/行情/财务覆盖率、最近日期热力图、样本股票覆盖表和行业/分组覆盖表。热力图每格表示一个最近交易日，颜色/块越深表示该日覆盖的股票越多；如果覆盖率很低，应先用 `datasource sync-local` 补齐，再运行多股票 Agent 分析。
 

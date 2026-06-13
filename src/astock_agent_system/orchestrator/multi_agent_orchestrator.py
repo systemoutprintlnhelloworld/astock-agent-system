@@ -80,6 +80,13 @@ class MultiAgentOrchestrator:
         self.settings = settings or load_settings()
         self.data_agent = data_agent or DataAgent(settings=self.settings)
         self.event_emitter = event_emitter or AgentEventEmitter()
+        self._last_snapshot_restore: dict[str, Any] = {
+            "status": "not_requested",
+            "requested": False,
+            "loaded_count": 0,
+            "requested_agent_ids": [],
+            "missing_agent_ids": [],
+        }
 
     def run_competition(
         self,
@@ -111,8 +118,25 @@ class MultiAgentOrchestrator:
             max_count=max_count,
             history_days=history_days,
             trade_date=run_date,
+            persist=persist,
+            continue_from_storage=continue_from_storage,
+            account_mode="continue_from_storage" if continue_from_storage else "fresh_start",
         )
-        snapshot_by_agent = self._load_account_snapshots(selected_models) if continue_from_storage else {}
+        if continue_from_storage:
+            snapshot_by_agent = self._load_account_snapshots(selected_models)
+            snapshot_restore = self._snapshot_restore_summary(selected_models, snapshot_by_agent)
+        else:
+            snapshot_by_agent = {}
+            requested_agent_ids = [_agent_id_for_model(model) for model in selected_models]
+            self._last_snapshot_restore = {
+                "status": "fresh_start",
+                "requested": False,
+                "loaded_count": 0,
+                "requested_agent_ids": requested_agent_ids,
+                "missing_agent_ids": requested_agent_ids,
+                "reason": "continue_from_storage=false",
+            }
+            snapshot_restore = dict(self._last_snapshot_restore)
         results: list[AgentCompetitionResult] = []
 
         for idx, model in enumerate(selected_models, 1):
@@ -155,9 +179,25 @@ class MultiAgentOrchestrator:
             )
 
         rankings = sorted(results, key=lambda item: item.total_return, reverse=True)
+        restored_account_count = sum(1 for item in results if item.restored_from_snapshot)
+        skipped_agent_count = sum(1 for item in results if item.skipped_execution)
+        snapshot_restore.update(
+            {
+                "restored_account_count": restored_account_count,
+                "skipped_agent_count": skipped_agent_count,
+                "skipped_agent_ids": [item.agent_id for item in results if item.skipped_execution],
+            }
+        )
         payload = {
             "status": "ok",
+            "run_id": run_id,
             "run_date": run_date,
+            "account_mode": "continue_from_storage" if continue_from_storage else "fresh_start",
+            "continue_from_storage": bool(continue_from_storage),
+            "fresh_start": not bool(continue_from_storage),
+            "snapshot_restore": snapshot_restore,
+            "restored_account_count": restored_account_count,
+            "skipped_agent_count": skipped_agent_count,
             "model_count": len(results),
             "rankings": [_ranking_row(item, rank + 1) for rank, item in enumerate(rankings)],
             "agents": [item.to_dict() for item in results],
@@ -393,6 +433,7 @@ class MultiAgentOrchestrator:
         Storage is optional. If MongoDB/pymongo is unavailable, the competition
         simply starts from fresh virtual accounts for this run.
         """
+        requested_agent_ids = [_agent_id_for_model(model) for model in models]
         try:
             from astock_agent_system.storage import MongoClient
 
@@ -404,10 +445,48 @@ class MultiAgentOrchestrator:
                 if snapshot:
                     snapshots[agent_id] = snapshot
             mongo.close()
+            self._last_snapshot_restore = {
+                "status": "ok" if snapshots else "empty",
+                "requested": True,
+                "loaded_count": len(snapshots),
+                "requested_agent_ids": requested_agent_ids,
+                "missing_agent_ids": [agent_id for agent_id in requested_agent_ids if agent_id not in snapshots],
+            }
             return snapshots
         except Exception as exc:
+            compact = _compact_persist_error(exc)
             logger.warning("Loading previous account snapshots skipped: %s", exc)
+            self._last_snapshot_restore = {
+                "status": "skipped",
+                "requested": True,
+                "loaded_count": 0,
+                "requested_agent_ids": requested_agent_ids,
+                "missing_agent_ids": requested_agent_ids,
+                "error": compact,
+            }
             return {}
+
+    def _snapshot_restore_summary(
+        self,
+        models: list[str],
+        snapshot_by_agent: dict[str, dict[str, Any]],
+    ) -> dict[str, Any]:
+        """Return explicit account-restore metadata for CLI logs and run summaries."""
+
+        requested_agent_ids = [_agent_id_for_model(model) for model in models]
+        summary = dict(getattr(self, "_last_snapshot_restore", {}) or {})
+        if not summary.get("requested"):
+            summary = {
+                "status": "ok" if snapshot_by_agent else "empty",
+                "requested": True,
+                "loaded_count": len(snapshot_by_agent),
+                "requested_agent_ids": requested_agent_ids,
+                "missing_agent_ids": [agent_id for agent_id in requested_agent_ids if agent_id not in snapshot_by_agent],
+            }
+        summary.setdefault("requested_agent_ids", requested_agent_ids)
+        summary["loaded_count"] = int(summary.get("loaded_count", len(snapshot_by_agent)) or 0)
+        summary["missing_agent_ids"] = [agent_id for agent_id in requested_agent_ids if agent_id not in snapshot_by_agent]
+        return summary
 
     def _record_learning_safely(self, payload: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -432,6 +511,7 @@ class MultiAgentOrchestrator:
                 mongo.save_position_snapshot(
                     {
                         "agent_id": agent["agent_id"],
+                        "run_id": payload.get("run_id", ""),
                         "date": payload["run_date"],
                         "initial_capital": agent["initial_capital"],
                         "equity": agent["equity"],
@@ -451,6 +531,7 @@ class MultiAgentOrchestrator:
                     trade_payload.update(
                         {
                             "agent_id": agent["agent_id"],
+                            "run_id": payload.get("run_id", ""),
                             "llm_model": agent["llm_model"],
                             "action": trade.get("side"),
                             "amount": float(trade.get("price", 0.0)) * float(trade.get("shares", 0.0)),
@@ -461,7 +542,7 @@ class MultiAgentOrchestrator:
                 for decision in agent.get("decisions", []):
                     mongo.save_agent_decision(decision)
                     decision_count += 1
-            mongo.save_llm_ranking({"date": payload["run_date"], "rankings": payload["rankings"]})
+            mongo.save_llm_ranking({"date": payload["run_date"], "run_id": payload.get("run_id", ""), "rankings": payload["rankings"]})
             mongo.close()
             return {
                 "status": "ok",

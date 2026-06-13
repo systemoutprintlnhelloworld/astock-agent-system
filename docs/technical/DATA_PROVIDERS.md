@@ -90,6 +90,15 @@ python -m astock_agent_system.cli datasource local-status --format text --stock-
 
 输出包含：K 线/行情/财务覆盖率、最近交易日覆盖热力图、样本股票覆盖表、行业/分组覆盖表。它用于判断本地库是否足够支撑多股票/板块级 Agent 分析；覆盖率偏低时应先执行 `datasource sync-local`，不要把少量本地样本误解为全市场数据已齐。
 
+本地库还提供只读主动扫描入口：
+
+```powershell
+python -m astock_agent_system.cli datasource active-scan --limit 30 --history-days 20 --min-amount 100000000 --top-per-sector 5 --format text
+python -m astock_agent_system.cli datasource active-scan --sector 银行 --sector 半导体,券商 --limit 20 --format json
+```
+
+`active-scan` 直接读取 SQLite 中的 `stocks`、`quotes`、`bars` 和 `financials`，按行业、成交额、成交量、涨跌幅、5/20 日收益、量能/额比和部分财务质量指标生成候选短名单。它不会触发在线 provider、不会调用 LLM、不会写库、不会下单，也不替代 `StockScreener` / `MasterAgent` 的深度多 Agent 分析；推荐用它先把几千只本地股票压缩成几十只候选，再运行 `analyze` 或 `agent start`。
+
 安全边界：
 
 - 同步时使用 `DataAgent(use_local_store=False)`，避免把旧本地库误当作新 provider 结果写回自己。
@@ -150,6 +159,8 @@ Invoke-RestMethod http://127.0.0.1:18080/api/data/providers
 python -m astock_agent_system.cli datasource test --sources baostock,akshare --stock-code 600519 --days 5 --checks history --timeout-seconds 10 --format json
 python -m astock_agent_system.cli datasource test --sources ifind --stock-code 600519 --days 5 --checks history,quote --timeout-seconds 12 --format text
 python -m astock_agent_system.cli datasource smart-search-status --format text
+python -m astock_agent_system.cli datasource local-status --format text --stock-limit 12 --date-limit 30
+python -m astock_agent_system.cli datasource active-scan --limit 30 --history-days 20 --min-amount 100000000 --format text
 ```
 
 `datasource test` 的结果只按目标 provider 本身的尝试判断成功与否；即使离线样例兜底拿到了数据，也不会把该 provider 误标为 `ok`。

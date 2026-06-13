@@ -31,6 +31,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_iwencai,
     cmd_datasource_configure_jqdata,
     cmd_datasource_configure_tushare,
+    cmd_datasource_active_scan,
     cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
@@ -765,6 +766,7 @@ def _interactive_sync_center(config: str | None) -> bool:
             [
                 "1) 同步本地市场数据（SQLite，默认 fill-gaps 补齐策略）",
                 "2) 查看本地市场数据状态（SQLite 库存量/最近同步）",
+                "3) 本地市场主动扫描（广域短名单，不触发LLM）",
             ],
         )
         choice = input("本地数据同步> ").strip().lower()
@@ -776,6 +778,27 @@ def _interactive_sync_center(config: str | None) -> bool:
             _run_interactive_sync_local(config)
         elif choice == "2":
             cmd_datasource_local_status(_interactive_args(config, db_path="", format="text"))
+        elif choice == "3":
+            limit = _prompt_int("输出候选数", 30)
+            sector = _prompt_default("行业过滤（可空，多个用逗号分隔）", "")
+            min_amount = _prompt_float("最小成交额（可回车用0不过滤）", 0.0)
+            cmd_datasource_active_scan(
+                _interactive_args(
+                    config,
+                    db_path="",
+                    limit=limit,
+                    sector=[sector] if sector else [],
+                    min_amount=min_amount if min_amount > 0 else None,
+                    min_volume=None,
+                    min_change_pct=None,
+                    max_change_pct=None,
+                    history_days=20,
+                    top_per_sector=0,
+                    include_stale=False,
+                    as_of_date="",
+                    format="text",
+                )
+            )
         else:
             print("未知选项，请输入菜单编号、b 或 q。")
 
@@ -1227,6 +1250,28 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_local_status_parser.add_argument("--date-limit", type=int, default=30, help="Maximum recent dates in coverage heatmap")
     datasource_local_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_local_status_parser.set_defaults(func=cmd_datasource_local_status)
+
+    datasource_active_scan_parser = datasource_subparsers.add_parser(
+        "active-scan",
+        help="Scan local SQLite market data for a broad candidate shortlist without LLM/provider calls",
+    )
+    datasource_active_scan_parser.add_argument(
+        "--db-path",
+        default="",
+        help="Optional SQLite path; default is data/market_local/market.sqlite and is ignored by Git",
+    )
+    datasource_active_scan_parser.add_argument("--limit", type=int, default=30, help="Maximum candidates to print")
+    datasource_active_scan_parser.add_argument("--sector", action="append", default=[], help="Sector filter; can repeat or use comma-separated values")
+    datasource_active_scan_parser.add_argument("--as-of-date", default="", help="Quote date to scan; default uses latest quote date")
+    datasource_active_scan_parser.add_argument("--min-amount", type=float, default=None, help="Minimum latest quote amount")
+    datasource_active_scan_parser.add_argument("--min-volume", type=float, default=None, help="Minimum latest quote volume")
+    datasource_active_scan_parser.add_argument("--min-change-pct", type=float, default=None, help="Minimum latest change_pct, e.g. 0.01")
+    datasource_active_scan_parser.add_argument("--max-change-pct", type=float, default=None, help="Maximum latest change_pct, e.g. 0.08")
+    datasource_active_scan_parser.add_argument("--history-days", type=int, default=20, help="Local K-line window used for momentum/volume ratios")
+    datasource_active_scan_parser.add_argument("--top-per-sector", type=int, default=0, help="Optional cap per sector for diversification")
+    datasource_active_scan_parser.add_argument("--include-stale", action="store_true", help="Allow mixed quote dates instead of latest/as-of only")
+    datasource_active_scan_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_active_scan_parser.set_defaults(func=cmd_datasource_active_scan)
 
     datasource_jqdata_parser = datasource_subparsers.add_parser(
         "configure-jqdata",

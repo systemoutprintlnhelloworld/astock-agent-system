@@ -240,6 +240,63 @@ def _render_local_market_coverage(coverage: dict[str, Any]) -> str:
     return "\n".join(lines)
 
 
+def _render_active_scan(payload: dict[str, Any]) -> str:
+    """Render the local-market active scan shortlist without implying buy advice."""
+
+    coverage = payload.get("coverage", {}) if isinstance(payload.get("coverage"), dict) else {}
+    criteria = payload.get("criteria", {}) if isinstance(payload.get("criteria"), dict) else {}
+    lines = [
+        "本地市场主动扫描（active-scan）",
+        f"状态: {payload.get('status', '')}  数据库: {payload.get('db_path', '')}",
+        f"报价日期: {payload.get('as_of_date', '') or '-'}  全库最新: {payload.get('latest_quote_date', '') or '-'}  候选池={payload.get('candidate_pool_count', 0)}  输出={payload.get('count', 0)}  陈旧={payload.get('stale_count', 0)}",
+        "说明: 这是本地 SQLite 广域发现层，不是买入/卖出建议；候选仍需 analyze 或 agent start 深度复核。",
+        f"过滤: sector={','.join(criteria.get('sectors', []) or []) or '-'} min_amount={criteria.get('min_amount') or '-'} change_pct=[{criteria.get('min_change_pct') if criteria.get('min_change_pct') is not None else '-'}, {criteria.get('max_change_pct') if criteria.get('max_change_pct') is not None else '-'}] history_days={criteria.get('history_days', '')}",
+    ]
+    if coverage:
+        lines.append(
+            f"本地覆盖: 股票={coverage.get('stock_count', 0)} K线股={coverage.get('bars_stock_count', 0)} 行情={coverage.get('quote_stock_count', 0)} 财务={coverage.get('financial_stock_count', 0)}"
+        )
+    candidates = payload.get("candidates", []) if isinstance(payload.get("candidates"), list) else []
+    if candidates:
+        rows = []
+        for index, item in enumerate(candidates, 1):
+            if not isinstance(item, dict):
+                continue
+            reasons = item.get("reasons", []) if isinstance(item.get("reasons"), list) else []
+            rows.append(
+                [
+                    index,
+                    item.get("stock_code", ""),
+                    item.get("stock_name", ""),
+                    item.get("sector", ""),
+                    item.get("date", ""),
+                    _percent(item.get("score", 0.0)),
+                    f"{_to_float(item.get('amount')):,.0f}",
+                    _percent(item.get("change_pct", 0.0)),
+                    _percent(item.get("return_5d", 0.0)),
+                    _percent(item.get("return_20d", 0.0)),
+                    "；".join(str(reason) for reason in reasons[:2]),
+                ]
+            )
+        lines.extend(
+            [
+                "",
+                _format_table(
+                    ["#", "股票", "名称", "行业", "日期", "分数", "成交额", "涨跌", "5日", "20日", "原因"],
+                    rows,
+                    max_width=24,
+                ),
+            ]
+        )
+    else:
+        lines.extend(["", "暂无候选；请先 sync-local 补齐 quotes/K线，或放宽过滤条件。"])
+    next_steps = payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else []
+    if next_steps:
+        lines.extend(["", "下一步"])
+        lines.extend(f"- {step}" for step in next_steps[:5])
+    return "\n".join(str(item) for item in lines if str(item).strip())
+
+
 class RunLogRecorder:
     """Write compact, redacted run events for later debugging/handoff."""
 
@@ -269,16 +326,26 @@ class RunLogRecorder:
             file.write(json.dumps(payload, ensure_ascii=False, default=str) + "\n")
 
     def write_summary(self, payload: dict[str, Any] | None = None) -> None:
+        payload = payload or {}
+        snapshot_restore = payload.get("snapshot_restore", {}) if isinstance(payload.get("snapshot_restore"), dict) else {}
         summary = {
-            "status": (payload or {}).get("status", "unknown"),
-            "run_date": (payload or {}).get("run_date", ""),
-            "model_count": (payload or {}).get("model_count", 0),
+            "status": payload.get("status", "unknown"),
+            "run_id": payload.get("run_id", ""),
+            "run_date": payload.get("run_date", ""),
+            "account_mode": payload.get("account_mode", ""),
+            "fresh_start": payload.get("fresh_start", False),
+            "continue_from_storage": payload.get("continue_from_storage", False),
+            "restored_account_count": payload.get("restored_account_count", 0),
+            "skipped_agent_count": payload.get("skipped_agent_count", 0),
+            "snapshot_restore": snapshot_restore,
+            "model_count": payload.get("model_count", 0),
             "event_count": self.event_count,
             "error_count": len(self.errors),
             "trade_count": len(self.trades),
             "log_path": str(self.path),
+            "summary_path": str(self.summary_path),
             "errors": self.errors[-20:],
-            "rankings": (payload or {}).get("rankings", []),
+            "rankings": payload.get("rankings", []),
         }
         self.summary_path.write_text(json.dumps(_redact_for_run_log(summary), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
@@ -412,6 +479,48 @@ def cmd_datasource_iwencai_search(args: Any) -> int:
             rows.append([f"next {index}", step])
         print(_format_table(["项目", "状态"], rows, max_width=96))
     return 0 if payload.get("status") in {"ok", "skipped"} else 1
+
+
+def cmd_datasource_active_scan(args: Any) -> int:
+    """Scan the local SQLite market warehouse and print a broad candidate shortlist."""
+
+    load_settings(getattr(args, "config", None))
+    db_path = str(getattr(args, "db_path", "") or "").strip()
+    raw_sectors = getattr(args, "sector", [])
+    sector_values = raw_sectors if isinstance(raw_sectors, list) else [str(raw_sectors or "")]
+    sectors: list[str] = []
+    for value in sector_values:
+        for item in str(value or "").split(","):
+            text = item.strip()
+            if text and text not in sectors:
+                sectors.append(text)
+    store = LocalMarketStore(path=db_path or DEFAULT_LOCAL_MARKET_DB)
+    payload = store.scan_candidates(
+        limit=int(getattr(args, "limit", 30) or 30),
+        as_of_date=str(getattr(args, "as_of_date", "") or "").strip() or None,
+        sectors=sectors,
+        min_amount=_optional_float(getattr(args, "min_amount", None)),
+        min_volume=_optional_float(getattr(args, "min_volume", None)),
+        min_change_pct=_optional_float(getattr(args, "min_change_pct", None)),
+        max_change_pct=_optional_float(getattr(args, "max_change_pct", None)),
+        history_days=int(getattr(args, "history_days", 20) or 20),
+        top_per_sector=int(getattr(args, "top_per_sector", 0) or 0) or None,
+        include_stale=bool(getattr(args, "include_stale", False)),
+    )
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().print_info("本地主动扫描", _render_active_scan(payload))
+    return 1 if payload.get("status") == "error" else 0
+
+
+def _optional_float(value: Any) -> float | None:
+    if value is None or value == "":
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
 
 
 def cmd_datasource_configure_iwencai(args: Any) -> int:

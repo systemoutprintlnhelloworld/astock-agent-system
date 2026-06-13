@@ -22,11 +22,13 @@
 
 - 工作分支：`tauri-rewrite`。
 - 最新提交以 `git log -1 --oneline` 为准；每轮收尾必须提交并推送到 `origin/tauri-rewrite`。
-- 2026-06-13 增量状态：本轮继续暂停 GUI/TUI 扩展，优先修复 Python CLI 后端链路。已新增 smart-search CLI 解析/doctor 自检、交互式数据源页 smart-search/iWencai 入口，以及本地 SQLite 市场库覆盖率/日期热力图状态页。聚焦验证命令为 `python -m pytest tests/test_cli_observability.py tests/test_data_agent.py -q`，最终仍需按交付闭环跑 `delivery-check`、密钥检查、commit、push。
+- 2026-06-13 增量状态：本轮继续暂停 GUI/TUI 扩展，优先修复 Python CLI 后端链路。已新增 smart-search CLI 解析/doctor 自检、交互式数据源页 smart-search/iWencai 入口、本地 SQLite 市场库覆盖率/日期热力图状态页、本地市场主动扫描 `datasource active-scan`，并让运行 payload/summary 明确记录 `run_id`、fresh start、账户快照恢复和同日幂等跳过信息。聚焦验证命令为 `python -m pytest tests/test_cli_observability.py tests/test_data_agent.py tests/test_orchestrator.py -q`，最终仍需按交付闭环跑 `delivery-check`、密钥检查、commit、push。
 - 本 handoff 批次已完成的重点修复：
   - `SentimentAnalyst` 不再直接用裸 `smart-search` 命令，而是通过 `src/astock_agent_system/smart_search.py` 解析 Windows/npm `.CMD` shim，避免 Agent 长程运行中出现 `[WinError 2]`。
   - `datasource smart-search-status` 会输出 doctor 摘要、解析路径、通道状态和 next steps；JSON 输出必须先脱敏，不能把真实 key 写入日志或文档。
   - `datasource local-status` 已从库存页升级为本地市场库可观察性页，包含 K 线/行情/财务覆盖率、日期热力图、样本股票覆盖和行业/分组覆盖。
+  - `datasource active-scan` 新增为本地 SQLite 广域发现层：直接扫描已同步 `quotes/stocks/bars/financials`，按行业、成交额、涨跌幅、短期动量和量能输出候选短名单；它不调用 provider、不调用 LLM、不下单，也不是买卖建议。
+  - `MultiAgentOrchestrator.run_competition()` 返回 payload 现在包含 `run_id`、`account_mode`、`fresh_start`、`continue_from_storage`、`snapshot_restore`、`restored_account_count` 和 `skipped_agent_count`；`RunLogRecorder.write_summary()` 也写入这些字段，便于区分当前运行、历史日志、新账户和恢复账户。
   - 交互式数据源菜单已补齐 iWencai 状态/配置/公告检索和 smart-search 自检入口。
   - TUI 配置向导支持已保存配置回填、密钥状态脱敏展示、按已选数据源跳过无关凭证问询。
   - `settings.override.json` 作为本地运行态配置优先于 `.env` 的同名旧值，避免向导保存后看起来未生效。
@@ -91,9 +93,11 @@
 **选项A（推荐）：验证增强 CLI 链路**
 1. 运行 `python -m astock_agent_system.cli agent learning status --format json`。
 2. 运行 `python -m astock_agent_system.cli datasource status --format json`。
-3. 运行 `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --checks history --format json`，先看逐源真实状态。
-4. 运行 `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60`，确认使用本地默认模型在线运行。
-5. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
+3. 运行 `python -m astock_agent_system.cli datasource local-status --format text --stock-limit 12 --date-limit 30` 检查本地库覆盖率。
+4. 运行 `python -m astock_agent_system.cli datasource active-scan --limit 30 --history-days 20 --min-amount 100000000 --format text`，先从本地库生成候选短名单。
+5. 运行 `python -m astock_agent_system.cli datasource test --sources tushare,baostock,akshare,ths_skill --checks history --format json`，先看逐源真实状态。
+6. 运行 `python -m astock_agent_system.cli agent start --max-count 1 --days 12 --fresh-start --no-persist --timeout-seconds 60`，确认使用本地默认模型在线运行，并核对 summary 里的 `run_id/account_mode/snapshot_restore`。
+7. 若通过，再继续增加更细粒度的 Agent 内部步骤事件。
 
 **选项B：继续完整实现**
 1. 让 `MasterAgent`、各分析 Agent 和 `DataAgent` 发射更细粒度的步骤/工具/降级事件。
@@ -114,6 +118,7 @@
 
 ```powershell
 python -m pytest tests/test_backend_api.py
+python -m pytest tests/test_cli_observability.py tests/test_data_agent.py tests/test_orchestrator.py -q
 python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q
 npm --prefix apps/frontend run lint
 npm --prefix apps/frontend run build:desktop

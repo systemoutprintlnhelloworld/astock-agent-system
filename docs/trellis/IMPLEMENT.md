@@ -4,9 +4,9 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
-## 最新交付记录：smart-search 自检、本地市场库覆盖率与交互式数据源入口（2026-06-13）
+## 最新交付记录：本地主动扫描、运行日志元信息与 smart-search/local-status 可观察性（2026-06-13）
 
-本轮继续按用户要求暂停 GUI/TUI 扩展，优先把 Python CLI 后端链路做成可诊断、可解释、可交接的工作流。重点修复真实运行中暴露的 `smart-search` Windows shim/PATH 问题，并把 iWencai 与本地市场 SQLite 库状态纳入交互式数据源页面。
+本轮继续按用户要求暂停 GUI/TUI 扩展，优先把 Python CLI 后端链路做成可诊断、可解释、可交接的工作流。重点修复真实运行中暴露的 `smart-search` Windows shim/PATH 问题，把 iWencai 与本地市场 SQLite 库状态纳入交互式数据源页面，并新增本地市场主动扫描入口与运行日志账户元信息，解决“几千只股票逐股分析太慢”和“当前运行/历史摘要/新账户/恢复账户不清楚”的问题。
 
 已落地：
 
@@ -16,19 +16,23 @@
 - 交互式“数据源配置与诊断”页面补齐 iWencai 状态、配置、公告检索和 smart-search 自检入口，用户无需记忆长命令即可排查 SkillHub/smart-search 状态。
 - `LocalMarketStore.coverage_summary()` 新增本地 SQLite 市场库覆盖统计，包括股票/K线/行情/财务覆盖率、日期范围、最近交易日覆盖热力图、样本股票覆盖和行业/分组覆盖。
 - `datasource local-status` 的 CLI 渲染增强为本地市场库可观察性页，除库存和最近同步记录外直接展示覆盖率、日期热力图、样本股票覆盖和 sector/group 分布，便于判断本地库是否足够支撑多股票/板块研究。
-- 新增/更新聚焦测试覆盖 smart-search 状态渲染、local-status 覆盖率渲染和 `LocalMarketStore.coverage_summary()`。
+- `LocalMarketStore.scan_candidates()` 新增只读本地广域扫描：直接使用 SQLite 中的 `stocks/quotes/bars/financials`，按行业、成交额、成交量、涨跌幅、5/20 日收益、量能/额比和财务质量生成候选短名单。
+- 新增 CLI 命令 `datasource active-scan`，并接入交互式“本地数据同步”页面。该入口不访问在线 provider、不调用 LLM、不写库、不下单，也不输出买卖建议；它只是把本地库里的几千只股票压缩成几十只候选，供 `analyze` 或 `agent start` 深度分析。
+- `MultiAgentOrchestrator.run_competition()` 的 payload 新增 `run_id`、`account_mode`、`fresh_start`、`continue_from_storage`、`snapshot_restore`、`restored_account_count` 和 `skipped_agent_count`，使 CLI/日志能明确说明是否新账户、是否恢复存储、是否同日幂等跳过。
+- `RunLogRecorder.write_summary()` 同步写入上述运行/账户元信息和 `summary_path`，运行日志页可据此区分当前运行与历史 summary。
+- 新增/更新聚焦测试覆盖 smart-search 状态渲染、local-status 覆盖率渲染、`LocalMarketStore.coverage_summary()`、`LocalMarketStore.scan_candidates()`、`datasource active-scan` CLI JSON/parser，以及运行 payload/summary 的账户元信息。
 
 验证：
 
 ```powershell
-python -m pytest tests/test_cli_observability.py tests/test_data_agent.py -q
+python -m pytest tests/test_cli_observability.py tests/test_data_agent.py tests/test_orchestrator.py -q
 ```
 
 下一步：
 
 1. 在用户本机继续运行 `datasource smart-search-status` 与 `agent start`，确认 `SentimentAnalyst` 不再出现 `[WinError 2]`。
 2. 若用户需要更强的底部固定状态栏，再把当前终端安全的状态栏升级为 Rich Live footer，并保持纯文本 fallback 可测试、可复制。
-3. 继续推进本地市场库 freshness/增量窗口、公告/新闻入库和板块级主动研究；不要把当前覆盖率页误报为完整数据仓库。
+3. 继续推进本地市场库 freshness/增量窗口、公告/新闻入库和更完整的板块级主动研究；不要把当前 `active-scan` 误报为完整自动交易策略或买卖建议。
 
 ## 上一交付记录：iFinD/iWencai、状态栏与多 Agent 协作可见性（2026-06-12）
 

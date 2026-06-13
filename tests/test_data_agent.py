@@ -5,7 +5,7 @@ import sys
 import time
 from types import SimpleNamespace
 
-from astock_agent_system.cli_enhanced import cmd_datasource_sync_local, cmd_datasource_test
+from astock_agent_system.cli_enhanced import cmd_datasource_active_scan, cmd_datasource_sync_local, cmd_datasource_test
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
@@ -107,6 +107,105 @@ def test_local_market_store_roundtrip(tmp_path):
     assert coverage["recent_dates"][-1]["date"] == "2026-06-03"
     assert coverage["top_stocks"][0]["stock_code"] == "000001"
     assert coverage["sector_coverage"]
+
+
+def test_local_market_store_scan_candidates_filters_and_ranks(tmp_path):
+    store = LocalMarketStore(path=tmp_path / "market.sqlite")
+    store.upsert_universe(
+        [
+            StockIdentity(stock_code="000001", stock_name="平安银行", sector="银行"),
+            StockIdentity(stock_code="000002", stock_name="强势银行", sector="银行"),
+            StockIdentity(stock_code="300001", stock_name="低量科技", sector="科技"),
+        ]
+    )
+    for stock_code, base, volume, amount in [
+        ("000001", 10.0, 100.0, 120_000_000.0),
+        ("000002", 20.0, 300.0, 360_000_000.0),
+        ("300001", 30.0, 50.0, 50_000_000.0),
+    ]:
+        bars = [
+            StockBar(
+                stock_code=stock_code,
+                date=f"2026-06-0{index}",
+                open=base + index * 0.1,
+                high=base + index * 0.2,
+                low=base,
+                close=base + index * (0.2 if stock_code == "000002" else 0.1),
+                volume=volume + index * 10,
+                amount=amount + index * 1_000_000,
+            )
+            for index in range(1, 7)
+        ]
+        store.upsert_history(stock_code, bars, source="unit")
+    store.upsert_quote(
+        StockQuote("000001", "平安银行", "2026-06-06", 10.6, 0.015, 160.0, 160_000_000.0, "银行"),
+        source="unit",
+    )
+    store.upsert_quote(
+        StockQuote("000002", "强势银行", "2026-06-06", 21.2, 0.035, 360.0, 400_000_000.0, "银行"),
+        source="unit",
+    )
+    store.upsert_quote(
+        StockQuote("300001", "低量科技", "2026-06-06", 30.6, 0.02, 60.0, 60_000_000.0, "科技"),
+        source="unit",
+    )
+    store.upsert_financial(
+        FinancialSnapshot("000002", "强势银行", "2026-03-31", 6.0, 0.8, 0.13, 0.8, 0.05, 0.08, 3000.0, "银行"),
+        source="unit",
+    )
+
+    payload = store.scan_candidates(limit=5, sectors=["银行"], min_amount=100_000_000.0, history_days=6)
+    capped = store.scan_candidates(limit=5, sectors=["银行"], min_amount=100_000_000.0, history_days=6, top_per_sector=1)
+
+    assert payload["status"] == "ok"
+    assert payload["source"] == "local_sqlite"
+    assert payload["as_of_date"] == "2026-06-06"
+    assert [item["stock_code"] for item in payload["candidates"]] == ["000002", "000001"]
+    assert all(item["sector"] == "银行" for item in payload["candidates"])
+    assert all(item["amount"] >= 100_000_000 for item in payload["candidates"])
+    assert payload["candidates"][0]["reasons"]
+    assert payload["candidates"][0]["next_steps"]
+    assert capped["count"] == 1
+
+
+def test_datasource_active_scan_reads_local_market_store(tmp_path, capsys):
+    db_path = tmp_path / "market.sqlite"
+    store = LocalMarketStore(path=db_path)
+    store.upsert_universe([StockIdentity(stock_code="000001", stock_name="平安银行", sector="银行")])
+    store.upsert_history(
+        "000001",
+        [
+            StockBar("000001", "2026-06-01", 10.0, 10.5, 9.8, 10.2, 100.0, 1020.0),
+            StockBar("000001", "2026-06-02", 10.2, 10.8, 10.1, 10.6, 120.0, 1272.0),
+        ],
+        source="unit",
+    )
+    store.upsert_quote(StockQuote("000001", "平安银行", "2026-06-02", 10.6, 0.0392, 120.0, 1272.0, "银行"), source="unit")
+
+    exit_code = cmd_datasource_active_scan(
+        SimpleNamespace(
+            config=None,
+            db_path=str(db_path),
+            limit=3,
+            sector=["银行"],
+            as_of_date="",
+            min_amount=1000.0,
+            min_volume=None,
+            min_change_pct=None,
+            max_change_pct=None,
+            history_days=5,
+            top_per_sector=0,
+            include_stale=False,
+            format="json",
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["status"] == "ok"
+    assert payload["db_path"] == str(db_path)
+    assert payload["candidates"][0]["stock_code"] == "000001"
+    assert payload["next_steps"]
 
 
 def test_data_agent_reads_local_market_store_first(monkeypatch, tmp_path):
