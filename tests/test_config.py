@@ -173,8 +173,8 @@ def test_empty_environment_does_not_mask_runtime_overrides(monkeypatch, tmp_path
 def test_datasource_configure_jqdata_persists_runtime_credentials(monkeypatch, tmp_path, capsys):
     runtime_path = isolate_runtime_config(monkeypatch, tmp_path)
     monkeypatch.setattr(config_module, "RUNTIME_CONFIG_PATH", runtime_path)
-    monkeypatch.setattr("builtins.input", lambda prompt="": "jq-user")
-    monkeypatch.setattr(getpass, "getpass", lambda prompt="": "jq-pass")
+    hidden_inputs = iter(["jq-user", "jq-pass"])
+    monkeypatch.setattr(getpass, "getpass", lambda prompt="": next(hidden_inputs))
     monkeypatch.setattr(
         cli_enhanced,
         "_test_one_datasource",
