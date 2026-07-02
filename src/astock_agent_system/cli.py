@@ -24,6 +24,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_agent_learning_suggestions,
     cmd_agent_learning_trigger,
     cmd_agent_memory,
+    cmd_agent_global_active,
     cmd_agent_start,
     cmd_agent_status,
     cmd_agent_stop,
@@ -31,6 +32,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_iwencai,
     cmd_datasource_configure_jqdata,
     cmd_datasource_configure_tushare,
+    cmd_datasource_active_research,
     cmd_datasource_active_scan,
     cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
@@ -169,6 +171,22 @@ def _cmd_run_daily(args: argparse.Namespace) -> int:
 
 def _parse_models(value: str) -> list[str]:
     return [item.strip() for item in value.split(",") if item.strip()]
+
+
+def _add_active_research_options(parser: argparse.ArgumentParser) -> None:
+    """Add shared options for local-first global active research commands."""
+
+    parser.add_argument("--profile", default="ultra-short", help="Active profile; default is ultra-short")
+    parser.add_argument("--db-path", default="", help="Optional local SQLite market warehouse path")
+    parser.add_argument("--max-sectors", type=int, default=5, help="Maximum hot sectors to display")
+    parser.add_argument("--max-candidates", type=int, default=60, help="Maximum local candidate rows to scan")
+    parser.add_argument("--candidate-per-sector", type=int, default=10, help="Maximum candidates per hot sector")
+    parser.add_argument("--max-buys", type=int, default=5, help="Maximum BUY actions in the paper plan")
+    parser.add_argument("--history-days", type=int, default=20, help="History days used for local momentum/liquidity signals")
+    parser.add_argument("--min-amount", type=float, default=None, help="Minimum turnover amount filter")
+    parser.add_argument("--as-of-date", default="", help="Use local quote date YYYY-MM-DD; empty uses latest local date")
+    parser.add_argument("--include-stale", action="store_true", help="Allow stale local rows when latest quotes are incomplete")
+    parser.add_argument("--refresh-realtime", action="store_true", help="Refresh shortlisted quotes through provider-chain before timing")
 
 
 def _cmd_bench_models(args: argparse.Namespace) -> int:
@@ -1136,6 +1154,17 @@ def build_parser() -> argparse.ArgumentParser:
     agent_memory_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     agent_memory_parser.set_defaults(func=cmd_agent_memory)
 
+    agent_global_active_parser = agent_subparsers.add_parser(
+        "global-active",
+        help="Run the global active ultra-short paper-trading workflow with T+1 guards",
+    )
+    _add_active_research_options(agent_global_active_parser)
+    agent_global_active_parser.add_argument("--initial-capital", type=float, default=None, help="Optional fresh paper-account capital")
+    agent_global_active_parser.add_argument("--verbose", action="store_true", help="Show verbose event output")
+    agent_global_active_parser.add_argument("--debug", action="store_true", help="Show debug event output")
+    agent_global_active_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    agent_global_active_parser.set_defaults(func=cmd_agent_global_active)
+
     datasource_parser = subparsers.add_parser("datasource", help="Inspect market data provider-chain diagnostics")
     datasource_subparsers = datasource_parser.add_subparsers(dest="datasource_command")
     datasource_status_parser = datasource_subparsers.add_parser("status", help="Show datasource mode and provider-chain status")
@@ -1159,10 +1188,11 @@ def build_parser() -> argparse.ArgumentParser:
 
     datasource_iwencai_search_parser = datasource_subparsers.add_parser(
         "iwencai-search",
-        help="Try iWencai SkillHub announcement-search and print redacted diagnostics",
+        help="Try any run-capable iWencai SkillHub research skill and print redacted diagnostics",
     )
+    datasource_iwencai_search_parser.add_argument("--skill", default="announcement-search", help="SkillHub skill name, e.g. announcement-search")
     datasource_iwencai_search_parser.add_argument("--stock-code", default="", help="Optional stock code context")
-    datasource_iwencai_search_parser.add_argument("--query", default="公告", help="Search query passed to announcement-search")
+    datasource_iwencai_search_parser.add_argument("--query", default="公告", help="Search query passed to the selected SkillHub skill")
     datasource_iwencai_search_parser.add_argument("--limit", type=int, default=5, help="Maximum announcement rows")
     datasource_iwencai_search_parser.add_argument("--timeout-seconds", type=float, default=20.0, help="SkillHub CLI timeout")
     datasource_iwencai_search_parser.add_argument("--format", choices=("table", "json"), default="json", help="Output format")
@@ -1272,6 +1302,14 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_active_scan_parser.add_argument("--include-stale", action="store_true", help="Allow mixed quote dates instead of latest/as-of only")
     datasource_active_scan_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_active_scan_parser.set_defaults(func=cmd_datasource_active_scan)
+
+    datasource_active_research_parser = datasource_subparsers.add_parser(
+        "active-research",
+        help="Rank sectors and batch candidates from local SQLite for global active ultra-short research",
+    )
+    _add_active_research_options(datasource_active_research_parser)
+    datasource_active_research_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_active_research_parser.set_defaults(func=cmd_datasource_active_research)
 
     datasource_jqdata_parser = datasource_subparsers.add_parser(
         "configure-jqdata",

@@ -67,6 +67,8 @@
 | Agent Markdown 持续学习系统 | 已完成首版 | 新增 `config/agents/*.md`、`config/user_profile.yaml`、Agent descriptor/learning 核心模块、后端管理接口、TUI `/agent` 命令骨架和 `docs/technical/AGENT_MD_LEARNING.md`；学习系统只生成建议，不静默改策略或实盘交易。 |
 | 数据源 Provider chain 扩展 | 已完成首版 | `DataAgent` 支持 `DATA_PROVIDER_CHAIN` 可配置降级；默认 `Tushare -> Baostock -> AkShare -> offline samples`；新增 AData/OpenBB/yfinance/Alpha Vantage/JQData 可选适配器、AAStock/同花顺适配判断和 `/api/data/providers` 脱敏诊断接口。 |
 | JQData 安全候选探测 | 已完成首版 | `datasource configure-jqdata --candidate-count N` 通过隐藏输入逐个探测用户名候选；终端与日志只显示候选序号和不可逆长度摘要，成功 preflight 后才写入 Git 忽略的 runtime 配置。 |
+| 全局主动超短线模式 | 已完成首版 | 新增 `datasource active-research` 和 `agent global-active`，先用本地 SQLite 做板块热度、候选池、择时和组合级纸面动作；遵守 A 股现货 T+1，模拟盘中可一次处理多个候选，不接真实下单。 |
+| iWencai SkillHub 多技能工具视图 | 已完成首版 | `iwencai-status` 展示默认工具技能、已发现技能和 direct run/search 能力；`iwencai-search --skill <name>` 支持指定技能，安装型 CLI 会明确返回 skipped 与 fallback。 |
 | TUI 长程运行入口打磨 | 已完成当前批次 | 配置向导支持已保存配置回填、密钥状态脱敏、按已选数据源跳过凭证；slash palette 和 `/agent` 子命令已对齐；`/dashboard` 默认交易看板，`/start` 自动进入运行观测；真实后端 slash 链路和 `delivery-check` 已通过。 |
 
 ## 3.1 下一轮当前执行计划

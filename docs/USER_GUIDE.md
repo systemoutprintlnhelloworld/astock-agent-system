@@ -66,6 +66,39 @@ python -m astock_agent_system.cli datasource configure-jqdata --candidate-count 
 
 自检成功后才会写入 `data/runtime/settings.override.json`；失败时不会保存凭据。输出中的 `masked_candidate` 只用于确认候选类型和长度，不会回显真实登录名或密码。
 
+### 可选：全局主动超短线研究模式
+
+如果已经把几千只股票同步到本地 SQLite 市场库，可以先使用全局主动研究入口，而不是直接逐股生成深度报告。该模式先按板块热度、成交额、量能和短期动量选出可操作方向，再给出板块内候选池和超短线纸面动作建议。
+
+```powershell
+python -m astock_agent_system.cli datasource active-research --profile ultra-short --max-sectors 5 --max-candidates 60 --candidate-per-sector 10 --format text
+```
+
+说明：
+
+- `active-research` 默认只读本地库，不调用 LLM、不真实下单，适合先观察全局板块和候选股票。
+- 输出会展示本地覆盖、板块热度、候选池、择时信号、T+1 规则提示和下一步建议。
+- 如果希望对候选股刷新最新报价，可显式增加 `--refresh-realtime`；外部数据源失败时会在结果里显示降级原因。
+
+需要执行组合级模拟盘动作时，可使用独立于逐股模式的新入口：
+
+```powershell
+python -m astock_agent_system.cli agent global-active --profile ultra-short --max-buys 5 --fresh-start --format text
+```
+
+`global-active` 遵守 A 股现货 T+1 约束：当天新买入股票不能当天卖出；已有持仓可以卖出。当前仍然是模拟盘，不会真实下单。
+
+### 可选：iWencai SkillHub 作为多技能工具层
+
+iWencai SkillHub 不再只按单个 `announcement-search` 技能理解。状态页会展示默认关注的多技能工具、已发现技能、CLI 是否支持 direct run/search，以及安装/宿主工具问题。
+
+```powershell
+python -m astock_agent_system.cli datasource iwencai-status --format table
+python -m astock_agent_system.cli datasource iwencai-search --skill announcement-search --query "半导体 公告" --format json
+```
+
+如果本机 SkillHub CLI 只暴露安装/商店能力而不支持 `run`，系统会明确标记为 `skipped`，并给出人工 screener fallback，不会把它伪装成可执行工具。
+
 ## 3. 启动 MongoDB 和 Redis
 
 模拟盘排行榜、持仓快照、交易记录需要 MongoDB；缓存需要 Redis。

@@ -22,7 +22,7 @@
 
 - 工作分支：`tauri-rewrite`。
 - 最新提交以 `git log -1 --oneline` 为准；每轮收尾必须提交并推送到 `origin/tauri-rewrite`。
-- 2026-06-13 增量状态：本轮继续暂停 GUI/TUI 扩展，优先修复 Python CLI 后端链路。已新增 smart-search CLI 解析/doctor 自检、交互式数据源页 smart-search/iWencai 入口、本地 SQLite 市场库覆盖率/日期热力图状态页、本地市场主动扫描 `datasource active-scan`，并让运行 payload/summary 明确记录 `run_id`、fresh start、账户快照恢复和同日幂等跳过信息。JQData `configure-jqdata` 现在支持 `--candidate-count` 隐藏输入多用户名候选探测，输出只保留候选序号和不可逆长度摘要，成功 preflight 后才保存到 Git 忽略的 runtime 配置。聚焦验证命令为 `python -m pytest tests/test_cli_observability.py tests/test_data_agent.py tests/test_orchestrator.py -q`，最终仍需按交付闭环跑 `delivery-check`、密钥检查、commit、push。
+- 2026-06-13 增量状态：本轮继续暂停 GUI/TUI 扩展，优先修复 Python CLI 后端链路。已新增 smart-search CLI 解析/doctor 自检、交互式数据源页 smart-search/iWencai 入口、本地 SQLite 市场库覆盖率/日期热力图状态页、本地市场主动扫描 `datasource active-scan`，并让运行 payload/summary 明确记录 `run_id`、fresh start、账户快照恢复和同日幂等跳过信息。JQData `configure-jqdata` 现在支持 `--candidate-count` 隐藏输入多用户名候选探测，输出只保留候选序号和不可逆长度摘要，成功 preflight 后才保存到 Git 忽略的 runtime 配置。全局主动超短线首版已新增 `datasource active-research` 和 `agent global-active`：前者按本地 SQLite 做板块热度/候选池/择时研究，后者在模拟盘中按 T+1 守门生成组合级纸面动作。聚焦验证命令为 `python -m pytest tests/test_cli_observability.py tests/test_data_agent.py tests/test_orchestrator.py -q`，最终仍需按交付闭环跑 `delivery-check`、密钥检查、commit、push。
 - 本 handoff 批次已完成的重点修复：
   - `SentimentAnalyst` 不再直接用裸 `smart-search` 命令，而是通过 `src/astock_agent_system/smart_search.py` 解析 Windows/npm `.CMD` shim，避免 Agent 长程运行中出现 `[WinError 2]`。
   - `datasource smart-search-status` 会输出 doctor 摘要、解析路径、通道状态和 next steps；JSON 输出必须先脱敏，不能把真实 key 写入日志或文档。
@@ -36,6 +36,8 @@
   - 数据源诊断修复：Baostock 股票池过滤指数/退市等非正常行，Tushare/AkShare 网络或限流失败进入本轮 source cooldown，`datasource status` 显示 `dependency_installed`，`datasource test` 对缺依赖/缺凭证返回 skipped 而不是误报崩溃。
   - 可选源补齐：`yfinance`、`jqdatasdk`、`adata` 已纳入 `.[market]`；JQData 可用 `python -m astock_agent_system.cli datasource configure-jqdata` 通过隐藏输入写入 Git 忽略的运行态配置。
   - JQData 配置入口新增 `--candidate-count`，用于不确定登录名形态时通过隐藏输入逐个 preflight；不要把真实手机号、账号或密码放入命令行、文档、截图或提交记录。
+  - 新增全局主动超短线工具链：本地市场库工具、板块热度、候选批筛、可选实时报价刷新、超短线择时、组合级动作和 T+1 守门；事件流新增 global active 相关节点，便于 CLI/前端后续可观测。
+  - iWencai SkillHub 从单一 `announcement-search` 诊断扩展为多技能工具视图；`iwencai-search --skill <name>` 可指定技能，安装型 CLI 不会被误判为可执行工具。
   - 真实后端 slash 链路验证与 `.\start.bat -Mode delivery-check` 已通过（65 passed）。
   - modern-ui / frontend dev 默认改用 `next dev --webpack`；`npm run dev:turbo` 仅用于复现 Turbopack 问题。
 

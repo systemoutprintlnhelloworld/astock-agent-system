@@ -5,7 +5,9 @@ import sys
 import time
 from types import SimpleNamespace
 
-from astock_agent_system.cli_enhanced import cmd_datasource_active_scan, cmd_datasource_sync_local, cmd_datasource_test
+from astock_agent_system.active_research import ActiveResearchOptions, T1TradingRuleTool, build_active_research_payload
+from astock_agent_system.backtest.virtual_account import VirtualAccount
+from astock_agent_system.cli_enhanced import cmd_datasource_active_research, cmd_datasource_active_scan, cmd_datasource_sync_local, cmd_datasource_test
 from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
@@ -206,6 +208,102 @@ def test_datasource_active_scan_reads_local_market_store(tmp_path, capsys):
     assert payload["db_path"] == str(db_path)
     assert payload["candidates"][0]["stock_code"] == "000001"
     assert payload["next_steps"]
+
+
+def test_active_research_payload_ranks_sectors_and_applies_t1(monkeypatch, tmp_path):
+    monkeypatch.setenv("DATA_MODE", "offline")
+    monkeypatch.setenv("SMART_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    db_path = tmp_path / "market.sqlite"
+    store = LocalMarketStore(path=db_path)
+    store.upsert_universe(
+        [
+            StockIdentity(stock_code="000001", stock_name="强势银行", sector="银行"),
+            StockIdentity(stock_code="300001", stock_name="强势科技", sector="科技"),
+        ]
+    )
+    for stock_code, base, amount in [("000001", 10.0, 220_000_000.0), ("300001", 30.0, 320_000_000.0)]:
+        store.upsert_history(
+            stock_code,
+            [
+                StockBar(stock_code, f"2026-06-0{idx}", base + idx * 0.1, base + idx * 0.3, base, base + idx * 0.2, 100.0 + idx * 20, amount + idx * 1_000_000)
+                for idx in range(1, 7)
+            ],
+            source="unit",
+        )
+    store.upsert_quote(StockQuote("000001", "强势银行", "2026-06-06", 11.2, 0.032, 260.0, 260_000_000.0, "银行"), source="unit")
+    store.upsert_quote(StockQuote("300001", "强势科技", "2026-06-06", 31.2, 0.045, 360.0, 420_000_000.0, "科技"), source="unit")
+
+    payload = build_active_research_payload(
+        settings=load_settings(),
+        options=ActiveResearchOptions(db_path=db_path, max_sectors=2, max_candidates=10, candidate_per_sector=2, max_buys=2, history_days=6, min_amount=100_000_000.0),
+    )
+
+    assert payload["status"] == "ok"
+    assert payload["mode"] == "global_active_research"
+    assert payload["sector_heat"]
+    assert payload["sector_candidates"]
+    assert payload["timing"]
+    assert payload["portfolio_plan"]["policy"].startswith("A股现货 T+1")
+    assert len(payload["portfolio_plan"]["approved_actions"]) <= 2
+    assert payload["catalyst_plan"]
+
+
+def test_datasource_active_research_cli_reads_local_market_store(monkeypatch, tmp_path, capsys):
+    monkeypatch.setenv("DATA_MODE", "offline")
+    monkeypatch.setenv("SMART_SEARCH_ENABLED", "false")
+    monkeypatch.setenv("LLM_API_KEY", "")
+    db_path = tmp_path / "market.sqlite"
+    store = LocalMarketStore(path=db_path)
+    store.upsert_universe([StockIdentity(stock_code="000001", stock_name="强势银行", sector="银行")])
+    store.upsert_history(
+        "000001",
+        [
+            StockBar("000001", f"2026-06-0{idx}", 10.0 + idx * 0.1, 10.5 + idx * 0.1, 9.8, 10.0 + idx * 0.2, 100.0 + idx * 10, 120_000_000.0 + idx * 1_000_000)
+            for idx in range(1, 7)
+        ],
+        source="unit",
+    )
+    store.upsert_quote(StockQuote("000001", "强势银行", "2026-06-06", 11.2, 0.032, 260.0, 260_000_000.0, "银行"), source="unit")
+
+    exit_code = cmd_datasource_active_research(
+        SimpleNamespace(
+            config=None,
+            profile="ultra-short",
+            db_path=str(db_path),
+            max_sectors=2,
+            max_candidates=10,
+            candidate_per_sector=2,
+            max_buys=2,
+            history_days=6,
+            min_amount=100_000_000.0,
+            as_of_date="",
+            include_stale=False,
+            refresh_realtime=False,
+            format="json",
+        )
+    )
+    payload = json.loads(capsys.readouterr().out)
+
+    assert exit_code == 0
+    assert payload["mode"] == "global_active_research"
+    assert payload["db_path"] == str(db_path)
+    assert payload["sector_heat"]
+    assert payload["next_steps"]
+
+
+def test_t1_trading_rule_blocks_same_day_sell():
+    account = VirtualAccount(initial_capital=100000)
+    assert account.buy("000001", price=10.0, target_value=10000.0, date="2026-06-10", reason="unit")
+
+    result = T1TradingRuleTool().check(
+        [{"stock_code": "000001", "action": "SELL", "price": 10.2, "position_size": 0.1}],
+        account,
+        trade_date="2026-06-10",
+    )
+
+    assert result["approved_actions"] == []
+    assert result["blocked_actions"][0]["blocked_reason"].startswith("T+1")
 
 
 def test_data_agent_reads_local_market_store_first(monkeypatch, tmp_path):

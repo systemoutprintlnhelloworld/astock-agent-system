@@ -22,6 +22,7 @@ from astock_agent_system.agent_learning import (
     trigger_learning_if_ready,
 )
 from astock_agent_system.agent_memory import AgentMemoryStore
+from astock_agent_system.active_research import ActiveResearchOptions, GlobalActiveOrchestrator, build_active_research_payload
 from astock_agent_system.cli_data_viz import (
     render_analysis_result,
     render_company_info,
@@ -34,7 +35,7 @@ from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
-from astock_agent_system.data.providers.iwencai_skillhub import OFFICIAL_CLI, IwencaiSkillHub
+from astock_agent_system.data.providers.iwencai_skillhub import DEFAULT_TOOL_SKILLS, OFFICIAL_CLI, IwencaiSkillHub
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 from astock_agent_system.smart_search import resolve_smart_search_cli, run_smart_search_doctor
@@ -325,6 +326,87 @@ def _render_active_scan(payload: dict[str, Any]) -> str:
     return "\n".join(str(item) for item in lines if str(item).strip())
 
 
+def _render_active_research(payload: dict[str, Any]) -> str:
+    """Render the global active research board."""
+
+    coverage = payload.get("coverage", {}) if isinstance(payload.get("coverage"), dict) else {}
+    scan = payload.get("scan", {}) if isinstance(payload.get("scan"), dict) else {}
+    sector_heat = payload.get("sector_heat", []) if isinstance(payload.get("sector_heat"), list) else []
+    groups = payload.get("sector_candidates", []) if isinstance(payload.get("sector_candidates"), list) else []
+    timing = payload.get("timing", []) if isinstance(payload.get("timing"), list) else []
+    portfolio = payload.get("portfolio_plan", {}) if isinstance(payload.get("portfolio_plan"), dict) else {}
+    lines = [
+        "全局主动超短线研究（global active research）",
+        f"状态: {payload.get('status', '')}  profile={payload.get('profile', '')}  run_id={payload.get('run_id', '')}",
+        f"数据库: {payload.get('db_path', '')}",
+        f"T+1规则: {payload.get('t1_policy', '')}",
+        f"候选池={scan.get('candidate_pool_count', 0)} 输出={scan.get('count', 0)} 最新报价日={scan.get('latest_quote_date', '') or '-'}",
+        "说明: 这是全局主动研究/模拟盘准备层，不是真实下单；它先选板块，再批量选股，而不是逐股报告循环。",
+    ]
+    if coverage:
+        lines.append(
+            f"本地覆盖: 股票={coverage.get('stock_count', 0)} K线股={coverage.get('bars_stock_count', 0)} 行情={coverage.get('quote_stock_count', 0)} 财务={coverage.get('financial_stock_count', 0)}"
+        )
+    if sector_heat:
+        lines.extend(["", "板块热度 Top"])
+        rows = []
+        for index, item in enumerate(sector_heat, 1):
+            if not isinstance(item, dict):
+                continue
+            rows.append(
+                [
+                    index,
+                    item.get("sector", ""),
+                    _percent(item.get("score", 0.0)),
+                    item.get("candidate_count", 0),
+                    _percent(item.get("breadth", 0.0)),
+                    f"{_to_float(item.get('amount')):,.0f}",
+                    _percent(item.get("avg_change_pct", 0.0)),
+                    "；".join(str(value) for value in item.get("signals", [])[:3]) if isinstance(item.get("signals"), list) else "",
+                ]
+            )
+        lines.append(_format_table(["#", "板块", "热度", "候选", "上涨占比", "成交额", "均涨跌", "信号"], rows, max_width=22))
+    if groups:
+        lines.extend(["", "板块候选池"])
+        for group in groups[:6]:
+            if not isinstance(group, dict):
+                continue
+            rows = []
+            for item in group.get("candidates", [])[:8] if isinstance(group.get("candidates", []), list) else []:
+                if not isinstance(item, dict):
+                    continue
+                rows.append(
+                    [
+                        item.get("stock_code", ""),
+                        item.get("stock_name", ""),
+                        _percent(item.get("score", 0.0)),
+                        _percent(item.get("change_pct", 0.0)),
+                        _percent(item.get("return_5d", 0.0)),
+                        f"{_to_float(item.get('amount')):,.0f}",
+                        "；".join(str(value) for value in item.get("ultra_short_tags", [])[:3]) if isinstance(item.get("ultra_short_tags"), list) else "",
+                    ]
+                )
+            lines.extend([f"- {group.get('sector', '')}（{group.get('count', 0)}）", _format_table(["股票", "名称", "分数", "涨跌", "5日", "成交额", "标签"], rows, max_width=20)])
+    if timing:
+        rows = [
+            [item.get("stock_code", ""), item.get("stock_name", ""), item.get("sector", ""), item.get("timing", ""), _percent(item.get("timing_score", 0.0)), _float_text(item.get("reference_price", 0.0)), item.get("reason", "")]
+            for item in timing[:12]
+            if isinstance(item, dict)
+        ]
+        lines.extend(["", "超短线择时", _format_table(["股票", "名称", "板块", "动作", "分数", "参考价", "原因"], rows, max_width=22)])
+    actions = portfolio.get("approved_actions", []) if isinstance(portfolio.get("approved_actions"), list) else []
+    blocked = portfolio.get("blocked_actions", []) if isinstance(portfolio.get("blocked_actions"), list) else []
+    rows = [[item.get("stock_code", ""), item.get("stock_name", ""), item.get("action", ""), _percent(item.get("position_size", 0.0)), _percent(item.get("confidence", 0.0)), item.get("reason", "")] for item in actions if isinstance(item, dict)]
+    lines.extend(["", "组合级计划", _format_table(["股票", "名称", "动作", "仓位", "置信", "理由"], rows, max_width=26) if rows else "暂无通过 T+1 守门的组合动作。"])
+    if blocked:
+        lines.extend(["", f"T+1/风控拦截: {len(blocked)} 条"])
+    next_steps = payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else []
+    if next_steps:
+        lines.extend(["", "下一步"])
+        lines.extend(f"- {step}" for step in next_steps[:5])
+    return "\n".join(str(item) for item in lines if str(item).strip())
+
+
 class RunLogRecorder:
     """Write compact, redacted run events for later debugging/handoff."""
 
@@ -448,8 +530,9 @@ def _skillhub_status(settings: Any) -> dict[str, Any]:
     )
     payload = hub.status()
     payload["install_hint"] = (
-        "安装 SkillHub 后执行 iwencai-skillhub-cli install announcement-search，"
-        "并在菜单中保存 IWENCAI_API_KEY。Windows 若只装在 WSL，状态页会显示 skillhub_bridge=wsl。"
+        "安装 SkillHub 后可执行 iwencai-skillhub-cli install <skill>；"
+        f"默认工具技能: {', '.join(DEFAULT_TOOL_SKILLS)}。"
+        "Windows 若只装在 WSL，状态页会显示 skillhub_bridge=wsl。"
     )
     return payload
 
@@ -471,7 +554,10 @@ def cmd_datasource_iwencai_status(args: Any) -> int:
                     ["SkillHub CLI", payload["skillhub_path"] or "未找到"],
                     ["SkillHub Bridge", payload.get("skillhub_bridge") or "native/未找到"],
                     ["iWencai CLI", payload["iwencai_cli_path"] or "未找到"],
-                    ["必需技能", payload["required_skill"]],
+                    ["工具模式", payload.get("tool_mode", "multi-skill")],
+                    ["默认技能", ", ".join(payload.get("default_tool_skills", []) or [])],
+                    ["已发现技能", ", ".join(payload.get("installed_skill_names", []) or []) or "未发现"],
+                    ["兼容必需技能", payload["required_skill"]],
                     ["安装命令", payload.get("project_install_command") or payload.get("install_command") or ""],
                     ["提示", payload["install_hint"]],
                 ],
@@ -482,7 +568,7 @@ def cmd_datasource_iwencai_status(args: Any) -> int:
 
 
 def cmd_datasource_iwencai_search(args: Any) -> int:
-    """Try announcement-search through the local SkillHub CLI and print redacted diagnostics."""
+    """Try a SkillHub research skill through the local CLI and print redacted diagnostics."""
 
     settings = load_settings(getattr(args, "config", None))
     hub = IwencaiSkillHub(
@@ -491,7 +577,8 @@ def cmd_datasource_iwencai_search(args: Any) -> int:
         cli=getattr(settings.data, "iwencai_skillhub_cli", OFFICIAL_CLI),
         timeout_seconds=float(getattr(args, "timeout_seconds", 20.0) or 20.0),
     )
-    result = hub.search_announcements(
+    result = hub.run_skill(
+        skill=str(getattr(args, "skill", "announcement-search") or "announcement-search"),
         stock_code=str(getattr(args, "stock_code", "") or ""),
         query=str(getattr(args, "query", "") or ""),
         limit=int(getattr(args, "limit", 5) or 5),
@@ -500,7 +587,7 @@ def cmd_datasource_iwencai_search(args: Any) -> int:
     if getattr(args, "format", "json") == "json":
         print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
     else:
-        rows = [["status", payload.get("status", "")], ["query", payload.get("query", "")], ["reason", payload.get("reason", "")]]
+        rows = [["status", payload.get("status", "")], ["skill", payload.get("skill", "")], ["query", payload.get("query", "")], ["reason", payload.get("reason", "")]]
         for index, item in enumerate(payload.get("items", [])[:5] if isinstance(payload.get("items"), list) else [], 1):
             rows.append([f"item {index}", item.get("title") or item.get("text") or json.dumps(item, ensure_ascii=False)[:120]])
         for index, step in enumerate(payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else [], 1):
@@ -540,6 +627,65 @@ def cmd_datasource_active_scan(args: Any) -> int:
     else:
         RichEventRenderer().print_info("本地主动扫描", _render_active_scan(payload))
     return 1 if payload.get("status") == "error" else 0
+
+
+def _active_research_options_from_args(args: Any) -> ActiveResearchOptions:
+    return ActiveResearchOptions(
+        profile=str(getattr(args, "profile", "ultra-short") or "ultra-short"),
+        db_path=str(getattr(args, "db_path", "") or "") or None,
+        max_sectors=int(getattr(args, "max_sectors", 5) or 5),
+        max_candidates=int(getattr(args, "max_candidates", 60) or 60),
+        candidate_per_sector=int(getattr(args, "candidate_per_sector", 10) or 10),
+        max_buys=int(getattr(args, "max_buys", 5) or 5),
+        history_days=int(getattr(args, "history_days", 20) or 20),
+        min_amount=_optional_float(getattr(args, "min_amount", None)),
+        as_of_date=str(getattr(args, "as_of_date", "") or "").strip(),
+        include_stale=bool(getattr(args, "include_stale", False)),
+        refresh_realtime=bool(getattr(args, "refresh_realtime", False)),
+    )
+
+
+def cmd_datasource_active_research(args: Any) -> int:
+    """Run global active research from the local market warehouse."""
+
+    settings = load_settings(getattr(args, "config", None))
+    emitter = AgentEventEmitter()
+    payload = build_active_research_payload(settings=settings, options=_active_research_options_from_args(args), event_emitter=emitter)
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().print_info("全局主动研究", _render_active_research(payload))
+    return 0 if payload.get("status") in {"ok", "empty"} else 1
+
+
+def cmd_agent_global_active(args: Any) -> int:
+    """Run the first portfolio-level global active paper-trading workflow."""
+
+    settings = load_settings(getattr(args, "config", None))
+    emitter = AgentEventEmitter()
+    renderer = RichEventRenderer(verbose=bool(getattr(args, "verbose", False)), debug=bool(getattr(args, "debug", False)))
+    emitter.subscribe(renderer)
+    run_log = RunLogRecorder(settings, models=["global-active-rule"])
+    emitter.subscribe(run_log)
+    try:
+        payload = GlobalActiveOrchestrator(settings=settings, event_emitter=emitter).run(
+            options=_active_research_options_from_args(args),
+            initial_capital=getattr(args, "initial_capital", None),
+        )
+        run_log.write_summary(payload)
+        if getattr(args, "format", "text") == "json":
+            print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+        else:
+            renderer.print_info("全局主动研究", _render_active_research(payload.get("research", {})))
+            renderer.render_result_summary(payload)
+            renderer.print_info("运行日志", f"完整事件日志: {run_log.path}\n摘要: {run_log.summary_path}")
+        return 0 if payload.get("status") == "ok" else 1
+    except Exception as exc:
+        emitter.emit("run_error", message=f"全局主动模式失败: {exc}")
+        run_log.write_summary({"status": "error", "errors": [str(exc)]})
+        return 1
+    finally:
+        run_log.close()
 
 
 def _optional_float(value: Any) -> float | None:

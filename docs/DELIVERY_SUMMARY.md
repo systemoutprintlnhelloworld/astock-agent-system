@@ -9,10 +9,12 @@
 - iFinD / 同花顺 QuantAPI HTTP 适配器改为官方 `cmd_history_quotation` 历史行情与 `real_time_quotation` 实时报价端点，并保留 refresh token 重试与多形态响应解析。
 - 新增 iWencai SkillHub 本地配置项与 CLI 诊断/隐藏输入保存入口：`datasource iwencai-status`、`datasource configure-iwencai`；真实 key 只写入 Git 忽略的 runtime 配置。
 - 新增 `datasource iwencai-search` 和 `IwencaiSkillHub` adapter，用于公告/研究信源诊断；未安装 CLI、未配置 key 或缺少 `announcement-search` 技能时返回结构化 next steps，不进入行情 provider chain。
+- iWencai SkillHub 现在按多技能工具层展示：`iwencai-status` 会列出默认工具技能、已发现技能和 direct run/search 能力，`iwencai-search --skill <name>` 可尝试指定技能；若本机 CLI 只有安装/商店能力，会明确标记 skipped 并给出人工 screener fallback。
 - 交互式数据源页面增加 iWencai 配置/状态/公告检索入口；`config` 输出只显示 `has_iwencai_api_key`，不泄露密钥。
 - 新增 `datasource smart-search-status`：解析 Windows/npm `smart-search.CMD` 真实路径，展示 doctor 摘要、已配置检索通道和 next steps；SentimentAnalyst 复用该解析逻辑，避免长程 Agent 运行中因 PATH 差异出现 `[WinError 2]`。
 - `datasource local-status` 增强为本地市场库可观察性页，除库存/最近同步外展示 K 线、行情、财务覆盖率、最近日期热力图、样本股票覆盖和行业/分组覆盖。
 - 新增 `datasource active-scan` 本地市场主动扫描：直接用 SQLite 中的股票池、报价、K 线和财务快照做广域候选短名单，不访问外部 provider、不调用 LLM、不输出交易建议，解决“几千只股票逐股深度分析太慢”的入口问题。
+- 新增全局主动超短线首版：`datasource active-research` 先按本地 SQLite 计算板块热度、候选池、择时信号和 T+1 提示；`agent global-active` 在模拟盘中按组合级计划一次处理多个候选，仍不真实下单，并通过事件流记录市场状态、板块轮动、候选批次、择时、组合决策和 T+1 守门。
 - 运行 payload 和脱敏 summary 增加 `run_id`、`fresh_start`、`continue_from_storage`、`account_mode`、`snapshot_restore`、恢复账户数和同日快照跳过数，便于区分当前运行、历史日志、新账户和存储快照恢复。
 - Agent 前台运行增加终端安全的 `状态栏` 输出，持续显示模型、阶段、股票、步骤、决策、成交、收益和用时。
 - MongoDB 不可达时改为 `E-MONGO-CONNECT` 短提示，不再把 `ServerSelectionTimeout` 长异常刷到用户终端。

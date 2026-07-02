@@ -47,6 +47,14 @@ EventType = Literal[
     "learning_analysis_triggered",
     "learning_suggestion_generated",
     "memory_case_retrieved",
+    "global_market_regime_evaluated",
+    "sector_rotation_ranked",
+    "sector_catalyst_collected",
+    "candidate_batch_generated",
+    "intraday_signal_evaluated",
+    "portfolio_batch_decided",
+    "t1_rule_checked",
+    "global_active_run_completed",
 ]
 
 

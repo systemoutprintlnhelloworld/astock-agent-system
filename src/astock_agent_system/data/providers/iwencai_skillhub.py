@@ -20,6 +20,12 @@ from urllib.parse import quote
 INSTALLER_URL = "https://www.iwencai.com/skillhub/static/0.0.4/download_and_install.sh"
 SCREENER_URL = "https://www.iwencai.com/screener"
 REQUIRED_SKILL = "announcement-search"
+DEFAULT_TOOL_SKILLS = (
+    "announcement-search",
+    "stock-news-search",
+    "industry-research",
+    "policy-search",
+)
 OFFICIAL_CLI = "iwencai-skillhub-cli"
 LEGACY_CLI = "skillhub"
 PROJECT_SKILL_INSTALL_DIR = "data/runtime/skillhub/skills"
@@ -54,6 +60,7 @@ class SkillHubAttempt:
 class SkillHubSearchResult:
     status: str
     query: str
+    skill: str = REQUIRED_SKILL
     items: list[dict[str, Any]] = field(default_factory=list)
     attempts: list[SkillHubAttempt] = field(default_factory=list)
     reason: str = ""
@@ -64,6 +71,7 @@ class SkillHubSearchResult:
         return {
             "status": self.status,
             "query": self.query,
+            "skill": self.skill,
             "items": self.items,
             "attempts": [attempt.to_dict() for attempt in self.attempts],
             "reason": self.reason,
@@ -86,8 +94,9 @@ class IwencaiSkillHub:
         legacy_path = shutil.which(LEGACY_CLI)
         official_path = shutil.which(OFFICIAL_CLI)
         iwencai_path = shutil.which("iwencai")
-        skill_state = _skill_install_status(cli)
+        skill_state = _skill_install_status(cli, DEFAULT_TOOL_SKILLS)
         capabilities = _cli_capabilities(cli)
+        installed_skill_names = list(skill_state.get("installed_skill_names", []))
         return {
             "status": "ok" if cli and self.api_key and skill_state["installed"] and capabilities["run_supported"] else "needs_config",
             "base_url": self.base_url,
@@ -98,6 +107,10 @@ class IwencaiSkillHub:
             "skillhub_bridge": cli.bridge if cli else "",
             "required_skill_installed": skill_state["installed"],
             "required_skill_paths": skill_state["paths"],
+            "tool_mode": "multi-skill",
+            "tool_skills": list(DEFAULT_TOOL_SKILLS),
+            "installed_skill_names": installed_skill_names,
+            "skill_installation": skill_state.get("skill_installation", {}),
             "direct_run_supported": capabilities["run_supported"],
             "cli_capability_detail": capabilities["detail"],
             "official_cli_found": bool(official_path),
@@ -107,11 +120,13 @@ class IwencaiSkillHub:
             "iwencai_cli_found": bool(iwencai_path),
             "iwencai_cli_path": iwencai_path or "",
             "required_skill": REQUIRED_SKILL,
+            "default_tool_skills": list(DEFAULT_TOOL_SKILLS),
             "installer_url": INSTALLER_URL,
             "screener_url": SCREENER_URL,
             "manual_screener_url": _screener_url(_build_query(stock_code="", query="公告")),
             "install_command": f"{OFFICIAL_CLI} install {REQUIRED_SKILL}",
             "project_install_command": f"{OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} install {REQUIRED_SKILL} --force",
+            "tool_install_commands": [f"{OFFICIAL_CLI} install {skill}" for skill in DEFAULT_TOOL_SKILLS],
             "next_steps": self.next_steps(
                 cli_found=bool(cli),
                 skill_installed=skill_state["installed"],
@@ -155,12 +170,19 @@ class IwencaiSkillHub:
         return steps
 
     def search_announcements(self, *, stock_code: str = "", query: str = "", limit: int = 5) -> SkillHubSearchResult:
+        return self.run_skill(skill=REQUIRED_SKILL, stock_code=stock_code, query=query or "公告", limit=limit)
+
+    def run_skill(self, *, skill: str = REQUIRED_SKILL, stock_code: str = "", query: str = "", limit: int = 5) -> SkillHubSearchResult:
+        """Run any run-capable iWencai SkillHub skill as a research tool."""
+
+        skill_name = _normalize_skill(skill)
         query_text = _build_query(stock_code=stock_code, query=query)
         cli = _resolve_cli(self.cli)
         if not self.api_key:
             return SkillHubSearchResult(
                 status="skipped",
                 query=query_text,
+                skill=skill_name,
                 reason="IWENCAI_API_KEY is not configured.",
                 next_steps=self.next_steps(cli_found=bool(cli)),
             )
@@ -168,6 +190,7 @@ class IwencaiSkillHub:
             return SkillHubSearchResult(
                 status="skipped",
                 query=query_text,
+                skill=skill_name,
                 reason="SkillHub CLI is not installed or not on PATH.",
                 next_steps=self.next_steps(cli_found=False),
             )
@@ -176,17 +199,18 @@ class IwencaiSkillHub:
             return SkillHubSearchResult(
                 status="skipped",
                 query=query_text,
+                skill=skill_name,
                 reason="Installed SkillHub CLI does not expose a direct run/search command.",
                 next_steps=self.next_steps(
                     cli_found=True,
-                    skill_installed=_skill_install_status(cli)["installed"],
+                    skill_installed=_skill_install_status(cli, [skill_name])["installed"],
                     run_supported=False,
                 )
                 + [f"Open iWencai screener manually for this query: {_screener_url(query_text)}"],
                 manual_screener_url=_screener_url(query_text),
             )
 
-        commands = _candidate_commands(cli, query_text, limit)
+        commands = _candidate_commands(cli, skill_name, query_text, limit)
         attempts: list[SkillHubAttempt] = []
         env = self._env()
         for command in commands:
@@ -210,6 +234,7 @@ class IwencaiSkillHub:
                     return SkillHubSearchResult(
                         status="ok",
                         query=query_text,
+                        skill=skill_name,
                         items=_parse_items(completed.stdout),
                         attempts=attempts,
                     )
@@ -219,11 +244,12 @@ class IwencaiSkillHub:
         return SkillHubSearchResult(
             status="error",
             query=query_text,
+            skill=skill_name,
             attempts=attempts,
-            reason=f"SkillHub CLI did not return a successful {REQUIRED_SKILL} result.",
+            reason=f"SkillHub CLI did not return a successful {skill_name} result.",
             next_steps=[
-                f"Run {OFFICIAL_CLI} install {REQUIRED_SKILL} and retry.",
-                f"For project-local installs, run {OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} install {REQUIRED_SKILL} --force.",
+                f"Run {OFFICIAL_CLI} install {skill_name} and retry.",
+                f"For project-local installs, run {OFFICIAL_CLI} --dir {PROJECT_SKILL_INSTALL_DIR} install {skill_name} --force.",
                 "If the official CLI syntax differs, set IWENCAI_SKILLHUB_CLI to the wrapper command/path used on this machine.",
             ],
         )
@@ -248,6 +274,21 @@ def _screener_url(query: str) -> str:
     return f"{SCREENER_URL}?query={quote(query or 'A股 公告', safe='')}"
 
 
+def _normalize_skill(skill: str) -> str:
+    value = str(skill or "").strip()
+    return value or REQUIRED_SKILL
+
+
+def _installed_names_from_paths(paths: list[str], skill_names: list[str]) -> set[str]:
+    installed: set[str] = set()
+    lowered_paths = [path.lower() for path in paths]
+    for skill_name in skill_names:
+        needle = skill_name.lower()
+        if any(needle in path for path in lowered_paths):
+            installed.add(skill_name)
+    return installed
+
+
 def _resolve_cli(configured_cli: str) -> SkillHubCli | None:
     for name in _unique_cli_names(configured_cli):
         path = shutil.which(name)
@@ -265,23 +306,43 @@ def _unique_cli_names(configured_cli: str) -> list[str]:
     return names
 
 
-def _skill_install_status(cli: SkillHubCli | None) -> dict[str, Any]:
-    paths = _local_skill_paths()
+def _skill_install_status(cli: SkillHubCli | None, skills: list[str] | tuple[str, ...] | None = None) -> dict[str, Any]:
+    skill_names = [_normalize_skill(skill) for skill in (skills or (REQUIRED_SKILL,))]
+    skill_names = list(dict.fromkeys(skill_names))
+    paths = _local_skill_paths(skill_names)
     probes: list[dict[str, Any]] = []
-    installed = bool(paths)
+    installed_skill_names = _installed_names_from_paths(paths, skill_names)
     if cli:
         if cli.bridge == "wsl":
-            paths.extend(_wsl_skill_paths(cli))
+            paths.extend(_wsl_skill_paths(cli, skill_names))
             paths = sorted(dict.fromkeys(paths))
-            installed = bool(paths)
+            installed_skill_names.update(_installed_names_from_paths(paths, skill_names))
         for args in (("list",), ("skill", "list")):
             attempt = _run_cli_probe(cli, *args)
             probes.append(_attempt_summary(attempt))
             text = _attempt_text(attempt)
-            if attempt.exit_code == 0 and REQUIRED_SKILL in text:
-                installed = True
+            if attempt.exit_code != 0:
+                continue
+            for skill_name in skill_names:
+                if skill_name in text:
+                    installed_skill_names.add(skill_name)
+            if installed_skill_names:
                 break
-    return {"installed": installed, "paths": paths, "probes": probes}
+    skill_installation = {
+        skill_name: {
+            "installed": skill_name in installed_skill_names,
+            "paths": [path for path in paths if skill_name.lower() in path.lower()],
+        }
+        for skill_name in skill_names
+    }
+    installed = REQUIRED_SKILL in installed_skill_names if REQUIRED_SKILL in skill_names else all(skill_name in installed_skill_names for skill_name in skill_names)
+    return {
+        "installed": installed,
+        "paths": paths,
+        "probes": probes,
+        "installed_skill_names": sorted(installed_skill_names),
+        "skill_installation": skill_installation,
+    }
 
 
 def _cli_capabilities(cli: SkillHubCli | None) -> dict[str, Any]:
@@ -310,19 +371,21 @@ def _cli_capabilities(cli: SkillHubCli | None) -> dict[str, Any]:
     return {"run_supported": False, "detail": _redact_text(detail)[:1000], "probes": probes}
 
 
-def _local_skill_paths() -> list[str]:
+def _local_skill_paths(skill_names: list[str] | tuple[str, ...] | None = None) -> list[str]:
+    names = [_normalize_skill(skill) for skill in (skill_names or (REQUIRED_SKILL,))]
     roots = [Path.cwd() / PROJECT_SKILL_INSTALL_DIR, _project_root() / PROJECT_SKILL_INSTALL_DIR]
     paths: dict[str, None] = {}
     for root in roots:
         if not root.exists():
             continue
-        direct = root / REQUIRED_SKILL
-        if direct.exists():
-            paths[str(direct.resolve())] = None
-        for match in root.rglob(f"*{REQUIRED_SKILL}*"):
-            paths[str(match.resolve())] = None
-            if len(paths) >= 20:
-                break
+        for skill_name in names:
+            direct = root / skill_name
+            if direct.exists():
+                paths[str(direct.resolve())] = None
+            for match in root.rglob(f"*{skill_name}*"):
+                paths[str(match.resolve())] = None
+                if len(paths) >= 40:
+                    break
     return sorted(paths)
 
 
@@ -330,15 +393,17 @@ def _project_root() -> Path:
     return Path(__file__).resolve().parents[4]
 
 
-def _wsl_skill_paths(cli: SkillHubCli) -> list[str]:
+def _wsl_skill_paths(cli: SkillHubCli, skill_names: list[str] | tuple[str, ...] | None = None) -> list[str]:
     if cli.bridge != "wsl":
         return []
+    names = [_normalize_skill(skill) for skill in (skill_names or (REQUIRED_SKILL,))]
+    find_expr = " -o ".join(f'-iname "*{_shell_quote_for_double(skill_name)}*"' for skill_name in names)
     script = (
         'export PATH="$HOME/.local/bin:$PATH"; '
         f'for root in "$HOME/.iwencai-skillhub" "$HOME/.local/share/iwencai-skillhub" '
         f'"$HOME/.cache/iwencai-skillhub" "$PWD/{PROJECT_SKILL_INSTALL_DIR}"; do '
         '[ -e "$root" ] || continue; '
-        f'find "$root" -maxdepth 5 -iname "*{REQUIRED_SKILL}*" -print 2>/dev/null; '
+        f'find "$root" -maxdepth 5 \\( {find_expr} \\) -print 2>/dev/null; '
         'done'
     )
     attempt = _run_wsl_script(cli, script)
@@ -463,18 +528,19 @@ def _merge_wslenv(current: str, entries: list[str]) -> str:
     return ":".join(parts)
 
 
-def _candidate_commands(cli: SkillHubCli, query: str, limit: int) -> list[list[str]]:
+def _candidate_commands(cli: SkillHubCli, skill: str, query: str, limit: int) -> list[list[str]]:
+    skill_name = _normalize_skill(skill)
     limit_text = str(max(1, limit))
     if cli.bridge == "wsl":
         return [
-            [*cli.command_prefix, _wsl_command("run", REQUIRED_SKILL, "--query", query, "--limit", limit_text)],
-            [*cli.command_prefix, _wsl_command("skill", "run", REQUIRED_SKILL, "--query", query, "--limit", limit_text)],
-            [*cli.command_prefix, _wsl_command(REQUIRED_SKILL, "--query", query, "--limit", limit_text)],
+            [*cli.command_prefix, _wsl_command("run", skill_name, "--query", query, "--limit", limit_text)],
+            [*cli.command_prefix, _wsl_command("skill", "run", skill_name, "--query", query, "--limit", limit_text)],
+            [*cli.command_prefix, _wsl_command(skill_name, "--query", query, "--limit", limit_text)],
         ]
     return [
-        [*cli.command_prefix, "run", REQUIRED_SKILL, "--query", query, "--limit", limit_text],
-        [*cli.command_prefix, "skill", "run", REQUIRED_SKILL, "--query", query, "--limit", limit_text],
-        [*cli.command_prefix, REQUIRED_SKILL, "--query", query, "--limit", limit_text],
+        [*cli.command_prefix, "run", skill_name, "--query", query, "--limit", limit_text],
+        [*cli.command_prefix, "skill", "run", skill_name, "--query", query, "--limit", limit_text],
+        [*cli.command_prefix, skill_name, "--query", query, "--limit", limit_text],
     ]
 
 
@@ -485,6 +551,10 @@ def _wsl_command(*parts: str) -> str:
 
 def _shell_quote(value: str) -> str:
     return "'" + str(value).replace("'", "'\"'\"'") + "'"
+
+
+def _shell_quote_for_double(value: str) -> str:
+    return str(value).replace("\\", "\\\\").replace('"', '\\"').replace("$", "\\$")
 
 
 def _parse_items(stdout: str) -> list[dict[str, Any]]:

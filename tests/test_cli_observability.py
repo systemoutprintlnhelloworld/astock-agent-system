@@ -277,7 +277,11 @@ def test_iwencai_skillhub_install_only_cli_reports_screener_fallback(monkeypatch
     cli = iwencai_skillhub.SkillHubCli(command_prefix=["iwencai-skillhub-cli"], display_path="iwencai-skillhub-cli")
 
     monkeypatch.setattr(iwencai_skillhub, "_resolve_cli", lambda _: cli)
-    monkeypatch.setattr(iwencai_skillhub, "_skill_install_status", lambda _: {"installed": True, "paths": ["skill"], "probes": []})
+    monkeypatch.setattr(
+        iwencai_skillhub,
+        "_skill_install_status",
+        lambda *_args, **_kwargs: {"installed": True, "paths": ["skill"], "probes": [], "installed_skill_names": ["announcement-search"]},
+    )
     monkeypatch.setattr(
         iwencai_skillhub,
         "_cli_capabilities",
@@ -300,3 +304,13 @@ def test_iwencai_skillhub_install_only_cli_reports_screener_fallback(monkeypatch
     assert result.manual_screener_url.startswith("https://www.iwencai.com/screener?query=")
     assert result.to_dict()["manual_screener_url"] == result.manual_screener_url
     assert any("screener" in step.lower() for step in result.next_steps)
+
+
+def test_iwencai_skillhub_candidate_commands_use_selected_skill() -> None:
+    cli = iwencai_skillhub.SkillHubCli(command_prefix=["iwencai-skillhub-cli"], display_path="iwencai-skillhub-cli")
+
+    commands = iwencai_skillhub._candidate_commands(cli, "stock-news-search", "半导体 新闻", 3)
+
+    assert commands[0][:3] == ["iwencai-skillhub-cli", "run", "stock-news-search"]
+    assert all("stock-news-search" in command for command in commands)
+    assert not any("announcement-search" in command for command in commands)
