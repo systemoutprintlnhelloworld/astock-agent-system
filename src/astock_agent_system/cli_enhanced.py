@@ -458,11 +458,247 @@ class RunLogRecorder:
             "errors": self.errors[-20:],
             "rankings": payload.get("rankings", []),
             "benchmark_statistics": payload.get("benchmark_statistics", {}),
+            "continuous_summary": payload.get("continuous_summary", {}),
         }
         self.summary_path.write_text(json.dumps(_redact_for_run_log(summary), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
     def close(self) -> None:
         self._closed = True
+
+
+def _continuous_percent(value: Any) -> str:
+    return f"{_to_float(value) * 100:.2f}%"
+
+
+def _next_run_time_text(interval_seconds: float) -> str:
+    if interval_seconds <= 0:
+        return "立即进入下一轮"
+    return datetime.fromtimestamp(time.time() + interval_seconds).strftime("%Y-%m-%d %H:%M:%S")
+
+
+def _datasource_health_summary(*, limit: int = 80) -> dict[str, Any]:
+    items = load_switch_history(limit=limit)
+    summary = summarize_switch_history(items)
+    by_status = summary.get("by_status", {}) if isinstance(summary.get("by_status"), dict) else {}
+    ok_count = int(by_status.get("ok", 0) or 0)
+    error_count = int(by_status.get("error", 0) or 0)
+    skipped_count = int(by_status.get("skipped", 0) or 0)
+    total = int(summary.get("total", 0) or 0)
+    if total <= 0:
+        health = "unknown"
+    elif error_count > 0:
+        health = "degraded" if ok_count > 0 else "attention"
+    elif skipped_count > 0 and ok_count == 0:
+        health = "attention"
+    else:
+        health = "healthy"
+    recent_bad = [
+        item
+        for item in items
+        if str(item.get("status", "")).lower() not in {"ok", "hit", "cache_hit", "local_hit"}
+    ][:5]
+    return {
+        "health": health,
+        "path": str(switch_history_path()),
+        "summary": summary,
+        "recent_bad": recent_bad,
+    }
+
+
+def _agent_model_name(agent: dict[str, Any]) -> str:
+    return str(agent.get("llm_model") or agent.get("model") or agent.get("agent_id") or "unknown")
+
+
+def _trade_count(agent: dict[str, Any]) -> int:
+    trades = agent.get("trades") if isinstance(agent.get("trades"), list) else []
+    return int(agent.get("total_trades", len(trades)) or len(trades))
+
+
+class ContinuousRunTracker:
+    """Aggregate long-running agent rounds into a compact operational dashboard."""
+
+    def __init__(self) -> None:
+        self.started_at = datetime.now().strftime("%Y-%m-%d %H:%M:%S")
+        self._started_monotonic = time.monotonic()
+        self._baseline_equity: dict[str, float] = {}
+        self._round_history: list[dict[str, Any]] = []
+
+    def update(
+        self,
+        payload: dict[str, Any],
+        *,
+        round_index: int,
+        max_rounds: int = 0,
+        interval_seconds: float = 0.0,
+        next_run_at: str = "",
+        errors: list[dict[str, Any]] | None = None,
+    ) -> dict[str, Any]:
+        agents = [item for item in payload.get("agents", []) if isinstance(item, dict)]
+        model_rows = [self._model_row(agent) for agent in agents]
+        rankings = payload.get("rankings", []) if isinstance(payload.get("rankings"), list) else []
+        best = rankings[0] if rankings and isinstance(rankings[0], dict) else (model_rows[0] if model_rows else {})
+        holdings = self._holdings(agents)
+        recent_errors = list(errors or [])[-5:]
+        if payload.get("status") not in {"ok", ""}:
+            recent_errors.append(_compact_error(payload.get("message") or payload.get("error") or payload.get("status")))
+        round_item = {
+            "round_index": round_index,
+            "run_id": payload.get("run_id", ""),
+            "run_date": payload.get("run_date", ""),
+            "best_model": best.get("llm_model", best.get("model", "")),
+            "best_return": best.get("total_return", 0.0),
+            "trade_count": sum(int(item.get("total_trades", 0) or 0) for item in model_rows),
+            "error_count": len(recent_errors),
+        }
+        self._round_history.append(round_item)
+        self._round_history = self._round_history[-20:]
+        return {
+            "status": payload.get("status", "unknown"),
+            "started_at": self.started_at,
+            "elapsed_seconds": int(time.monotonic() - self._started_monotonic),
+            "round_index": round_index,
+            "max_rounds": max_rounds,
+            "interval_seconds": interval_seconds,
+            "next_run_at": next_run_at,
+            "last_run_id": payload.get("run_id", ""),
+            "last_run_date": payload.get("run_date", ""),
+            "model_returns": model_rows,
+            "holdings": holdings,
+            "recent_errors": recent_errors[-5:],
+            "datasource_health": _datasource_health_summary(),
+            "round_history": self._round_history[-10:],
+        }
+
+    def _model_row(self, agent: dict[str, Any]) -> dict[str, Any]:
+        model = _agent_model_name(agent)
+        equity = _to_float(agent.get("equity"))
+        baseline = _to_float(agent.get("initial_capital")) or equity
+        if model not in self._baseline_equity:
+            self._baseline_equity[model] = baseline
+        first_equity = self._baseline_equity.get(model, baseline)
+        cumulative_return = (equity / first_equity - 1.0) if first_equity else _to_float(agent.get("total_return"))
+        decisions = agent.get("decisions") if isinstance(agent.get("decisions"), list) else []
+        return {
+            "model": model,
+            "agent_id": agent.get("agent_id", ""),
+            "equity": equity,
+            "cash": _to_float(agent.get("cash")),
+            "latest_return": _to_float(agent.get("total_return")),
+            "cumulative_return": cumulative_return,
+            "daily_pnl": _to_float(agent.get("daily_pnl")),
+            "total_trades": _trade_count(agent),
+            "decision_count": len(decisions),
+        }
+
+    def _holdings(self, agents: list[dict[str, Any]]) -> list[dict[str, Any]]:
+        rows: list[dict[str, Any]] = []
+        for agent in agents:
+            model = _agent_model_name(agent)
+            positions = agent.get("positions") if isinstance(agent.get("positions"), list) else []
+            for position in positions:
+                if not isinstance(position, dict):
+                    continue
+                rows.append(
+                    {
+                        "model": model,
+                        "stock_code": position.get("stock_code", ""),
+                        "stock_name": position.get("stock_name", ""),
+                        "shares": position.get("shares", 0),
+                        "current_price": _to_float(position.get("current_price")),
+                        "market_value": _to_float(position.get("market_value")),
+                        "unrealized_return": _to_float(position.get("unrealized_return")),
+                    }
+                )
+        rows.sort(key=lambda item: _to_float(item.get("market_value")), reverse=True)
+        return rows[:20]
+
+
+def _render_continuous_dashboard(summary: dict[str, Any]) -> str:
+    if not summary:
+        return "暂无连续运行摘要。"
+    max_rounds = int(summary.get("max_rounds", 0) or 0)
+    round_label = f"{summary.get('round_index', 0)}/{max_rounds}" if max_rounds > 0 else f"{summary.get('round_index', 0)}/∞"
+    lines = [
+        "连续运行看板",
+        f"轮次: {round_label}  状态: {summary.get('status', '')}  启动: {summary.get('started_at', '')}  用时: {summary.get('elapsed_seconds', 0)}s",
+        f"最近运行: {summary.get('last_run_date', '') or '-'}  run_id={summary.get('last_run_id', '') or '-'}  下一轮: {summary.get('next_run_at', '') or '已停止/待定'}",
+    ]
+    model_rows = summary.get("model_returns", []) if isinstance(summary.get("model_returns"), list) else []
+    lines.extend(
+        [
+            "",
+            "累计收益 / 账户",
+            _format_table(
+                ["模型", "权益", "现金", "本轮收益", "累计收益", "PnL", "交易", "决策"],
+                [
+                    [
+                        item.get("model", ""),
+                        f"{_to_float(item.get('equity')):,.2f}",
+                        f"{_to_float(item.get('cash')):,.2f}",
+                        _continuous_percent(item.get("latest_return")),
+                        _continuous_percent(item.get("cumulative_return")),
+                        f"{_to_float(item.get('daily_pnl')):,.2f}",
+                        item.get("total_trades", 0),
+                        item.get("decision_count", 0),
+                    ]
+                    for item in model_rows
+                    if isinstance(item, dict)
+                ],
+                max_width=24,
+            ),
+        ]
+    )
+    holdings = summary.get("holdings", []) if isinstance(summary.get("holdings"), list) else []
+    lines.extend(
+        [
+            "",
+            "当前持仓（按市值）",
+            _format_table(
+                ["模型", "股票", "名称", "股数", "价格", "市值", "浮盈"],
+                [
+                    [
+                        item.get("model", ""),
+                        item.get("stock_code", ""),
+                        item.get("stock_name", ""),
+                        item.get("shares", 0),
+                        f"{_to_float(item.get('current_price')):,.2f}",
+                        f"{_to_float(item.get('market_value')):,.2f}",
+                        _continuous_percent(item.get("unrealized_return")),
+                    ]
+                    for item in holdings[:10]
+                    if isinstance(item, dict)
+                ],
+                max_width=18,
+            ),
+        ]
+    )
+    datasource = summary.get("datasource_health", {}) if isinstance(summary.get("datasource_health"), dict) else {}
+    datasource_summary = datasource.get("summary", {}) if isinstance(datasource.get("summary"), dict) else {}
+    lines.extend(
+        [
+            "",
+            "数据源健康",
+            f"状态: {datasource.get('health', 'unknown')}  最近记录={datasource_summary.get('total', 0)}  路径={datasource.get('path', '')}",
+            _format_table(
+                ["来源", "次数"],
+                [[source, count] for source, count in (datasource_summary.get("by_source", {}) or {}).items()],
+                max_width=28,
+            ),
+        ]
+    )
+    errors = summary.get("recent_errors", []) if isinstance(summary.get("recent_errors"), list) else []
+    lines.extend(
+        [
+            "",
+            "最近错误",
+            _format_table(
+                ["代码", "原因", "重试"],
+                [[item.get("code", ""), item.get("reason", ""), item.get("retry", "")] for item in errors if isinstance(item, dict)],
+                max_width=42,
+            ),
+        ]
+    )
+    return "\n".join(lines)
 
 
 class RuntimeStatusRenderer:
@@ -751,6 +987,7 @@ def cmd_agent_start(args: Any) -> int:
     max_rounds = int(getattr(args, "max_rounds", 0) or 0)
     round_index = 0
     last_payload: dict[str, Any] | None = None
+    continuous_tracker = ContinuousRunTracker()
     try:
         while True:
             round_index += 1
@@ -773,6 +1010,20 @@ def cmd_agent_start(args: Any) -> int:
             last_payload = payload
             _emit_post_run_visibility(emitter, settings, payload)
             renderer.render_result_summary(payload)
+            if continuous:
+                should_continue = payload.get("status") == "ok" and not (max_rounds > 0 and round_index >= max_rounds)
+                next_run_at = _next_run_time_text(interval_seconds) if should_continue else ""
+                continuous_summary = continuous_tracker.update(
+                    payload,
+                    round_index=round_index,
+                    max_rounds=max_rounds,
+                    interval_seconds=interval_seconds,
+                    next_run_at=next_run_at,
+                    errors=run_log.errors,
+                )
+                payload["continuous_summary"] = continuous_summary
+                last_payload = payload
+                renderer.print_info("连续运行看板", _render_continuous_dashboard(continuous_summary))
             if not continuous or payload.get("status") != "ok":
                 break
             if max_rounds > 0 and round_index >= max_rounds:

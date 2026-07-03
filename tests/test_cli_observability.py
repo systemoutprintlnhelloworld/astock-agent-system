@@ -2,7 +2,7 @@ from __future__ import annotations
 
 from types import SimpleNamespace
 
-from astock_agent_system.cli_enhanced import RichEventRenderer
+from astock_agent_system.cli_enhanced import ContinuousRunTracker, RichEventRenderer, _render_continuous_dashboard
 from astock_agent_system.data.providers import iwencai_skillhub
 from astock_agent_system.data.providers.iwencai_skillhub import IwencaiSkillHub
 from astock_agent_system.events import AgentEvent
@@ -151,6 +151,53 @@ def test_renderer_result_summary_shows_account_positions_and_trades(capsys) -> N
     assert "当前持仓" in output
     assert "最近交易" in output
     assert "600036" in output
+
+
+def test_continuous_run_dashboard_tracks_returns_holdings_and_errors(capsys) -> None:  # noqa: ANN001
+    payload = {
+        "status": "ok",
+        "run_id": "run-continuous-1",
+        "run_date": "2026-06-11",
+        "rankings": [{"rank": 1, "llm_model": "gpt-demo", "total_return": 0.025}],
+        "agents": [
+            {
+                "agent_id": "agent-gpt-demo",
+                "llm_model": "gpt-demo",
+                "initial_capital": 100000,
+                "equity": 102500,
+                "cash": 90000,
+                "total_return": 0.025,
+                "daily_pnl": 2500,
+                "total_trades": 2,
+                "decisions": [{"action": "BUY"}, {"action": "HOLD"}],
+                "positions": [
+                    {"stock_code": "600036", "stock_name": "招商银行", "shares": 200, "current_price": 45.0, "market_value": 9000, "unrealized_return": 0.04}
+                ],
+            }
+        ],
+    }
+    tracker = ContinuousRunTracker()
+
+    summary = tracker.update(
+        payload,
+        round_index=1,
+        max_rounds=3,
+        interval_seconds=900,
+        next_run_at="2026-06-11 10:15:00",
+        errors=[{"code": "E-TIMEOUT", "reason": "运行超时", "retry": "1/3"}],
+    )
+    _plain_renderer().print_info("连续运行看板", _render_continuous_dashboard(summary))
+
+    output = capsys.readouterr().out
+    assert "连续运行看板" in output
+    assert "累计收益 / 账户" in output
+    assert "当前持仓" in output
+    assert "数据源健康" in output
+    assert "最近错误" in output
+    assert "下一轮: 2026-06-11 10:15:00" in output
+    assert "gpt-demo" in output
+    assert "600036" in output
+    assert round(summary["model_returns"][0]["cumulative_return"], 6) == 0.025
 
 
 def test_renderer_local_market_status_shows_inventory(capsys) -> None:  # noqa: ANN001

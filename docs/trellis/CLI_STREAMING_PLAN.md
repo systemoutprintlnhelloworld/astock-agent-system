@@ -38,6 +38,22 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 
 ## 实施进度
 
+### 当前增强批次：连续运行看板与后端事件协议复用
+
+本批次补齐长程运行时的“跨轮可观察性”，并把 CLI 已验证的事件名称同步到后端事件协议，避免 GUI/TUI 后续重复定义另一套事件语义：
+
+- `agent start --continuous` 每轮完成后会输出连续运行看板，包含轮次、用时、最近 run id、下一轮计划时间、模型权益/现金、本轮收益、累计收益、PnL、交易数、决策数和当前持仓。
+- 新增 `ContinuousRunTracker` 聚合跨轮状态，`_render_continuous_dashboard()` 提供纯文本 fallback，适合测试、复制和日志归档。
+- 连续运行看板复用 datasource switch history，展示最近数据源健康状态、来源计数和异常；同时显示 `RunLogRecorder` 捕获的最近错误。
+- `RunLogRecorder.write_summary()` 持久化 `continuous_summary`，使 `data/runtime/runs/*.summary.json` 可以回放连续运行关键状态。
+- `apps/backend/schemas.py` 的 `EventType` / `EVENT_TYPES` 补齐 `analysis_*`、`data_fetch_*`、`technical_analysis_*`、`fundamental_analysis_*`、`sentiment_analysis_*`、`debate_*`、`risk_analysis_*`、`portfolio_decision_*`、`agent_*`、`run_*`、`llm_*`、`progress_update` 等 CLI 事件名，`/api/health` 可向前端暴露完整事件协议。
+
+新增验证命令：
+
+```powershell
+python -m pytest tests/test_cli_observability.py tests/test_backend_api.py -q
+```
+
 ### 当前增强批次：DataAgent 事件、benchmark 统计与 datasource history 持久化
 
 本批次把原先“运行中可见”的数据源尝试和模型对比统计沉淀为可持久化、可 API 查询、可回放的 CLI 后端能力：
@@ -122,8 +138,8 @@ python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 -
 - ✅ `portfolio_decision_complete` 已携带 `TradeDecision.explanation_data`、各 Agent 分数和客观数据证据块，便于终端输出解释“为什么买/卖/拒绝”。
 
 **仍待完成**：
-- ⏳ 数据源真实降级过程的长期持久化事件历史。
-- ⏳ 连续运行累计收益、持仓变化、下一轮时间和最近错误看板。
+- ✅ 数据源真实降级过程的长期持久化事件历史。
+- ✅ 连续运行累计收益、持仓变化、下一轮时间和最近错误看板。
 - ⏳ 新闻/公告 provider 与新闻缓存入库。
 
 ### Phase 2-8: 当前完成度与后续阶段
@@ -136,9 +152,9 @@ python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 -
 
 下一轮优先级建议：
 
-1. 给连续运行模式补累计收益、持仓、下一轮时间、最近错误和数据源健康看板。
-2. 把 CLI 已验证的细粒度事件同步到 FastAPI/WebSocket，让 TUI/GUI 不再只看聚合结果。
-3. 接入新闻/公告 provider 与缓存/本地库，补齐舆情客观数据来源。
+1. 把后端实际 auto-investment 后台运行的事件广播从模拟 flow 扩展为真实 `AgentEventEmitter` 桥接。
+2. 接入新闻/公告 provider 与缓存/本地库，补齐舆情客观数据来源。
+3. 等 tauri-rewrite 稳定且用户确认后，再执行合并 main 的交付流程。
 
 ## 当前代码位置
 

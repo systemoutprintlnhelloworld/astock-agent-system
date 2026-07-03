@@ -25,6 +25,9 @@ def test_health_endpoint_exposes_backend_metadata() -> None:
     assert payload["status"] == "ok"
     assert payload["app"] == "AStock Agent Modern Backend"
     assert "run_started" in payload["event_types"]
+    assert "technical_analysis_complete" in payload["event_types"]
+    assert "portfolio_decision_complete" in payload["event_types"]
+    assert "data_source_switched" in payload["event_types"]
 
 
 def test_tauri_origin_is_allowed_for_desktop_http_probe() -> None:

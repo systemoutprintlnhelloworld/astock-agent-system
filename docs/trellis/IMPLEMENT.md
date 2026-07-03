@@ -4,6 +4,31 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
+## 最新交付记录：连续运行看板与 CLI 事件协议复用（2026-07-03）
+
+本轮继续按“Python CLI 后端优先”的路线推进长程模拟盘可观察性，补齐连续运行时单轮摘要之外的累计状态，并把 CLI 已验证的细粒度事件名同步给后端 WebSocket schema，方便后续 TUI/GUI 直接复用同一事件协议。
+
+已落地：
+
+- `agent start --continuous` 新增连续运行看板：每轮结束后展示轮次、启动时间、用时、下一轮计划时间、最近 run id 和运行日期。
+- 新增 `ContinuousRunTracker` 与 `_render_continuous_dashboard()`，聚合多轮模型权益/现金、本轮收益、累计收益、PnL、交易数、决策数和当前持仓；纯文本 fallback 可测试、可复制。
+- 连续运行看板接入 `datasource_switch_history.jsonl`，展示最近数据源健康状态、来源计数和最近异常；长程运行不再只看单轮账户表。
+- 看板同步展示 `RunLogRecorder` 收集的最近错误，`write_summary()` 会把 `continuous_summary` 写入运行 summary，便于事后审计。
+- `apps/backend/schemas.py` 的 `EventType` / `EVENT_TYPES` 补齐 CLI 细粒度事件名（analysis/data_fetch/technical/fundamental/sentiment/debate/risk/portfolio/agent/run 等），`/api/health` 现在会暴露这些事件类型，前端/WebSocket 可以按 CLI 同名事件消费。
+- 新增聚焦测试覆盖连续运行看板的累计收益、持仓、最近错误和后端事件类型暴露。
+
+验证：
+
+```powershell
+python -m pytest tests/test_cli_observability.py tests/test_backend_api.py -q
+```
+
+下一步：
+
+1. 继续把后端实际 auto-investment 后台运行的事件广播从模拟 flow 扩展为真实 `AgentEventEmitter` 桥接，但需保持 API 线程安全与不阻塞 HTTP 响应。
+2. 接入新闻/公告 provider 与缓存/本地库，补齐舆情客观数据来源。
+3. 在用户确认后再推进 `tauri-rewrite` 到 main 的合并流程。
+
 ## 最新交付记录：DataAgent 事件、benchmark 统计与 datasource history 持久化（2026-07-03）
 
 本轮继续按用户要求暂停 GUI/TUI 扩展，优先推进 Python CLI 后端逻辑，把数据源切换、Agent 细粒度事件和 benchmark 结果从“运行时可见”推进到“可持久化、可 API 查询、可回放审计”。

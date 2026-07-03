@@ -4,6 +4,15 @@
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
+## 2026-07-03 增量交付：连续运行看板与事件协议复用
+
+- `agent start --continuous` 现在每轮完成后输出连续运行看板，展示轮次、用时、下一轮时间、最近 run id、模型权益/现金、本轮收益、累计收益、PnL、交易数、决策数和当前持仓。
+- 新增跨轮聚合器 `ContinuousRunTracker`，并复用 datasource switch history 展示数据源健康、来源计数和最近异常；运行日志 summary 会保存 `continuous_summary` 方便事后审计。
+- FastAPI/WebSocket schema 的 `EVENT_TYPES` 已补齐 CLI 细粒度事件名，`/api/health` 可暴露 analysis/data_fetch/technical/fundamental/sentiment/debate/risk/portfolio/agent/run 等事件类型。
+- 聚焦验证已通过：`python -m pytest tests/test_cli_observability.py tests/test_backend_api.py -q`。
+
+后续仍需推进真实后端 `AgentEventEmitter` 到 WebSocket 的桥接，以及新闻/公告 provider 与本地库入库；当前系统仍只做模拟盘，不接入真实下单。
+
 ## 2026-07-03 增量交付：DataAgent 事件、benchmark 统计与 datasource history 持久化
 
 - `DataAgent` 现在可绑定运行上下文与事件总线；provider/cache/local/offline 每次数据获取 attempt 都会发射 `data_source_switched`，并带上 `run_id`、`agent_id`、`model`、来源、操作、状态和详情。
