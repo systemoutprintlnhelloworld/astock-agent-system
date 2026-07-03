@@ -60,6 +60,14 @@ def test_competition_runs_independent_accounts_without_persistence(monkeypatch):
     returns = [row["total_return"] for row in payload["rankings"]]
     assert returns == sorted(returns, reverse=True)
 
+    stats = payload["benchmark_statistics"]
+    assert stats["model_count"] == 2
+    assert stats["decision_count"] >= 2
+    assert stats["agents"][0]["llm_model"] in {"rule-baseline", "demo-model"}
+    assert "action_distribution" in stats
+    assert "llm_review_sources" in stats
+    assert any("offline_mode" in item["error_patterns"] for item in stats["agents"] if item["llm_model"] == "demo-model")
+
 
 def test_offline_competition_skips_llm_review_even_with_default_model(monkeypatch):
     monkeypatch.setenv("DATA_MODE", "offline")

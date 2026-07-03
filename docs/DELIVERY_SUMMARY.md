@@ -4,6 +4,23 @@
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
+## 2026-07-03 增量交付：DataAgent 事件、benchmark 统计与 datasource history 持久化
+
+- `DataAgent` 现在可绑定运行上下文与事件总线；provider/cache/local/offline 每次数据获取 attempt 都会发射 `data_source_switched`，并带上 `run_id`、`agent_id`、`model`、来源、操作、状态和详情。
+- 新增 Git 忽略的持久化数据源历史：`data/runtime/datasource_switch_history.jsonl`。写入前会脱敏 token、password、api key、access token 等敏感字段；测试或临时运行可用 `ASTOCK_DATASOURCE_HISTORY_PATH` 指向自定义文件。
+- 新增 CLI：`python -m astock_agent_system.cli datasource history --format json`，支持按 `--source`、`--operation`、`--status` 过滤，用于复盘一轮运行中真实数据源切换和降级路径。
+- FastAPI `/api/datasource/history` 已改为读取持久化 datasource history，并返回 `path`、`summary` 和最近记录；后续 TUI/GUI 可直接复用这一后端契约。
+- `agent benchmark` / `MultiAgentOrchestrator.run_competition()` 现在返回 `benchmark_statistics`，包含各模型决策数、动作分布、平均置信度、平均仓位、交易效率、LLM review 来源和错误模式；运行 summary 也会保存该统计，避免只用收益排行判断模型表现。
+- 仍保持模拟盘边界：以上事件、历史和统计只用于可观察性、诊断、回放和研究，不会触发真实下单，也不构成投资建议。
+
+推荐验证：
+
+```powershell
+python -m pytest tests/test_data_agent.py tests/test_orchestrator.py tests/test_backend_api.py -q
+python -m astock_agent_system.cli datasource history --format json
+.\start.bat -Mode delivery-check
+```
+
 ## 2026-06-12 增量交付：数据源与运行可观察性
 
 - iFinD / 同花顺 QuantAPI HTTP 适配器改为官方 `cmd_history_quotation` 历史行情与 `real_time_quotation` 实时报价端点，并保留 refresh token 重试与多形态响应解析。

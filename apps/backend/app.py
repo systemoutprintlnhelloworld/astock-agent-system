@@ -59,6 +59,7 @@ from astock_agent_system.agent_learning import get_learning_status, load_learnin
 from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import Settings, load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
+from astock_agent_system.data.switch_history import load_switch_history, summarize_switch_history, switch_history_path
 from astock_agent_system.event_timeline import EventTimelineService, filter_timeline_events
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.scheduler import TradingTaskScheduler
@@ -252,13 +253,16 @@ def create_app() -> FastAPI:
 
     @api.get("/api/datasource/history")
     def get_datasource_history() -> dict[str, Any]:
-        """Return datasource switch history placeholder until persistent tracing is enabled."""
+        """Return persisted datasource switch/attempt history for UI clients."""
+        items = load_switch_history(limit=100)
         return {
             "status": "ok",
-            "items": [],
+            "path": str(switch_history_path()),
+            "summary": summarize_switch_history(items),
+            "items": items,
             "next_steps": [
-                "Datasource switch events are emitted during foreground CLI runs.",
-                "Persistent provider-switch history will be backed by the event log in a later phase.",
+                "Run foreground CLI agent or datasource smoke commands to append fresh datasource attempts.",
+                "Use CLI datasource history --format json for filtered local debugging.",
             ],
         }
 

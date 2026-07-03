@@ -15,6 +15,8 @@ from typing import Any
 from astock_agent_system.config import PROJECT_ROOT, Settings, load_settings
 from astock_agent_system.data.cache import MarketDataCache
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
+from astock_agent_system.data.switch_history import append_switch_history
+from astock_agent_system.events.emitter import AgentEventEmitter
 from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
 
 logger = logging.getLogger(__name__)
@@ -226,6 +228,7 @@ class DataAgent:
         data_path: str | None = None,
         use_local_store: bool = True,
         local_store_path: str | Path | None = None,
+        event_emitter: AgentEventEmitter | None = None,
     ) -> None:
         self.settings = settings or load_settings()
         self.data_path = self._resolve_path(data_path or self.settings.data.offline_data_path)
@@ -241,6 +244,22 @@ class DataAgent:
         self._quote_cache: dict[str, StockQuote] = {}
         self._market_cache = MarketDataCache(root=self._market_cache_root())
         self._local_store = LocalMarketStore(path=local_store_path or self._local_store_path())
+        self._event_emitter = event_emitter
+        self._run_id = ""
+        self._agent_id = ""
+        self._model = ""
+
+    def set_run_context(self, *, run_id: str = "", agent_id: str = "", model: str = "") -> None:
+        """Attach event context used by datasource switch tracing."""
+
+        self._run_id = str(run_id or "")
+        self._agent_id = str(agent_id or "")
+        self._model = str(model or "")
+
+    def set_event_emitter(self, event_emitter: AgentEventEmitter | None) -> None:
+        """Attach or replace the event emitter used for datasource tracing."""
+
+        self._event_emitter = event_emitter
 
     def _local_store_path(self) -> Path:
         raw_path = os.getenv("ASTOCK_MARKET_LOCAL_DB", "").strip()
@@ -665,15 +684,55 @@ class DataAgent:
         return {}
 
     def _record_provider_attempt(self, source: str, operation: str, status: str, detail: str = "") -> None:
-        self._provider_attempts.append(
-            {
-                "source": source,
-                "operation": operation,
-                "status": status,
-                "detail": detail[:300],
-            }
-        )
+        item = {
+            "source": source,
+            "operation": operation,
+            "status": status,
+            "detail": detail[:300],
+            "run_id": self._run_id,
+            "agent_id": self._agent_id,
+            "model": self._model,
+        }
+        self._provider_attempts.append(item)
         self._provider_attempts = self._provider_attempts[-100:]
+        self._emit_provider_attempt(item)
+
+    def _emit_provider_attempt(self, item: dict[str, str]) -> None:
+        """Persist and emit provider attempts without interrupting data fallback."""
+
+        source = item.get("source", "")
+        operation = item.get("operation", "")
+        status = item.get("status", "")
+        detail = item.get("detail", "")
+        if not (os.getenv("PYTEST_CURRENT_TEST") and not os.getenv("ASTOCK_DATASOURCE_HISTORY_PATH")):
+            try:
+                append_switch_history(
+                    source=source,
+                    operation=operation,
+                    status=status,
+                    detail=detail,
+                    run_id=self._run_id,
+                    agent_id=self._agent_id,
+                    model=self._model,
+                )
+            except Exception:
+                logger.debug("Failed to persist datasource switch history", exc_info=True)
+        if self._event_emitter is not None:
+            try:
+                self._event_emitter.emit(
+                    "data_source_switched",
+                    run_id=self._run_id,
+                    agent_id=self._agent_id,
+                    model=self._model,
+                    stage="data_source",
+                    source=source,
+                    operation=operation,
+                    status=status,
+                    detail=detail,
+                    message=f"数据源 {source} {operation}: {status}",
+                )
+            except Exception:
+                logger.debug("Failed to emit datasource switch event", exc_info=True)
 
     def _cooldown_provider(self, source: str, operation: str, exc: Exception) -> None:
         """Skip repeated calls to a provider operation after likely run-wide failures."""

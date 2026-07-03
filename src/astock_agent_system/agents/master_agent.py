@@ -37,6 +37,10 @@ class MasterAgent:
         self.run_id = run_id
         self.agent_id = agent_id
         self.model = model
+        if hasattr(self.data_agent, "set_event_emitter"):
+            self.data_agent.set_event_emitter(event_emitter)
+        if hasattr(self.data_agent, "set_run_context"):
+            self.data_agent.set_run_context(run_id=run_id, agent_id=agent_id, model=model)
         self.technical_analyst = TechnicalAnalyst()
         self.fundamental_analyst = FundamentalAnalyst()
         self.sentiment_analyst = SentimentAnalyst(settings=self.settings)

@@ -38,6 +38,23 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 
 ## 实施进度
 
+### 当前增强批次：DataAgent 事件、benchmark 统计与 datasource history 持久化
+
+本批次把原先“运行中可见”的数据源尝试和模型对比统计沉淀为可持久化、可 API 查询、可回放的 CLI 后端能力：
+
+- `DataAgent` 支持绑定 `AgentEventEmitter` 与 `run_id/agent_id/model` 上下文；每次 provider/cache/local/offline attempt 都会发射 `data_source_switched`。
+- 新增 `src/astock_agent_system/data/switch_history.py`，默认写入 Git 忽略的 `data/runtime/datasource_switch_history.jsonl`，并对 token/password/api key/access token 等字段脱敏。
+- 新增 `datasource history` 命令，可按来源、操作和状态过滤，也可输出 JSON 供脚本和后续 TUI/GUI 复用。
+- `/api/datasource/history` 已读取同一份持久化历史，不再只是占位空列表。
+- `agent benchmark` / `run_competition` payload 新增 `benchmark_statistics`，包含动作分布、平均置信度、平均仓位、交易效率、LLM review 来源和错误模式；运行 summary 同步保存该统计。
+
+新增验证命令：
+
+```powershell
+python -m pytest tests/test_data_agent.py tests/test_orchestrator.py tests/test_backend_api.py -q
+python -m astock_agent_system.cli datasource history --format json
+```
+
 ### 当前增强批次：整合持续学习 / 记忆 / 数据源可观察性
 
 本批次在原 CLI streaming 计划上补齐了 `docs/trellis-plan.md` 中已经落地但此前遗漏的持续学习系统：

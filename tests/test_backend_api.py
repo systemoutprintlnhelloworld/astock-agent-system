@@ -8,6 +8,7 @@ from fastapi.testclient import TestClient
 
 from apps.backend.app import app, make_event, settings_to_public_dict
 from astock_agent_system.config import load_settings
+from astock_agent_system.data.switch_history import append_switch_history
 from astock_agent_system.scheduler import ScheduledTaskResult
 
 
@@ -110,6 +111,32 @@ def test_data_provider_endpoint_exposes_diagnostics_without_secrets(monkeypatch)
     assert any(item["source"] == "ths_skill" and item["adapter_available"] is False for item in payload["diagnostics"]["catalog"])
     assert "secret-tushare-token" not in serialized
     assert "secret-alpha-key" not in serialized
+
+
+def test_datasource_history_endpoint_reads_persisted_switch_history(monkeypatch, tmp_path) -> None:
+    history_path = tmp_path / "datasource_history.jsonl"
+    monkeypatch.setenv("ASTOCK_DATASOURCE_HISTORY_PATH", str(history_path))
+    append_switch_history(
+        source="tushare",
+        operation="history",
+        status="error",
+        detail="access_token=secret-token timeout",
+        run_id="run-api",
+        agent_id="agent-api",
+        path=history_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/datasource/history")
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert payload["status"] == "ok"
+    assert payload["summary"]["by_source"]["tushare"] == 1
+    assert payload["items"][0]["run_id"] == "run-api"
+    assert payload["items"][0]["detail"].startswith("access_token=***REDACTED***")
+    assert "secret-token" not in serialized
 
 
 def test_bench_endpoint_skips_without_llm_key(monkeypatch) -> None:

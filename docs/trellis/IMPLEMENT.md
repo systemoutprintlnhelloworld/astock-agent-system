@@ -4,6 +4,35 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
+## 最新交付记录：DataAgent 事件、benchmark 统计与 datasource history 持久化（2026-07-03）
+
+本轮继续按用户要求暂停 GUI/TUI 扩展，优先推进 Python CLI 后端逻辑，把数据源切换、Agent 细粒度事件和 benchmark 结果从“运行时可见”推进到“可持久化、可 API 查询、可回放审计”。
+
+已落地：
+
+- `DataAgent` 支持绑定 `AgentEventEmitter` 与 `run_id/agent_id/model` 上下文；每次 provider/cache/local/offline attempt 都会发射 `data_source_switched` 事件，前台运行可以看到具体来源、操作、状态和简短详情。
+- 新增 `src/astock_agent_system/data/switch_history.py`，把数据源 attempt 追加到 Git 忽略的 `data/runtime/datasource_switch_history.jsonl`；写入前会脱敏 token/password/api key 等字段，测试可通过 `ASTOCK_DATASOURCE_HISTORY_PATH` 指向临时文件。
+- 新增 CLI 命令 `python -m astock_agent_system.cli datasource history`，支持 `--limit`、`--source`、`--operation`、`--status` 和 `--format json`，用于排查一轮运行中 Tushare/Baostock/AkShare/JQData/iFinD/local/offline 的真实切换轨迹。
+- `/api/datasource/history` 不再返回空占位，而是读取持久化 JSONL 并返回 `path`、`summary` 和最近 items，供 TUI/GUI 后续复用 CLI 已验证的 datasource 可观察性。
+- `MultiAgentOrchestrator.run_competition()` 返回 `benchmark_statistics`：按模型统计决策数、动作分布、平均置信度、平均仓位、交易效率、LLM review 来源和错误模式；`RunLogRecorder.write_summary()` 同步写入该统计，避免只看收益排行。
+- `MasterAgent` 初始化会把事件总线和 run context 传给共享 `DataAgent`，使多模型独立账户运行中的 datasource 事件能归属到对应 Agent/model。
+- 新增/更新聚焦测试覆盖 DataAgent datasource history 持久化与事件发射、backend history API 脱敏读取、benchmark statistics payload 和 CLI parser wiring。
+
+验证建议：
+
+```powershell
+python -m py_compile src/astock_agent_system/data/switch_history.py src/astock_agent_system/data/data_agent.py src/astock_agent_system/agents/master_agent.py src/astock_agent_system/orchestrator/multi_agent_orchestrator.py src/astock_agent_system/cli_enhanced.py src/astock_agent_system/cli.py apps/backend/app.py
+python -m pytest tests/test_data_agent.py tests/test_orchestrator.py tests/test_backend_api.py -q
+python -m astock_agent_system.cli datasource history --format json
+.\start.bat -Mode delivery-check
+```
+
+下一步：
+
+1. 将 `data_source_switched` 和 datasource history summary 进一步接入前端/TUI 事件面板，但仍以 Python CLI 验证为主。
+2. 对连续运行模式补累计收益、下一轮时间、最近错误和 datasource 健康摘要，避免长程运行只看单轮结果。
+3. 继续推进新闻/公告 provider 与本地库入库，但不得把研究信源接入误报为行情 provider 或真实下单能力。
+
 ## 最新交付记录：本地主动扫描、运行日志元信息与 smart-search/local-status 可观察性（2026-06-13）
 
 本轮继续按用户要求暂停 GUI/TUI 扩展，优先把 Python CLI 后端链路做成可诊断、可解释、可交接的工作流。重点修复真实运行中暴露的 `smart-search` Windows shim/PATH 问题，把 iWencai 与本地市场 SQLite 库状态纳入交互式数据源页面，并新增本地市场主动扫描入口与运行日志账户元信息，解决“几千只股票逐股分析太慢”和“当前运行/历史摘要/新账户/恢复账户不清楚”的问题。

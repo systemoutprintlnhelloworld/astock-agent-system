@@ -34,6 +34,7 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_configure_tushare,
     cmd_datasource_active_research,
     cmd_datasource_active_scan,
+    cmd_datasource_history,
     cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
@@ -1170,6 +1171,17 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_status_parser = datasource_subparsers.add_parser("status", help="Show datasource mode and provider-chain status")
     datasource_status_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
     datasource_status_parser.set_defaults(func=cmd_datasource_status)
+
+    datasource_history_parser = datasource_subparsers.add_parser(
+        "history",
+        help="Show persisted datasource switch/attempt history",
+    )
+    datasource_history_parser.add_argument("--limit", type=int, default=100, help="Maximum recent history rows")
+    datasource_history_parser.add_argument("--source", default="", help="Optional provider id filter")
+    datasource_history_parser.add_argument("--operation", default="", help="Optional operation filter, e.g. history/quote/financial")
+    datasource_history_parser.add_argument("--status", default="", help="Optional status filter, e.g. ok/error/skipped")
+    datasource_history_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_history_parser.set_defaults(func=cmd_datasource_history)
 
     datasource_smart_search_parser = datasource_subparsers.add_parser(
         "smart-search-status",

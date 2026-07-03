@@ -202,6 +202,7 @@ class MultiAgentOrchestrator:
             "rankings": [_ranking_row(item, rank + 1) for rank, item in enumerate(rankings)],
             "agents": [item.to_dict() for item in results],
         }
+        payload["benchmark_statistics"] = _benchmark_statistics(results)
         if persist:
             payload["persisted"] = self._persist_competition(payload)
         should_collect_learning = persist if collect_learning is None else collect_learning
@@ -755,6 +756,98 @@ def _ranking_row(result: AgentCompetitionResult, rank: int) -> dict[str, Any]:
         "skipped_execution": result.skipped_execution,
         "skip_reason": result.skip_reason,
     }
+
+
+def _benchmark_statistics(results: list[AgentCompetitionResult]) -> dict[str, Any]:
+    """Summarize model behavior beyond raw PnL for agent benchmark runs."""
+
+    agents = [_agent_benchmark_statistics(item) for item in results]
+    total_decisions = sum(int(item.get("decision_count", 0)) for item in agents)
+    total_trades = sum(int(item.get("total_trades", 0)) for item in agents)
+    action_distribution: dict[str, int] = {}
+    review_sources: dict[str, int] = {}
+    error_patterns: dict[str, int] = {}
+    for item in agents:
+        for action, count in item.get("action_distribution", {}).items():
+            action_distribution[action] = action_distribution.get(action, 0) + int(count)
+        for source, count in item.get("llm_review_sources", {}).items():
+            review_sources[source] = review_sources.get(source, 0) + int(count)
+        for pattern, count in item.get("error_patterns", {}).items():
+            error_patterns[pattern] = error_patterns.get(pattern, 0) + int(count)
+    return {
+        "model_count": len(results),
+        "decision_count": total_decisions,
+        "total_trades": total_trades,
+        "action_distribution": action_distribution,
+        "llm_review_sources": review_sources,
+        "error_patterns": error_patterns,
+        "best_return_model": max(agents, key=lambda item: item.get("total_return", 0.0), default={}).get("llm_model", ""),
+        "highest_activity_model": max(agents, key=lambda item: item.get("decision_count", 0), default={}).get("llm_model", ""),
+        "agents": agents,
+    }
+
+
+def _agent_benchmark_statistics(result: AgentCompetitionResult) -> dict[str, Any]:
+    decisions = [item for item in result.decisions if isinstance(item, dict)]
+    action_distribution: dict[str, int] = {}
+    review_sources: dict[str, int] = {}
+    error_patterns: dict[str, int] = {}
+    confidence_values: list[float] = []
+    position_values: list[float] = []
+    risk_note_count = 0
+    for decision in decisions:
+        action = str(decision.get("action", "HOLD") or "HOLD").upper()
+        action_distribution[action] = action_distribution.get(action, 0) + 1
+        confidence_values.append(_to_float(decision.get("confidence"), 0.0))
+        position_values.append(_to_float(decision.get("position_size"), 0.0))
+        risk_notes = decision.get("risk_notes", []) if isinstance(decision.get("risk_notes"), list) else []
+        risk_note_count += len(risk_notes)
+        review = decision.get("llm_review", {}) if isinstance(decision.get("llm_review"), dict) else {}
+        source = str(review.get("source", "unknown") or "unknown")
+        review_sources[source] = review_sources.get(source, 0) + 1
+        reason = str(review.get("reason", "") or "")
+        pattern = _classify_review_pattern(reason)
+        if pattern:
+            error_patterns[pattern] = error_patterns.get(pattern, 0) + 1
+    decision_count = len(decisions)
+    return {
+        "agent_id": result.agent_id,
+        "llm_model": result.llm_model,
+        "decision_count": decision_count,
+        "total_return": result.total_return,
+        "daily_pnl": result.daily_pnl,
+        "max_drawdown": result.max_drawdown,
+        "win_rate": result.win_rate,
+        "total_trades": result.total_trades,
+        "buy_count": result.buy_count,
+        "sell_count": result.sell_count,
+        "trade_efficiency": round(result.total_trades / decision_count, 6) if decision_count else 0.0,
+        "avg_confidence": round(sum(confidence_values) / len(confidence_values), 6) if confidence_values else 0.0,
+        "avg_position_size": round(sum(position_values) / len(position_values), 6) if position_values else 0.0,
+        "risk_note_count": risk_note_count,
+        "action_distribution": action_distribution,
+        "llm_review_sources": review_sources,
+        "error_patterns": error_patterns,
+        "skipped_execution": result.skipped_execution,
+        "skip_reason": result.skip_reason,
+    }
+
+
+def _classify_review_pattern(reason: str) -> str:
+    lower = reason.lower()
+    if not reason:
+        return ""
+    if "offline" in lower:
+        return "offline_mode"
+    if "not_configured" in lower or "api key" in lower or "base_url" in lower:
+        return "llm_not_configured"
+    if "timeout" in lower or "timed out" in lower or "exceeded" in lower or "超时" in reason:
+        return "timeout"
+    if "rate" in lower or "429" in lower or "频率" in reason or "限流" in reason:
+        return "rate_limited"
+    if "json" in lower or "parse" in lower:
+        return "json_parse_error"
+    return "other"
 
 
 def _positions_as_rows(positions: Any, latest_prices: dict[str, float]) -> list[dict[str, Any]]:

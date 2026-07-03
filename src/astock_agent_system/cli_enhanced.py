@@ -36,6 +36,7 @@ from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
 from astock_agent_system.data.providers.iwencai_skillhub import DEFAULT_TOOL_SKILLS, OFFICIAL_CLI, IwencaiSkillHub
+from astock_agent_system.data.switch_history import load_switch_history, summarize_switch_history, switch_history_path
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 from astock_agent_system.smart_search import resolve_smart_search_cli, run_smart_search_doctor
@@ -456,6 +457,7 @@ class RunLogRecorder:
             "summary_path": str(self.summary_path),
             "errors": self.errors[-20:],
             "rankings": payload.get("rankings", []),
+            "benchmark_statistics": payload.get("benchmark_statistics", {}),
         }
         self.summary_path.write_text(json.dumps(_redact_for_run_log(summary), ensure_ascii=False, indent=2, default=str), encoding="utf-8")
 
@@ -888,6 +890,52 @@ def cmd_agent_memory(args: Any) -> int:
         print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
     else:
         RichEventRenderer().render_memory(payload)
+    return 0
+
+
+def cmd_datasource_history(args: Any) -> int:
+    """Show persisted datasource switch/attempt history."""
+
+    items = load_switch_history(
+        limit=int(getattr(args, "limit", 100) or 100),
+        source=str(getattr(args, "source", "") or ""),
+        operation=str(getattr(args, "operation", "") or ""),
+        status=str(getattr(args, "status", "") or ""),
+    )
+    payload = {
+        "status": "ok",
+        "path": str(switch_history_path()),
+        "summary": summarize_switch_history(items),
+        "items": items,
+        "next_steps": [
+            "Run agent start or datasource test/status commands to append fresh datasource attempts.",
+            "Use --source/--operation/--status to filter noisy provider chains.",
+        ],
+    }
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(payload, ensure_ascii=False, indent=2, default=str))
+    else:
+        rows = [
+            [
+                item.get("timestamp", ""),
+                item.get("source", ""),
+                item.get("operation", ""),
+                item.get("status", ""),
+                item.get("agent_id", ""),
+                item.get("detail", ""),
+            ]
+            for item in items[: int(getattr(args, "limit", 100) or 100)]
+        ]
+        RichEventRenderer().print_info(
+            "数据源切换历史",
+            "\n".join(
+                [
+                    f"路径: {payload['path']}",
+                    f"汇总: {json.dumps(payload['summary'], ensure_ascii=False, default=str)}",
+                    _format_table(["时间", "来源", "操作", "状态", "Agent", "详情"], rows, max_width=32),
+                ]
+            ),
+        )
     return 0
 
 

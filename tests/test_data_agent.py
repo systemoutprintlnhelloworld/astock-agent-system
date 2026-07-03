@@ -12,17 +12,23 @@ from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import LocalMarketStore
+from astock_agent_system.data.switch_history import load_switch_history
 from astock_agent_system.data.providers.alpha_vantage_provider import AlphaVantageProvider
 from astock_agent_system.data.providers.baostock_provider import BaostockProvider, _is_supported_a_share_stock_code
 from astock_agent_system.data.providers.tushare_provider import TushareProvider
+from astock_agent_system.events import AgentEventEmitter
 from astock_agent_system.models import FinancialSnapshot, StockBar, StockIdentity, StockQuote
 
 
-def _offline_data_agent(monkeypatch) -> DataAgent:
+def _offline_settings(monkeypatch):
     monkeypatch.setenv("DATA_MODE", "offline")
     monkeypatch.setenv("SMART_SEARCH_ENABLED", "false")
     monkeypatch.setenv("LLM_API_KEY", "")
-    return DataAgent(settings=load_settings())
+    return load_settings()
+
+
+def _offline_data_agent(monkeypatch) -> DataAgent:
+    return DataAgent(settings=_offline_settings(monkeypatch))
 
 
 def test_data_agent_returns_offline_universe_and_history(monkeypatch):
@@ -47,6 +53,32 @@ def test_history_days_limit(monkeypatch):
 
     assert len(bars) == 5
     assert bars == sorted(bars, key=lambda item: item.date)
+
+
+def test_data_agent_persists_and_emits_datasource_history(monkeypatch, tmp_path):
+    history_path = tmp_path / "datasource_history.jsonl"
+    monkeypatch.setenv("ASTOCK_DATASOURCE_HISTORY_PATH", str(history_path))
+    settings = _offline_settings(monkeypatch)
+    emitter = AgentEventEmitter()
+    events = []
+    emitter.subscribe(events.append)
+    data_agent = DataAgent(settings=settings, event_emitter=emitter)
+    data_agent.set_run_context(run_id="run-unit", agent_id="agent-unit", model="model-unit")
+
+    bars = data_agent.get_history("600519", days=2)
+    history = load_switch_history(path=history_path)
+
+    assert len(bars) == 2
+    assert history
+    assert history[0]["source"] == "offline"
+    assert history[0]["operation"] == "history"
+    assert history[0]["status"] == "ok"
+    assert history[0]["run_id"] == "run-unit"
+    assert any(event.type == "data_source_switched" for event in events)
+    event = next(event for event in events if event.type == "data_source_switched")
+    assert event.run_id == "run-unit"
+    assert event.agent_id == "agent-unit"
+    assert event.payload["source"] == "offline"
 
 
 def test_local_market_store_roundtrip(tmp_path):
