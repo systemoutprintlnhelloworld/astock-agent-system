@@ -4,6 +4,35 @@
 
 本文档把当前实现状态、验证命令、下一步可执行任务写成持久化 handoff 计划。新对话应先读本文件，再继续编码。
 
+## 最新交付记录：后端真实事件桥接与新闻/公告研究缓存（2026-07-03）
+
+本轮继续按“Python CLI 后端优先”路线推进已知计划中的非阻塞项：把 FastAPI 自动投资端点从模拟流程事件扩展为真实 `AgentEventEmitter` 桥接，同时落地不依赖凭证的新闻/公告研究缓存入口，明确它只做研究证据回放，不进入行情 provider chain，也不会触发真实下单。
+
+已落地：
+
+- FastAPI 新增 `BackendAgentEventBridge`：为每次 `/api/auto-investment` 与 `/api/auto-investment/background` 创建独立 `AgentEventEmitter`，把核心 `AgentEvent` 转换为后端 `make_event()` envelope 后广播到现有 WebSocket hub。
+- 事件桥接使用 `loop.call_soon_threadsafe()` 调度广播，可安全接收 `asyncio.to_thread()` 中 `TradingTaskScheduler` / `MultiAgentOrchestrator` 发出的技术面、基本面、舆情、辩论、风控、组合决策和 datasource 事件。
+- `TradingTaskScheduler` 支持可选 `event_emitter`，并通过兼容 helper 构造 orchestrator；旧测试 double 或外部嵌入方未接受 `event_emitter` 时仍可回退。
+- 新增 `src/astock_agent_system/data/news_cache.py`，默认写入 Git 忽略的 `data/runtime/news_research_cache.jsonl`，支持 `ASTOCK_NEWS_CACHE_PATH` 临时改写、递归脱敏 token/password/api key/authorization 等字段，并提供加载与 summary 统计。
+- 新增 CLI：`datasource news-collect` 可把 smart-search / iWencai SkillHub 结果写入研究缓存；`datasource news-cache` 可按 source、stock_code、status 查看缓存。无 smart-search 或 iWencai 凭证时返回结构化 skipped/error，不伪装为行情数据。
+- 新增 FastAPI：`/api/datasource/news-cache` 读取同一份研究缓存，返回 `path`、`summary` 和最近 items，供后续 TUI/GUI 或回放工具使用。
+- 新增聚焦测试覆盖后端桥接广播、scheduler 兼容构造、news-cache 脱敏/统计、news-cache API 和 CLI parser wiring。
+
+验证：
+
+```powershell
+python -m pytest tests/test_backend_api.py tests/test_scheduler.py tests/test_data_agent.py tests/test_cli_interactive.py -q
+```
+
+当前聚焦结果：`50 passed`。
+
+下一步：
+
+1. 本轮已运行 `.\start.bat -Mode delivery-check` 并通过；收尾继续 commit / push。
+2. 后续若继续产品化，可让前端/TUI 消费真实 WebSocket 事件和 `/api/datasource/news-cache`，但不需要再重复定义事件协议。
+3. 是否让 `SentimentAnalyst` 读取持久化 news-cache 作为只读证据，需要用户确认产品边界后再做；当前缓存只用于研究回放和诊断。
+4. 合并 `tauri-rewrite` 到 main 仍需用户明确确认。
+
 ## 最新交付记录：连续运行看板与 CLI 事件协议复用（2026-07-03）
 
 本轮继续按“Python CLI 后端优先”的路线推进长程模拟盘可观察性，补齐连续运行时单轮摘要之外的累计状态，并把 CLI 已验证的细粒度事件名同步给后端 WebSocket schema，方便后续 TUI/GUI 直接复用同一事件协议。

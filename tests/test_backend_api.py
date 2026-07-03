@@ -3,11 +3,13 @@ from __future__ import annotations
 import importlib
 import json
 from typing import Any
+from unittest.mock import AsyncMock
 
 from fastapi.testclient import TestClient
 
 from apps.backend.app import app, make_event, settings_to_public_dict
 from astock_agent_system.config import load_settings
+from astock_agent_system.data.news_cache import append_news_cache
 from astock_agent_system.data.switch_history import append_switch_history
 from astock_agent_system.scheduler import ScheduledTaskResult
 
@@ -140,6 +142,71 @@ def test_datasource_history_endpoint_reads_persisted_switch_history(monkeypatch,
     assert payload["items"][0]["run_id"] == "run-api"
     assert payload["items"][0]["detail"].startswith("access_token=***REDACTED***")
     assert "secret-token" not in serialized
+
+
+def test_datasource_news_cache_endpoint_reads_persisted_research_rows(monkeypatch, tmp_path) -> None:
+    cache_path = tmp_path / "news_cache.jsonl"
+    monkeypatch.setenv("ASTOCK_NEWS_CACHE_PATH", str(cache_path))
+    append_news_cache(
+        source="iwencai",
+        query="600519 公告",
+        status="skipped",
+        stock_code="600519",
+        skill="announcement-search",
+        items=[{"title": "公告", "snippet": "authorization=secret-token"}],
+        metadata={"api_key": "secret-token"},
+        path=cache_path,
+    )
+    client = TestClient(app)
+
+    response = client.get("/api/datasource/news-cache?stock_code=600519")
+
+    assert response.status_code == 200
+    payload = response.json()
+    serialized = json.dumps(payload, ensure_ascii=False)
+    assert payload["status"] == "ok"
+    assert payload["summary"]["by_source"]["iwencai"] == 1
+    assert payload["items"][0]["stock_code"] == "600519"
+    assert "secret-token" not in serialized
+    assert "***REDACTED***" in serialized
+
+
+def test_backend_agent_event_bridge_broadcasts_core_events(monkeypatch) -> None:
+    broadcast = AsyncMock()
+    monkeypatch.setattr(backend_app_module.event_hub, "broadcast", broadcast)
+
+    class _Loop:
+        def call_soon_threadsafe(self, callback, *args):  # noqa: ANN001 - mirrors asyncio loop API
+            callback(*args)
+
+    created: list[Any] = []
+
+    def fake_create_task(coro):  # noqa: ANN001 - mirrors asyncio.create_task input
+        created.append(coro)
+        return backend_app_module.asyncio.run(coro)
+
+    monkeypatch.setattr(backend_app_module.asyncio, "create_task", fake_create_task)
+    bridge = backend_app_module.BackendAgentEventBridge("backend-run", _Loop())
+
+    bridge.emitter.emit(
+        "technical_analysis_complete",
+        run_id="core-run",
+        agent_id="agent-demo",
+        model="gpt-demo",
+        stage="technical_analyst",
+        message="技术分析完成",
+        stock_code="600036",
+    )
+
+    assert created
+    assert broadcast.await_count == 1
+    event = broadcast.await_args.args[0]
+    assert event["type"] == "technical_analysis_complete"
+    assert event["run_id"] == "core-run"
+    assert event["agent_id"] == "agent-demo"
+    assert event["payload"]["model"] == "gpt-demo"
+    assert event["payload"]["stage"] == "technical_analyst"
+    assert event["payload"]["source"] == "agent_event_emitter"
 
 
 def test_bench_endpoint_skips_without_llm_key(monkeypatch) -> None:

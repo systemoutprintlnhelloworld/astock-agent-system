@@ -12,6 +12,7 @@ from astock_agent_system.agents import MasterAgent
 from astock_agent_system.backtest import VirtualAccount
 from astock_agent_system.config import Settings, load_settings
 from astock_agent_system.data import DataAgent
+from astock_agent_system.events import AgentEventEmitter
 from astock_agent_system.notification import build_notifier
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
 from astock_agent_system.reporting import save_daily_report
@@ -43,9 +44,15 @@ class TradingTaskScheduler:
     dependency-light.
     """
 
-    def __init__(self, settings: Settings | None = None, data_agent: DataAgent | None = None) -> None:
+    def __init__(
+        self,
+        settings: Settings | None = None,
+        data_agent: DataAgent | None = None,
+        event_emitter: AgentEventEmitter | None = None,
+    ) -> None:
         self.settings = settings or load_settings()
         self.data_agent = data_agent or DataAgent(settings=self.settings)
+        self.event_emitter = event_emitter
 
     def run_daily_analysis(self) -> ScheduledTaskResult:
         """Run the daily candidate screening and analysis pipeline once."""
@@ -98,7 +105,11 @@ class TradingTaskScheduler:
         started = _now_text()
         try:
             selected_models = models if models is not None else self.settings.scheduler.models or None
-            competition = MultiAgentOrchestrator(settings=self.settings, data_agent=self.data_agent).run_competition(
+            competition = _build_multi_agent_orchestrator(
+                settings=self.settings,
+                data_agent=self.data_agent,
+                event_emitter=self.event_emitter,
+            ).run_competition(
                 models=selected_models,
                 max_count=self.settings.scheduler.max_count,
                 history_days=self.settings.scheduler.history_days,
@@ -374,6 +385,20 @@ def _parse_hhmm(value: str) -> tuple[int, int]:
 
 def _now_text() -> str:
     return datetime.now().isoformat(timespec="seconds")
+
+
+def _build_multi_agent_orchestrator(
+    *,
+    settings: Settings,
+    data_agent: DataAgent,
+    event_emitter: AgentEventEmitter | None = None,
+) -> MultiAgentOrchestrator:
+    """Create the orchestrator while preserving compatibility with lightweight test doubles."""
+
+    try:
+        return MultiAgentOrchestrator(settings=settings, data_agent=data_agent, event_emitter=event_emitter)
+    except TypeError:  # pragma: no cover - supports old embedders/test doubles without event_emitter
+        return MultiAgentOrchestrator(settings=settings, data_agent=data_agent)
 
 
 def _blocked_stop_loss_reason(position: dict[str, Any], trade_date: str) -> str:

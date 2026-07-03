@@ -76,3 +76,35 @@ def test_cli_sync_center_shows_local_market_status(monkeypatch) -> None:  # noqa
     assert exit_code == 0
     assert len(captured_args) == 1
     assert captured_args[0].format == "text"
+
+
+def test_datasource_news_commands_are_wired_to_parser() -> None:
+    parser = cli.build_parser()
+
+    collect_args = parser.parse_args([
+        "datasource",
+        "news-collect",
+        "--source",
+        "smart-search",
+        "--stock-code",
+        "600519",
+        "--format",
+        "json",
+    ])
+    cache_args = parser.parse_args([
+        "datasource",
+        "news-cache",
+        "--source",
+        "iwencai",
+        "--status",
+        "skipped",
+        "--format",
+        "json",
+    ])
+
+    assert collect_args.func is cli.cmd_datasource_news_collect
+    assert collect_args.source == "smart-search"
+    assert collect_args.stock_code == "600519"
+    assert cache_args.func is cli.cmd_datasource_news_cache
+    assert cache_args.source == "iwencai"
+    assert cache_args.status == "skipped"

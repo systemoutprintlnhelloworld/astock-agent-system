@@ -38,6 +38,8 @@ from astock_agent_system.cli_enhanced import (
     cmd_datasource_iwencai_search,
     cmd_datasource_iwencai_status,
     cmd_datasource_local_status,
+    cmd_datasource_news_cache,
+    cmd_datasource_news_collect,
     cmd_datasource_smart_search_status,
     cmd_datasource_status,
     cmd_datasource_sync_local,
@@ -1209,6 +1211,31 @@ def build_parser() -> argparse.ArgumentParser:
     datasource_iwencai_search_parser.add_argument("--timeout-seconds", type=float, default=20.0, help="SkillHub CLI timeout")
     datasource_iwencai_search_parser.add_argument("--format", choices=("table", "json"), default="json", help="Output format")
     datasource_iwencai_search_parser.set_defaults(func=cmd_datasource_iwencai_search)
+
+    datasource_news_collect_parser = datasource_subparsers.add_parser(
+        "news-collect",
+        help="Collect smart-search/iWencai research rows into the ignored local news cache",
+    )
+    datasource_news_collect_parser.add_argument("--source", choices=("auto", "smart-search", "iwencai"), default="auto", help="Research source to collect from")
+    datasource_news_collect_parser.add_argument("--stock-code", default="", help="Optional stock code context")
+    datasource_news_collect_parser.add_argument("--stock-name", default="", help="Optional stock name context")
+    datasource_news_collect_parser.add_argument("--query", default="", help="Research query; default uses stock context plus 公告/新闻/风险")
+    datasource_news_collect_parser.add_argument("--skill", default="announcement-search", help="iWencai SkillHub skill name")
+    datasource_news_collect_parser.add_argument("--limit", type=int, default=5, help="Maximum items per source")
+    datasource_news_collect_parser.add_argument("--timeout-seconds", type=float, default=20.0, help="External research tool timeout")
+    datasource_news_collect_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_news_collect_parser.set_defaults(func=cmd_datasource_news_collect)
+
+    datasource_news_cache_parser = datasource_subparsers.add_parser(
+        "news-cache",
+        help="Show persisted announcement/news research cache rows",
+    )
+    datasource_news_cache_parser.add_argument("--limit", type=int, default=100, help="Maximum recent cache rows")
+    datasource_news_cache_parser.add_argument("--source", default="", help="Optional source filter, e.g. smart-search or iwencai")
+    datasource_news_cache_parser.add_argument("--stock-code", default="", help="Optional stock code filter")
+    datasource_news_cache_parser.add_argument("--status", default="", help="Optional status filter, e.g. ok/error/skipped")
+    datasource_news_cache_parser.add_argument("--format", choices=("text", "json"), default="text", help="Output format")
+    datasource_news_cache_parser.set_defaults(func=cmd_datasource_news_cache)
 
     datasource_config_iwencai_parser = datasource_subparsers.add_parser(
         "configure-iwencai",

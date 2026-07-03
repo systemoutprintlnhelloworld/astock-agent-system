@@ -4,6 +4,17 @@
 
 本项目当前已交付为一个可本地运行、可在线接入、可用 Git/GitHub 托管的 A 股 LLM 多 Agent 模拟盘自动投资系统。
 
+## 2026-07-03 增量交付：后端真实事件桥接与新闻/公告研究缓存
+
+- FastAPI 自动投资端点新增真实 `AgentEventEmitter` 桥接：`/api/auto-investment` 与 `/api/auto-investment/background` 会创建 `BackendAgentEventBridge`，把核心 Agent 事件转换成 WebSocket `make_event()` envelope 并广播给现有事件 hub。
+- 桥接通过 `loop.call_soon_threadsafe()` 处理从 `asyncio.to_thread()` 中发出的 scheduler/orchestrator 事件，避免阻塞 HTTP 响应，同时让技术面、基本面、舆情、辩论、风控、组合决策和 datasource 事件可被前端/TUI 复用。
+- `TradingTaskScheduler` 支持可选 `event_emitter` 并兼容旧测试 double；核心 CLI/调度路径仍可在未接入 WebSocket 时独立运行。
+- 新增研究缓存 `src/astock_agent_system/data/news_cache.py`，默认写入 Git 忽略的 `data/runtime/news_research_cache.jsonl`，支持 `ASTOCK_NEWS_CACHE_PATH` 临时改写，并递归脱敏 token、password、api key、authorization 等敏感片段。
+- 新增 CLI：`python -m astock_agent_system.cli datasource news-collect` 与 `datasource news-cache`，用于采集/回放 smart-search 与 iWencai SkillHub 的新闻/公告研究行；未配置外部工具时输出结构化 skipped/error，不伪装为行情 provider 成功。
+- 新增 FastAPI `/api/datasource/news-cache`，读取同一份脱敏 JSONL 并返回 `path`、`summary` 与最近 items，方便后续 UI 或审计回放。
+- 重要边界：新闻/公告缓存只用于研究证据回放和诊断，不是行情 provider，不触发真实下单，也不构成投资建议。
+- 聚焦验证已通过：`python -m pytest tests/test_backend_api.py tests/test_scheduler.py tests/test_data_agent.py tests/test_cli_interactive.py -q`（50 passed）。
+
 ## 2026-07-03 增量交付：连续运行看板与事件协议复用
 
 - `agent start --continuous` 现在每轮完成后输出连续运行看板，展示轮次、用时、下一轮时间、最近 run id、模型权益/现金、本轮收益、累计收益、PnL、交易数、决策数和当前持仓。
@@ -11,7 +22,7 @@
 - FastAPI/WebSocket schema 的 `EVENT_TYPES` 已补齐 CLI 细粒度事件名，`/api/health` 可暴露 analysis/data_fetch/technical/fundamental/sentiment/debate/risk/portfolio/agent/run 等事件类型。
 - 聚焦验证已通过：`python -m pytest tests/test_cli_observability.py tests/test_backend_api.py -q`。
 
-后续仍需推进真实后端 `AgentEventEmitter` 到 WebSocket 的桥接，以及新闻/公告 provider 与本地库入库；当前系统仍只做模拟盘，不接入真实下单。
+后续可推进前端/TUI 消费真实后端事件流与 `/api/datasource/news-cache`；当前系统仍只做模拟盘，不接入真实下单。
 
 ## 2026-07-03 增量交付：DataAgent 事件、benchmark 统计与 datasource history 持久化
 
@@ -157,7 +168,7 @@ python -m apps.tui --skip-wizard
 
 最近一次本地验证结果：
 
-- Python 测试：`103 passed`
+- Python 测试：`117 passed`
 - 前端 lint：`npm --prefix apps/frontend run lint` 通过
 - `bench --help`：通过
 - `bench-models --help`：通过
@@ -181,7 +192,7 @@ python -m apps.tui --skip-wizard
 - TUI/配置回归：`python -m pytest tests/test_config.py tests/test_agent_descriptor_learning.py -q` 通过（21 passed），覆盖运行态配置优先级、向导列表型 provider chain、初始化不写比赛模型、`/agent stats` 别名、`/` 命令候选说明、`/models list` 模型缓存与补全、`/dashboard` 默认交易看板、`/start` 后运行观测和 `/run` 查看最近运行。
 - CLI 交互式入口回归：`python -m pytest tests/test_cli_interactive.py tests/test_data_agent.py tests/test_llm_client.py tests/test_orchestrator.py tests/test_scheduler.py -q` 通过（37 passed），覆盖无子命令进入菜单、菜单退出、单轮 Agent 启动参数仍使用本地默认模型且不强制 offline。
 - TUI 真实后端命令链路：已脱敏验证 `/help`、`/status`、`/models list/set/selected`、`/workflow offline`、`/providers`、`/config show`、`/config test-llm`、`/dashboard` 系列、`/start --offline --max-count 1 --days 12`、`/run`、`/agent list/stats`、`/compact`、`/permission`、`/sandbox`、`/theme`、`/lang`、`/attachments`、`/history` 和 `/memory` 均可执行。
-- 当前交付门禁：`./start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `103 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
+- 当前交付门禁：`.\start.bat -Mode delivery-check` 通过；本轮完整测试结果为 `117 passed`，并完成前端 lint、MkDocs strict build、后端 app import、sidecar entrypoint 检查和 tracked files 密钥扫描。
 - 强制收尾门禁：`.husky/pre-commit` 会阻止代码/自动化变更无文档同步提交；`.husky/post-commit` 会强制推送当前分支；Cursor `stop` hook 会在会话结束前提示未提交、未推送和文档不同步问题。
 
 ## 4. 当前外部服务状态

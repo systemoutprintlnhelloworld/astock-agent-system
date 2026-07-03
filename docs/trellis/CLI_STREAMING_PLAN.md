@@ -38,6 +38,26 @@ python -m astock_agent_system.cli datasource test [--sources tushare,baostock,ak
 
 ## 实施进度
 
+### 当前增强批次：后端真实事件桥接与新闻/公告研究缓存
+
+本批次完成上一轮计划中的两个非阻塞后端项：真实 `AgentEventEmitter` 到 FastAPI WebSocket hub 的桥接，以及不进入行情 provider chain 的新闻/公告研究缓存。
+
+- FastAPI `/api/auto-investment` 与 `/api/auto-investment/background` 现在会为每次运行创建 `BackendAgentEventBridge`，把核心 `AgentEvent` 转换为后端 `make_event()` envelope 并广播到现有 WebSocket hub。
+- 桥接使用 `loop.call_soon_threadsafe()`，可安全接收 `asyncio.to_thread()` 内部 scheduler/orchestrator 发出的技术面、基本面、舆情、辩论、风控、组合决策和 datasource 事件。
+- `TradingTaskScheduler` 接受可选 `event_emitter` 并向 `MultiAgentOrchestrator` 传递；兼容 helper 会在旧测试 double 或旧嵌入方不支持新参数时回退。
+- 新增 `data/news_cache.py`，默认写入 Git 忽略的 `data/runtime/news_research_cache.jsonl`，并支持 `ASTOCK_NEWS_CACHE_PATH` 在测试或临时运行中改写路径。
+- 新增 `datasource news-collect` / `datasource news-cache`，用于采集和回放 smart-search / iWencai SkillHub 研究行；未配置外部工具时返回结构化 skipped/error，不伪装为行情成功。
+- 新增 `/api/datasource/news-cache`，与 CLI 读取同一份脱敏 JSONL，返回 `path`、`summary` 和最近 items。
+- 新闻/公告缓存当前只用于研究证据回放和诊断；它不是行情 provider，不触发真实下单，也不构成投资建议。
+
+新增验证命令：
+
+```powershell
+python -m pytest tests/test_backend_api.py tests/test_scheduler.py tests/test_data_agent.py tests/test_cli_interactive.py -q
+```
+
+当前聚焦结果：`50 passed`。
+
 ### 当前增强批次：连续运行看板与后端事件协议复用
 
 本批次补齐长程运行时的“跨轮可观察性”，并把 CLI 已验证的事件名称同步到后端事件协议，避免 GUI/TUI 后续重复定义另一套事件语义：
@@ -140,7 +160,9 @@ python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 -
 **仍待完成**：
 - ✅ 数据源真实降级过程的长期持久化事件历史。
 - ✅ 连续运行累计收益、持仓变化、下一轮时间和最近错误看板。
-- ⏳ 新闻/公告 provider 与新闻缓存入库。
+- ✅ 后端真实 `AgentEventEmitter` -> WebSocket 桥接。
+- ✅ 新闻/公告研究缓存入库与 CLI/API 回放入口。
+- ⏳ 是否让 `SentimentAnalyst` 读取持久化 news-cache 作为只读证据，需要用户确认产品边界后再做。
 
 ### Phase 2-8: 当前完成度与后续阶段
 
@@ -152,8 +174,8 @@ python -m astock_agent_system.cli agent start --offline --max-count 1 --days 5 -
 
 下一轮优先级建议：
 
-1. 把后端实际 auto-investment 后台运行的事件广播从模拟 flow 扩展为真实 `AgentEventEmitter` 桥接。
-2. 接入新闻/公告 provider 与缓存/本地库，补齐舆情客观数据来源。
+1. 让前端/TUI 消费真实后端 WebSocket 事件和 `/api/datasource/news-cache`，不要重复定义另一套事件协议。
+2. 若要让舆情 Agent 自动读取本地 news-cache，先确认它只作为只读研究证据，不替代实时检索和行情 provider。
 3. 等 tauri-rewrite 稳定且用户确认后，再执行合并 main 的交付流程。
 
 ## 当前代码位置
@@ -247,5 +269,5 @@ EventType = Literal[
 
 - **当前分支**：`tauri-rewrite`
 - **Phase 1进度**：事件系统、客观数据渲染、解释计划、文件缓存、细粒度 Agent 协作事件已打通。
-- **下一优先级**：连续运行看板、新闻/公告 provider、事件 API/WebSocket 复用。
-- **预计工作量**：连续运行看板约 4-8 小时；新闻/公告 provider 与本地库约 8-16 小时；API/WebSocket 复用约 4-8 小时。
+- **下一优先级**：前端/TUI 消费真实事件流、news-cache 只读证据边界确认、tauri-rewrite 合并前验证。
+- **预计工作量**：前端/TUI 消费事件流约 4-8 小时；news-cache 接入舆情只读证据约 4-8 小时；合并 main 前验证与文档收口约 2-4 小时。

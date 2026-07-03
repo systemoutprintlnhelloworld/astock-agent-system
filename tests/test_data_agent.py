@@ -12,6 +12,7 @@ from astock_agent_system.config import load_settings
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import build_provider_catalog, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import LocalMarketStore
+from astock_agent_system.data.news_cache import append_news_cache, load_news_cache, summarize_news_cache
 from astock_agent_system.data.switch_history import load_switch_history
 from astock_agent_system.data.providers.alpha_vantage_provider import AlphaVantageProvider
 from astock_agent_system.data.providers.baostock_provider import BaostockProvider, _is_supported_a_share_stock_code
@@ -79,6 +80,32 @@ def test_data_agent_persists_and_emits_datasource_history(monkeypatch, tmp_path)
     assert event.run_id == "run-unit"
     assert event.agent_id == "agent-unit"
     assert event.payload["source"] == "offline"
+
+
+def test_news_cache_redacts_and_summarizes_research_rows(tmp_path):
+    cache_path = tmp_path / "news_cache.jsonl"
+
+    append_news_cache(
+        source="smart-search",
+        query="600519 公告",
+        status="ok",
+        stock_code="600519",
+        stock_name="贵州茅台",
+        items=[{"title": "公告", "snippet": "api_key=secret-token 业绩增长", "url": "https://example.test"}],
+        metadata={"authorization": "Bearer secret-token"},
+        path=cache_path,
+    )
+    rows = load_news_cache(path=cache_path)
+
+    assert rows[0]["source"] == "smart-search"
+    assert rows[0]["stock_code"] == "600519"
+    serialized = json.dumps(rows, ensure_ascii=False)
+    assert "secret-token" not in serialized
+    assert "***REDACTED***" in serialized
+    summary = summarize_news_cache(rows)
+    assert summary["total"] == 1
+    assert summary["item_count"] == 1
+    assert summary["by_source"]["smart-search"] == 1
 
 
 def test_local_market_store_roundtrip(tmp_path):

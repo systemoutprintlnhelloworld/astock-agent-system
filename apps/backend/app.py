@@ -59,7 +59,9 @@ from astock_agent_system.agent_learning import get_learning_status, load_learnin
 from astock_agent_system.agent_memory import AgentMemoryStore
 from astock_agent_system.config import Settings, load_settings, save_runtime_overrides
 from astock_agent_system.data import DataAgent
+from astock_agent_system.data.news_cache import load_news_cache, news_cache_path, summarize_news_cache
 from astock_agent_system.data.switch_history import load_switch_history, summarize_switch_history, switch_history_path
+from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.event_timeline import EventTimelineService, filter_timeline_events
 from astock_agent_system.llm import LLMClient, ModelBench
 from astock_agent_system.scheduler import TradingTaskScheduler
@@ -189,6 +191,38 @@ class RunStore:
         self.timeline_events = self.timeline_events[:100]
 
 
+class BackendAgentEventBridge:
+    """Forward core AgentEventEmitter events to the FastAPI WebSocket hub."""
+
+    def __init__(self, run_id: str, loop: asyncio.AbstractEventLoop) -> None:
+        self.run_id = run_id
+        self.loop = loop
+        self.emitter = AgentEventEmitter()
+        self.emitter.subscribe(self._handle_event)
+
+    def _handle_event(self, event: AgentEvent) -> None:
+        payload = dict(event.payload or {})
+        if event.model and "model" not in payload:
+            payload["model"] = event.model
+        if event.stage and "stage" not in payload:
+            payload["stage"] = event.stage
+        payload.setdefault("source", "agent_event_emitter")
+        backend_event = make_event(
+            str(event.type),
+            run_id=event.run_id or self.run_id,
+            agent_id=event.agent_id,
+            payload=payload,
+        )
+        try:
+            self.loop.call_soon_threadsafe(self._schedule_broadcast, backend_event)
+        except RuntimeError:  # pragma: no cover - loop may already be closed during shutdown
+            return
+
+    @staticmethod
+    def _schedule_broadcast(event: dict[str, Any]) -> None:
+        asyncio.create_task(event_hub.broadcast(event))
+
+
 event_hub = EventHub()
 run_store = RunStore()
 
@@ -266,6 +300,26 @@ def create_app() -> FastAPI:
             ],
         }
 
+    @api.get("/api/datasource/news-cache")
+    def get_datasource_news_cache(source: str = "", stock_code: str = "", status: str = "", limit: int = 100) -> dict[str, Any]:
+        """Return persisted announcement/news research rows for UI clients."""
+        items = load_news_cache(
+            limit=max(1, min(int(limit or 100), 500)),
+            source=source or "",
+            stock_code=stock_code or "",
+            status=status or "",
+        )
+        return {
+            "status": "ok",
+            "path": str(news_cache_path()),
+            "summary": summarize_news_cache(items),
+            "items": items,
+            "next_steps": [
+                "CLI: python -m astock_agent_system.cli datasource news-collect --source auto --stock-code 600519",
+                "Research/news cache rows are not quote providers and do not trigger real orders.",
+            ],
+        }
+
     @api.post("/api/config")
     async def update_config(request: ConfigUpdateRequest) -> dict[str, Any]:
         overrides = _sanitize_runtime_config(request.config)
@@ -302,8 +356,9 @@ def create_app() -> FastAPI:
         run_id = str(uuid.uuid4())
         request_payload = request.model_dump()
         run_store.start(run_id, request_payload)
+        bridge = BackendAgentEventBridge(run_id, asyncio.get_running_loop())
         await event_hub.broadcast(make_event("run_started", run_id=run_id, payload=request_payload))
-        asyncio.create_task(_run_auto_investment_background(run_id, request))
+        asyncio.create_task(_run_auto_investment_background(run_id, request, bridge))
         return {
             "status": "accepted",
             "run_id": run_id,
@@ -318,9 +373,10 @@ def create_app() -> FastAPI:
         run_id = str(uuid.uuid4())
         request_payload = request.model_dump()
         run_store.start(run_id, request_payload)
+        bridge = BackendAgentEventBridge(run_id, asyncio.get_running_loop())
         await event_hub.broadcast(make_event("run_started", run_id=run_id, payload=request_payload))
         flow_task = asyncio.create_task(_broadcast_agent_flow(run_id))
-        result = await asyncio.to_thread(_run_auto_investment_sync, request)
+        result = await asyncio.to_thread(_run_auto_investment_sync, request, bridge.emitter)
         await flow_task
         result_payload = result.to_dict()
         run_store.complete(run_id, result_payload)
@@ -578,7 +634,7 @@ def settings_to_public_dict(settings: Settings) -> dict[str, Any]:
     }
 
 
-def _run_auto_investment_sync(request: AutoInvestmentRequest):
+def _run_auto_investment_sync(request: AutoInvestmentRequest, event_emitter: AgentEventEmitter | None = None):
     settings = load_settings()
     if request.offline:
         settings.data.mode = "offline"
@@ -586,13 +642,21 @@ def _run_auto_investment_sync(request: AutoInvestmentRequest):
         settings.scheduler.max_count = int(request.max_count)
     if request.days is not None:
         settings.scheduler.history_days = int(request.days)
-    return TradingTaskScheduler(settings=settings).run_auto_investment(models=request.models)
+    scheduler = _build_trading_scheduler(settings=settings, event_emitter=event_emitter)
+    return scheduler.run_auto_investment(models=request.models)
 
 
-async def _run_auto_investment_background(run_id: str, request: AutoInvestmentRequest) -> None:
+def _build_trading_scheduler(settings: Settings, event_emitter: AgentEventEmitter | None = None) -> TradingTaskScheduler:
+    try:
+        return TradingTaskScheduler(settings=settings, event_emitter=event_emitter)
+    except TypeError:  # pragma: no cover - keeps tests/custom embedders compatible with older fakes
+        return TradingTaskScheduler(settings=settings)
+
+
+async def _run_auto_investment_background(run_id: str, request: AutoInvestmentRequest, bridge: BackendAgentEventBridge) -> None:
     flow_task = asyncio.create_task(_broadcast_agent_flow(run_id))
     try:
-        result = await asyncio.to_thread(_run_auto_investment_sync, request)
+        result = await asyncio.to_thread(_run_auto_investment_sync, request, bridge.emitter)
         await flow_task
         result_payload = result.to_dict()
         run_store.complete(run_id, result_payload)

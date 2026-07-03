@@ -35,11 +35,12 @@ from astock_agent_system.config import PROJECT_ROOT, load_settings, save_runtime
 from astock_agent_system.data import DataAgent
 from astock_agent_system.data.data_agent import PROVIDER_CATALOG, normalize_provider_name, provider_supports
 from astock_agent_system.data.local_store import DEFAULT_LOCAL_MARKET_DB, LocalMarketStore
+from astock_agent_system.data.news_cache import append_news_cache, load_news_cache, news_cache_path, summarize_news_cache
 from astock_agent_system.data.providers.iwencai_skillhub import DEFAULT_TOOL_SKILLS, OFFICIAL_CLI, IwencaiSkillHub
 from astock_agent_system.data.switch_history import load_switch_history, summarize_switch_history, switch_history_path
 from astock_agent_system.events import AgentEvent, AgentEventEmitter
 from astock_agent_system.orchestrator import MultiAgentOrchestrator
-from astock_agent_system.smart_search import resolve_smart_search_cli, run_smart_search_doctor
+from astock_agent_system.smart_search import resolve_smart_search_cli, run_smart_search_doctor, run_smart_search_search
 
 
 _SECRET_FIELD_HINTS = (
@@ -831,6 +832,154 @@ def cmd_datasource_iwencai_search(args: Any) -> int:
         for index, step in enumerate(payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else [], 1):
             rows.append([f"next {index}", step])
         print(_format_table(["项目", "状态"], rows, max_width=96))
+    return 0 if payload.get("status") in {"ok", "skipped"} else 1
+
+
+def _smart_search_items(payload: dict[str, Any]) -> list[dict[str, Any]]:
+    items: list[dict[str, Any]] = []
+    for key in ("primary_sources", "extra_sources", "sources", "results"):
+        value = payload.get(key)
+        if not isinstance(value, list):
+            continue
+        for item in value[:10]:
+            if isinstance(item, dict):
+                items.append(
+                    {
+                        "title": item.get("title", ""),
+                        "snippet": item.get("snippet", item.get("content", item.get("summary", ""))),
+                        "url": item.get("url", item.get("link", "")),
+                    }
+                )
+            elif isinstance(item, str):
+                items.append({"title": item[:120], "snippet": item[:500], "url": ""})
+    if not items:
+        summary = " ".join(str(payload.get(key, "")) for key in ("content", "answer", "summary") if payload.get(key))
+        if summary:
+            items.append({"title": "smart-search 摘要", "snippet": summary[:1000], "url": ""})
+    return items
+
+
+def _render_news_cache_payload(payload: dict[str, Any]) -> str:
+    rows = []
+    for item in payload.get("items", [])[: int(payload.get("limit", 20) or 20)]:
+        if not isinstance(item, dict):
+            continue
+        rows.append(
+            [
+                item.get("timestamp", ""),
+                item.get("source", ""),
+                item.get("stock_code", ""),
+                item.get("status", ""),
+                item.get("skill", ""),
+                item.get("query", ""),
+                len(item.get("items", [])) if isinstance(item.get("items"), list) else 0,
+                item.get("reason", ""),
+            ]
+        )
+    lines = [
+        f"路径: {payload.get('path', '')}",
+        f"汇总: {json.dumps(payload.get('summary', {}), ensure_ascii=False, default=str)}",
+        _format_table(["时间", "来源", "股票", "状态", "技能", "查询", "条目", "原因"], rows, max_width=28),
+    ]
+    next_steps = payload.get("next_steps", []) if isinstance(payload.get("next_steps"), list) else []
+    if next_steps:
+        lines.extend(["", "下一步"])
+        lines.extend(f"- {step}" for step in next_steps[:5])
+    return "\n".join(lines)
+
+
+def cmd_datasource_news_cache(args: Any) -> int:
+    """Show persisted research/news cache rows."""
+
+    limit = int(getattr(args, "limit", 100) or 100)
+    items = load_news_cache(
+        limit=limit,
+        source=str(getattr(args, "source", "") or ""),
+        stock_code=str(getattr(args, "stock_code", "") or ""),
+        status=str(getattr(args, "status", "") or ""),
+    )
+    payload = {
+        "status": "ok",
+        "path": str(news_cache_path()),
+        "limit": limit,
+        "summary": summarize_news_cache(items),
+        "items": items,
+        "next_steps": [
+            "Use datasource news-collect to refresh smart-search/iWencai research rows.",
+            "This cache is a research source replay log, not a price/quote provider chain.",
+        ],
+    }
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().print_info("新闻/公告缓存", _render_news_cache_payload(payload))
+    return 0
+
+
+def cmd_datasource_news_collect(args: Any) -> int:
+    """Collect announcement/news research rows into the local cache without joining the quote provider chain."""
+
+    settings = load_settings(getattr(args, "config", None))
+    source = str(getattr(args, "source", "auto") or "auto")
+    stock_code = str(getattr(args, "stock_code", "") or "")
+    stock_name = str(getattr(args, "stock_name", "") or "")
+    query = str(getattr(args, "query", "") or "").strip() or f"{stock_name or stock_code or 'A股'} 公告 新闻 风险"
+    limit = int(getattr(args, "limit", 5) or 5)
+    rows: list[dict[str, Any]] = []
+    if source in {"auto", "smart-search"}:
+        if getattr(settings.smart_search, "enabled", False):
+            payload = run_smart_search_search(query, timeout_seconds=float(getattr(args, "timeout_seconds", settings.smart_search.timeout_seconds) or settings.smart_search.timeout_seconds))
+            status = "error" if payload.get("error") else "ok"
+            rows.append(
+                append_news_cache(
+                    source="smart-search",
+                    query=query,
+                    status=status,
+                    stock_code=stock_code,
+                    stock_name=stock_name,
+                    items=_smart_search_items(payload),
+                    reason=str(payload.get("error", "") or "")[:500],
+                    metadata={"raw_status": payload.get("status", ""), "source_boundary": "research_only"},
+                )
+            )
+        else:
+            rows.append(append_news_cache(source="smart-search", query=query, status="skipped", stock_code=stock_code, stock_name=stock_name, reason="smart-search disabled", metadata={"source_boundary": "research_only"}))
+    if source in {"auto", "iwencai"}:
+        hub = IwencaiSkillHub(
+            base_url=getattr(settings.data, "iwencai_base_url", "https://openapi.iwencai.com"),
+            api_key=getattr(settings.data, "iwencai_api_key", ""),
+            cli=getattr(settings.data, "iwencai_skillhub_cli", OFFICIAL_CLI),
+            timeout_seconds=float(getattr(args, "timeout_seconds", 20.0) or 20.0),
+        )
+        result = hub.run_skill(skill=str(getattr(args, "skill", "announcement-search") or "announcement-search"), stock_code=stock_code, query=query, limit=limit)
+        result_payload = result.to_dict()
+        rows.append(
+            append_news_cache(
+                source="iwencai",
+                query=result_payload.get("query", query),
+                status=result_payload.get("status", "unknown"),
+                stock_code=stock_code,
+                stock_name=stock_name,
+                skill=result_payload.get("skill", ""),
+                items=result_payload.get("items", []) if isinstance(result_payload.get("items"), list) else [],
+                reason=result_payload.get("reason", ""),
+                metadata={"manual_screener_url": result_payload.get("manual_screener_url", ""), "source_boundary": "research_only"},
+            )
+        )
+    payload = {
+        "status": "ok" if any(item.get("status") == "ok" for item in rows) else "skipped" if all(item.get("status") == "skipped" for item in rows) else "error",
+        "path": str(news_cache_path()),
+        "items": rows,
+        "summary": summarize_news_cache(rows),
+        "next_steps": [
+            "Review datasource news-cache before using sentiment evidence in decisions.",
+            "News/announcement research rows remain outside the market-data provider chain and never trigger real orders.",
+        ],
+    }
+    if getattr(args, "format", "text") == "json":
+        print(json.dumps(_redact_for_run_log(payload), ensure_ascii=False, indent=2, default=str))
+    else:
+        RichEventRenderer().print_info("新闻/公告采集", _render_news_cache_payload({**payload, "limit": limit}))
     return 0 if payload.get("status") in {"ok", "skipped"} else 1
 
 
